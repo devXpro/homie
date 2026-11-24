@@ -146,11 +146,11 @@ export interface JSONSchema {
   maximum?: number
   multipleOf?: number
   writeOnly?: boolean
-  'x-gpt-home-ref'?: string
+  'x-homie-ref'?: string
   [key: string]: unknown
 }
 
-/** Translated tool texts from the plugin's _meta "gpt-home/i18n" (PLAN §5.1), keyed by language. */
+/** Translated tool texts from the plugin's _meta "homie/i18n" (PLAN §5.1), keyed by language. */
 export interface ToolText {
   title?: string
   description?: string

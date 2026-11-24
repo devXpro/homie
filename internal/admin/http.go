@@ -20,9 +20,9 @@ const (
 	basePath       = "/api/admin"
 	maxBodyBytes   = 1 << 20
 	maxArgsBytes   = 64 << 10
-	csrfHeader     = "X-GPT-Home"
-	instanceHeader = "X-GPT-Home-Instance"
-	sessionCookie  = "__Host-gh_session"
+	csrfHeader     = "X-Homie"
+	instanceHeader = "X-Homie-Instance"
+	sessionCookie  = "__Host-homie_session"
 )
 
 // apiError is an error with its HTTP status and stable code (ADMIN-API §1.2).

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 func TestGenerate(t *testing.T) {

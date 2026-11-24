@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="title desc">
-  <title id="title">GPT-Home</title>
-  <desc id="desc">GPT-Home: your home, by voice. ChatGPT talks to a self-hosted relay, the relay to the home hub, the hub to your devices.</desc>
+  <title id="title">Homie</title>
+  <desc id="desc">Homie: your home, by voice. ChatGPT talks to a self-hosted relay, the relay to the home hub, the hub to your devices.</desc>
   <defs>
     <radialGradient id="glowBlue" cx="0.12" cy="0" r="0.75">
       <stop offset="0" stop-color="#0A84FF" stop-opacity="0.42"/>
@@ -55,7 +55,7 @@
   </g>
 
   <!-- Wordmark -->
-  <text x="232" y="166" font-size="78" font-weight="700" letter-spacing="-2.5" fill="#FFFFFF">GPT-Home</text>
+  <text x="232" y="166" font-size="78" font-weight="700" letter-spacing="-2.5" fill="#FFFFFF">Homie</text>
   <text x="234" y="212" font-size="27" font-weight="500" fill="#EBEBF5" fill-opacity="0.62">Your home, by voice. Self-hosted.</text>
 
   <!-- Chips -->

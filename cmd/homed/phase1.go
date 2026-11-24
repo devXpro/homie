@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // openStore opens <data_dir>/homed.db (0600). A phase 1 homed.yaml still holds people with their key hashes, plugins

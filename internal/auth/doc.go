@@ -8,7 +8,7 @@
 //
 // # Sessions
 //
-// A sign-in or a registration creates a store.Session and sets the cookie __Host-gh_session (Path=/; Secure;
+// A sign-in or a registration creates a store.Session and sets the cookie __Host-homie_session (Path=/; Secure;
 // HttpOnly; SameSite=Strict) to 32 random bytes; only their sha256 is stored. A session ends 12 hours after its last
 // request or 7 days after sign-in. Sign-in counts as step-up; a step-up assertion is fresh for 5 minutes.
 //
@@ -29,7 +29,7 @@
 //	auth.OwnerReady(ctx, st, rpID)                     // an owner with a passkey of the relying party exists
 //	auth.ClientAddr(r)                                 // the client behind the relay, for rate limits
 //
-// The handlers apply ADMIN-API §1.4 (X-GPT-Home: 1, Origin, Sec-Fetch-Site) and their own session and step-up
+// The handlers apply ADMIN-API §1.4 (X-Homie: 1, Origin, Sec-Fetch-Site) and their own session and step-up
 // checks, so they are safe without the admin in front. Rate limits (ADMIN-API §1.7, ratelimit.go) have separate
 // buckets per class: auth/token and registration per client address (20 a minute) and in total (60 a minute); sign-in
 // per client address, counting begins and failed finishes, with no shared bucket; step-up and another passkey per

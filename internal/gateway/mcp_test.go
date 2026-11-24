@@ -11,7 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 type bearerTransport struct {
@@ -81,7 +81,7 @@ func TestMCPListAndCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	init := cs.InitializeResult()
-	if init.ServerInfo.Name != "gpt-home" || init.ServerInfo.Title != "Мой шалаш" {
+	if init.ServerInfo.Name != "homie" || init.ServerInfo.Title != "Мой шалаш" {
 		t.Fatalf("serverInfo %+v", init.ServerInfo)
 	}
 	if !strings.HasPrefix(init.ServerInfo.Version, "0.1.0+") || len(init.ServerInfo.Version) != len("0.1.0+")+8 {
@@ -275,7 +275,7 @@ func TestMCPAcceptsPublicHostOnLoopback(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Result.ServerInfo.Name != "gpt-home" || resp.Header.Get(instanceHeader) != "inst-123" {
+	if out.Result.ServerInfo.Name != "homie" || resp.Header.Get(instanceHeader) != "inst-123" {
 		t.Fatalf("reply %+v", out)
 	}
 }

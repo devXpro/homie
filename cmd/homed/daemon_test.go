@@ -22,12 +22,12 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/firstrun"
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/keys"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/firstrun"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/keys"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // Plugins built once by TestMain: internal/plugins/testdata/fakeplugin (id "fake") and pluginkit/example (id "echo").
@@ -49,7 +49,7 @@ func testMain(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fakeBin, echoBin = filepath.Join(dir, "fakeplugin"), filepath.Join(dir, "gpt-echo")
+	fakeBin, echoBin = filepath.Join(dir, "fakeplugin"), filepath.Join(dir, "homie-echo")
 	for bin, pkg := range map[string]string{fakeBin: "../../internal/plugins/testdata/fakeplugin", echoBin: "../../pluginkit/example"} {
 		out, err := exec.Command("go", "build", "-o", bin, pkg).CombinedOutput() //nolint:gosec // fixed test packages
 		if err != nil {
@@ -195,7 +195,7 @@ func request(t *testing.T, method, url, host string, hdr map[string]string, body
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Header.Get("X-GPT-Home-Instance") == "" && resp.StatusCode != http.StatusMisdirectedRequest &&
+	if resp.Header.Get("X-Homie-Instance") == "" && resp.StatusCode != http.StatusMisdirectedRequest &&
 		!strings.Contains(url, "/api/firstrun/") {
 		t.Errorf("%s %s: no instance header", method, url)
 	}
@@ -251,7 +251,7 @@ const safariMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/6
 
 func (b *browser) do(method, path string, body any) (int, []byte) {
 	b.t.Helper()
-	hdr := map[string]string{"X-GPT-Home": "1", "Origin": b.origin, "User-Agent": safariMac}
+	hdr := map[string]string{"X-Homie": "1", "Origin": b.origin, "User-Agent": safariMac}
 	if b.cookie != "" {
 		hdr["Cookie"] = auth.CookieName + "=" + b.cookie
 	}
@@ -276,7 +276,7 @@ type device struct {
 
 func newDevice(rpID, origin string) *device {
 	return &device{
-		rp: virtualwebauthn.RelyingParty{ID: rpID, Name: "GPT-Home", Origin: origin},
+		rp: virtualwebauthn.RelyingParty{ID: rpID, Name: "Homie", Origin: origin},
 		auth: virtualwebauthn.NewAuthenticatorWithOptions(virtualwebauthn.AuthenticatorOptions{
 			BackupEligible: true, BackupState: true,
 		}),
@@ -342,7 +342,7 @@ func firstRunPIN(t *testing.T, term *syncBuffer) string {
 // firstRunSignIn enters the PIN on the first-run page and returns its cookie header.
 func firstRunSignIn(t *testing.T, setup, pin string) string {
 	t.Helper()
-	status, h, raw := request(t, http.MethodPost, setup+"/api/firstrun/pin", "", map[string]string{"X-GPT-Home": "1"},
+	status, h, raw := request(t, http.MethodPost, setup+"/api/firstrun/pin", "", map[string]string{"X-Homie": "1"},
 		map[string]string{"pin": pin})
 	if status != http.StatusNoContent {
 		t.Fatalf("PIN: %d %s", status, raw)
@@ -527,7 +527,7 @@ people:
 	if code != http.StatusOK || !strings.Contains(string(raw), `"step":"connecting"`) || !strings.Contains(string(raw), "homie.test") {
 		t.Fatalf("first-run state after the PIN: %d %s", code, raw)
 	}
-	code, _, raw = request(t, http.MethodPost, setup+"/api/firstrun/link", "", map[string]string{"Cookie": frCookie, "X-GPT-Home": "1"}, struct{}{})
+	code, _, raw = request(t, http.MethodPost, setup+"/api/firstrun/link", "", map[string]string{"Cookie": frCookie, "X-Homie": "1"}, struct{}{})
 	if code != http.StatusConflict || !strings.Contains(string(raw), "relay_not_ready") {
 		t.Fatalf("link before the relay works: %d %s", code, raw)
 	}
@@ -751,7 +751,7 @@ func TestDevMode(t *testing.T) {
 	setup := "http://" + d.setupAddr.String()
 	frCookie := firstRunSignIn(t, setup, firstRunPIN(t, term))
 	code, _, raw := request(t, http.MethodPost, setup+"/api/firstrun/relay", "",
-		map[string]string{"Cookie": frCookie, "X-GPT-Home": "1"}, map[string]string{"code": testCode(t, "homie.test")})
+		map[string]string{"Cookie": frCookie, "X-Homie": "1"}, map[string]string{"code": testCode(t, "homie.test")})
 	if code != http.StatusConflict || !strings.Contains(string(raw), "development mode") {
 		t.Fatalf("first-run relay in development mode: %d %s", code, raw)
 	}

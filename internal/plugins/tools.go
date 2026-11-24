@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -147,14 +147,14 @@ func checkAddTool(t *mcp.Tool) (err error) {
 	if tt.InputSchema == nil {
 		tt.InputSchema = json.RawMessage(`{"type":"object"}`) // what convertTool substitutes
 	}
-	s := mcp.NewServer(&mcp.Implementation{Name: "gpt-home-check", Version: "0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "homie-check", Version: "0"}, nil)
 	s.AddTool(&tt, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) { return nil, nil })
 	return nil
 }
 
 var langRe = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
 
-// parseI18n reads _meta "gpt-home/i18n": {"<lang>": {"title", "description", "properties": {"<prop>": "<label>"}}}.
+// parseI18n reads _meta "homie/i18n": {"<lang>": {"title", "description", "properties": {"<prop>": "<label>"}}}.
 // It is lenient: malformed languages and fields are skipped with a warning, the rest is kept. It returns nil when
 // nothing usable is left.
 func parseI18n(v any) (map[string]hub.ToolText, []string) {

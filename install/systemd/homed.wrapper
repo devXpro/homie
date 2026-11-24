@@ -1,10 +1,10 @@
 #!/bin/sh
-# Installed by the GPT-Home installer (install/home.sh); rewritten on every update.
-# Runs the homed CLI as the service user `gpt-home` on the service's data directory, so `homed relay connect -` works
+# Installed by the Homie installer (install/home.sh); rewritten on every update.
+# Runs the homed CLI as the service user `homie` on the service's data directory, so `homed relay connect -` works
 # from any account that may use sudo. The real binary is never run as root: it is writable by the service user.
 REAL=__HOMED_BIN__
-SERVICE_USER=gpt-home
-HOMED_DATA_DIR=/var/lib/gpt-home
+SERVICE_USER=homie
+HOMED_DATA_DIR=/var/lib/homie
 export HOMED_DATA_DIR
 
 if [ "$(id -un)" = "$SERVICE_USER" ]; then

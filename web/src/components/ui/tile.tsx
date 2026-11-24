@@ -65,7 +65,7 @@ export function ModuleTile({ id, size = 'md', className }: { id: string; size?: 
   )
 }
 
-/** AppIcon is the GPT-Home icon: a blue-to-indigo squircle with a white house (DESIGN.md §6). */
+/** AppIcon is the Homie icon: a blue-to-indigo squircle with a white house (DESIGN.md §6). */
 export function AppIcon({ size = 72, className }: { size?: number; className?: string }) {
   return (
     <span

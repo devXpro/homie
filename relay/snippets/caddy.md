@@ -1,13 +1,13 @@
 # Existing Caddy
 
 Use this when a Caddy already owns ports 80 and 443 and runs in a docker network
-that `gpt-home-frps` has joined (`--network NAME`, default `proxy`).
+that `homie-frps` has joined (`--network NAME`, default `proxy`).
 
 Add the block to the Caddyfile (replace the domain):
 
 ```
 homie.example.com {
-	reverse_proxy gpt-home-frps:7000 {
+	reverse_proxy homie-frps:7000 {
 		stream_close_delay 30m
 	}
 }

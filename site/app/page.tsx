@@ -8,7 +8,7 @@ export default function Home() {
   return (
     <main className="mx-auto max-w-2xl px-6 py-20 text-zinc-900">
       <p className="text-sm uppercase tracking-widest text-zinc-500">Private MCP server</p>
-      <h1 className="mt-4 text-4xl font-semibold">GPT-Home</h1>
+      <h1 className="mt-4 text-4xl font-semibold">Homie</h1>
       <p className="mt-6">
         Ask ChatGPT, by voice or text, to control the devices at home: the TV and whatever else your home hub has
         plugins for. The tools come from the hub; this site only carries them to ChatGPT.

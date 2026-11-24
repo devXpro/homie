@@ -18,7 +18,7 @@ import (
 const ExitCodeRestart = 75
 
 // DefaultHubRepo is where homed releases come from.
-const DefaultHubRepo = "devXpro/gpt-home"
+const DefaultHubRepo = "devXpro/homie"
 
 // HubUpdater replaces the running homed binary with a newer release.
 type HubUpdater struct {

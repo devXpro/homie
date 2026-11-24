@@ -25,7 +25,7 @@ describe('buildFields: JSON Schema → controls (DESIGN.md §9.3)', () => {
     type: 'object',
     properties: {
       note: { type: 'string', maxLength: 500 },
-      tv: { type: 'string', 'x-gpt-home-ref': 'inventory' },
+      tv: { type: 'string', 'x-homie-ref': 'inventory' },
       input: { type: 'string', enum: ['tv', 'hdmi1', 'hdmi2', 'hdmi3'] },
       mode: { type: 'string', enum: ['a', 'b', 'c', 'd', 'e'] },
       long: { type: 'string', enum: ['short', 'a-very-long-option-name'] },

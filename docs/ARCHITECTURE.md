@@ -1,11 +1,11 @@
 # Architecture
 
-GPT-Home is three small things and a protocol between them:
+Homie is three small things and a protocol between them:
 
 - **the relay** — Caddy and frps on a public server: a dumb pipe with a domain and a certificate;
 - **the hub** — `homed`, one Go binary at home: the API ChatGPT calls, the admin, passkeys, people and keys, the
   audit log, the plugin host and the relay client;
-- **plugins** — one executable per device family (`gpt-tv` for LG TVs), started by the hub and spoken to over stdio.
+- **plugins** — one executable per device family (`homie-tv` for LG TVs), started by the hub and spoken to over stdio.
 
 Everything that matters lives at home. The server holds no keys, no database and no device code.
 
@@ -18,7 +18,7 @@ flowchart LR
         C["Caddy<br/>TLS · Let's Encrypt"] --> F["frps<br/>:7000, not published"]
     end
     subgraph home["Home box (Mac, Raspberry Pi, Linux, NAS)"]
-        H["homed<br/>127.0.0.1:8080"] -->|"MCP over stdio"| P1["gpt-tv"]
+        H["homed<br/>127.0.0.1:8080"] -->|"MCP over stdio"| P1["homie-tv"]
         H -->|"MCP over stdio"| P2["your plugin"]
     end
     P1 -->|"LAN"| D1["LG webOS TV"]
@@ -42,7 +42,7 @@ flowchart LR
 | Installer | in `homed` | installs and updates plugins from GitHub releases (checksums, safe unpack, rollback); updates `homed` itself | [`internal/install`](../internal/install) |
 | Store | in `homed` | SQLite (pure Go): people, passkeys, sessions, key hashes, plugins, audit, settings | [`internal/store`](../internal/store) |
 | Local socket | in `homed` | `<data dir>/homed.sock`: the CLI talks to the running hub over it | [`cmd/homed`](../cmd/homed) |
-| Plugins | home box | device code, one executable per family, any language | [`pluginkit/`](../pluginkit), [gpt-tv](https://github.com/devXpro/gpt-tv) |
+| Plugins | home box | device code, one executable per family, any language | [`pluginkit/`](../pluginkit), [homie-tv](https://github.com/devXpro/homie-tv) |
 | ChatGPT Site | OpenAI's hosting | a per-person MCP server that forwards tool calls to the hub's REST façade | [`site/`](../site) |
 
 ## Request flows
@@ -57,7 +57,7 @@ sequenceDiagram
     participant S as Site (MCP)
     participant R as Relay (Caddy → frps)
     participant H as homed
-    participant T as gpt-tv
+    participant T as homie-tv
     participant TV as LG TV
     P->>G: "Включи телик"
     G->>S: tools/call tv_power_on
@@ -89,7 +89,7 @@ connected, the offline page when it is not.
 
 The browser loads `https://<domain>/admin` through the same channel: the SPA is served by `homed`, not by the
 server. Sign-in is a WebAuthn ceremony verified **at home**; the session cookie is `HttpOnly; Secure;
-SameSite=Strict`, and every mutating request also needs the header `X-GPT-Home: 1`. Dangerous actions (install or
+SameSite=Strict`, and every mutating request also needs the header `X-Homie: 1`. Dangerous actions (install or
 remove a plugin, create or revoke a key, add or remove a passkey, change the relay, update the hub) need a passkey
 assertion no older than five minutes.
 
@@ -120,7 +120,7 @@ terminal.
 ### Installing a plugin
 
 Admin → Devices → Add devices → `owner/repo` → the hub reads the latest GitHub release, downloads
-`gpt-home-plugin.json`, picks `<binary>_<version>_<os>_<arch>.tar.gz` for this machine, checks its SHA-256 against
+`homie-plugin.json`, picks `<binary>_<version>_<os>_<arch>.tar.gz` for this machine, checks its SHA-256 against
 `checksums.txt`, unpacks it into `plugins/<id>/bin/<version>/` (no links, no `..`, size caps), starts it and waits for
 `tools/list`. An update that does not start is rolled back to the previous version. See
 [PLUGINS.md](PLUGINS.md#releasing).
@@ -152,20 +152,20 @@ The full model, with what each secret unlocks: [SECURITY.md](SECURITY.md).
 
 ## Data dir
 
-One directory holds all state; mode `0700`. Default: `~/Library/Application Support/gpt-home` on macOS,
-`$XDG_DATA_HOME/gpt-home` (or `~/.local/share/gpt-home`) on Linux, and `/var/lib/gpt-home` when the system service sets
+One directory holds all state; mode `0700`. Default: `~/Library/Application Support/homie` on macOS,
+`$XDG_DATA_HOME/homie` (or `~/.local/share/homie`) on Linux, and `/var/lib/homie` when the system service sets
 it. `--data-dir` or `HOMED_DATA_DIR` overrides it.
 
 | Path | What |
 |---|---|
 | `homed.yaml` | `listen`, `setup_listen`, `relay.domain` — what homed needs before the database opens |
 | `relay-token` | the frps token, `0600` |
-| `instance-id` | random id sent as `X-GPT-Home-Instance`; the relay self-check looks for it |
+| `instance-id` | random id sent as `X-Homie-Instance`; the relay self-check looks for it |
 | `homed.db` | SQLite, `0600`: people, passkeys, sessions, key hashes, plugins, audit, home name, language |
 | `homed.sock` | the local admin socket of the running hub, `0600`, own OS user only |
 | `.homed.lock` | the instance lock: one `homed run` per data dir |
 | `logs/<plugin>.log` | each plugin's stderr, rotated at 5 MB, three files |
-| `plugins/<id>/data/` | the plugin's own state (`GPT_HOME_DATA_DIR`), e.g. gpt-tv's `tvs.json` |
+| `plugins/<id>/data/` | the plugin's own state (`HOMIE_DATA_DIR`), e.g. homie-tv's `tvs.json` |
 | `plugins/<id>/bin/<version>/` | plugin releases installed from GitHub |
 
 Back it up as a whole, and treat the backup as a secret: it holds the relay token and the TV pairing keys.

@@ -312,10 +312,10 @@ const (
 type Plugin struct {
 	ID              string // ^[a-z][a-z0-9]{1,15}$ (PLAN §5.1)
 	Source          PluginSource
-	Repo            string   // "owner/name" for PluginGitHub, e.g. "devXpro/gpt-tv"
+	Repo            string   // "owner/name" for PluginGitHub, e.g. "devXpro/homie-tv"
 	Version         string   // installed release, e.g. "0.2.0"; empty for PluginLocal
 	PreviousVersion string   // the release kept for rollback; empty when none
-	Command         []string // executable (absolute path) and arguments, e.g. [".../bin/0.2.0/gpt-tv", "serve"]
+	Command         []string // executable (absolute path) and arguments, e.g. [".../bin/0.2.0/homie-tv", "serve"]
 	Enabled         bool     // disabled plugins are not started and their tools are not listed
 	InstalledAt     time.Time
 	UpdatedAt       time.Time

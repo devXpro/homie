@@ -201,7 +201,7 @@ test('no layout shift while navigating (CLS = 0)', async ({ page }) => {
 
 for (const theme of ['dark', 'light'] as const) {
   test(`accessibility: no serious axe violations (${theme})`, async ({ page }) => {
-    await page.addInitScript((t) => localStorage.setItem('gh.theme', t), theme)
+    await page.addInitScript((t) => localStorage.setItem('homie.theme', t), theme)
     const screens: [string, string, string][] = [
       ['/admin/login', 'signed-out', 'Войти'],
       ['/admin', 'default', 'ChatGPT может управлять домом'],

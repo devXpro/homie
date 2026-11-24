@@ -18,7 +18,7 @@ func phase1Sample() Phase1Import {
 			}},
 			{ID: "tanya", Name: "Tanya", Plugins: []string{"tv"}},
 		},
-		Plugins: []Phase1Plugin{{ID: "tv", Command: []string{"/opt/gpt-tv", "serve"}}},
+		Plugins: []Phase1Plugin{{ID: "tv", Command: []string{"/opt/homie-tv", "serve"}}},
 	}
 }
 
@@ -60,7 +60,7 @@ func TestImportPhase1(t *testing.T) {
 	}
 
 	p, err := db.Plugins().Get(ctx, "tv")
-	if err != nil || p.Source != PluginLocal || !p.Enabled || fmt.Sprint(p.Command) != "[/opt/gpt-tv serve]" || p.Version != "" {
+	if err != nil || p.Source != PluginLocal || !p.Enabled || fmt.Sprint(p.Command) != "[/opt/homie-tv serve]" || p.Version != "" {
 		t.Errorf("plugin = %+v, %v", p, err)
 	}
 	if s, _ := db.Settings().Get(ctx); s.HomeName != "Мой шалаш" || s.Language != "ru" {

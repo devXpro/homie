@@ -6,7 +6,7 @@
 #   lint:       shellcheck on the scripts and the wrapper
 #   mac:        macOS, in a temporary HOME: --no-start files + `plutil -lint` (any launchctl call fails the test), then a
 #               real launchd start/update/restart/uninstall under a TEST label (never the real LaunchAgent)
-#   linux:      Debian containers gpthome-t41-*: --no-start flows on every platform, a real systemd start where it can
+#   linux:      Debian containers homie-t41-*: --no-start flows on every platform, a real systemd start where it can
 #
 # Environment: PLATFORMS (default "native linux/amd64"; "native" is the Docker host's CPU; add linux/arm/v7 if you can wait: building its image under qemu takes 30+ minutes),
 # SYSTEMD_PLATFORMS (default "native linux/amd64"), KEEP_IMAGES=1 keeps the test images for the next run.
@@ -19,9 +19,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 readonly INSTALL_DIR="${HERE%/test}"
 readonly HOME_SH="$INSTALL_DIR/home.sh"
-readonly REAL_LABEL="com.github.devxpro.gpt-home.homed"
-readonly TEST_LABEL="com.github.devxpro.gpt-home.homed.t41"
-readonly IMAGE_REPO="gpthome-t41-linux"
+readonly REAL_LABEL="com.github.devxpro.homie.homed"
+readonly TEST_LABEL="com.github.devxpro.homie.homed.t41"
+readonly IMAGE_REPO="homie-t41-linux"
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$HERE/lib.sh"
@@ -42,7 +42,7 @@ cleanup() {
 		launchctl bootout "gui/$(id -u)/$TEST_LABEL" >/dev/null 2>&1 || true
 	fi
 	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-		for c in $(docker ps -aq --filter "name=gpthome-t41-"); do
+		for c in $(docker ps -aq --filter "name=homie-t41-"); do
 			docker rm -f "$c" >/dev/null 2>&1 || true
 		done
 		if [[ "${KEEP_IMAGES:-0}" != "1" ]]; then
@@ -57,7 +57,7 @@ cleanup() {
 }
 
 start_fake_release() {
-	WORK="$(mktemp -d /tmp/gpthome-t41.XXXXXX)"
+	WORK="$(mktemp -d /tmp/homie-t41.XXXXXX)"
 	python3 -m venv "$WORK/venv"
 	"$WORK/venv/bin/python" "$HERE/fakerelease.py" build "$WORK/release"
 	"$WORK/venv/bin/python" "$HERE/fakerelease.py" serve "$WORK/release" "$WORK/port" "$INSTALL_DIR" &
@@ -89,7 +89,7 @@ mac_label_pid() { launchctl print "gui/$(id -u)/$1" 2>/dev/null | awk '/^[[:spac
 # The same checks for every way the plist is written.
 check_mac_files() { # HOME LABEL BIN
 	local t="$1" label="$2" bin="$3"
-	local plist="$t/Library/LaunchAgents/$label.plist" data="$t/Library/Application Support/gpt-home"
+	local plist="$t/Library/LaunchAgents/$label.plist" data="$t/Library/Application Support/homie"
 	assert_file "$bin"
 	assert_mode "$bin" 755
 	assert_file "$plist"
@@ -101,10 +101,10 @@ check_mac_files() { # HOME LABEL BIN
 	assert_eq "$(plutil -extract KeepAlive raw -o - "$plist")" "true" "plist KeepAlive"
 	assert_eq "$(plutil -extract RunAtLoad raw -o - "$plist")" "true" "plist RunAtLoad"
 	assert_eq "$(plutil -extract EnvironmentVariables.HOMED_DATA_DIR raw -o - "$plist")" "$data" "plist data dir"
-	assert_eq "$(plutil -extract StandardOutPath raw -o - "$plist")" "$t/Library/Logs/gpt-home/homed.log" "plist log"
-	assert_eq "$(plutil -extract StandardErrorPath raw -o - "$plist")" "$t/Library/Logs/gpt-home/homed.log" "plist error log"
+	assert_eq "$(plutil -extract StandardOutPath raw -o - "$plist")" "$t/Library/Logs/homie/homed.log" "plist log"
+	assert_eq "$(plutil -extract StandardErrorPath raw -o - "$plist")" "$t/Library/Logs/homie/homed.log" "plist error log"
 	file_lacks "$plist" "__"
-	[[ -d "$t/Library/Logs/gpt-home" ]] || fail "log dir missing"
+	[[ -d "$t/Library/Logs/homie" ]] || fail "log dir missing"
 	assert_mode "$data" 700
 }
 
@@ -116,7 +116,7 @@ test_mac_files_only() {
 	chmod +x "$WORK/shim/launchctl"
 	[[ ! -f "$live_plist" ]] || live_sum="$(cksum <"$live_plist")"
 	live_pid="$(mac_label_pid "$REAL_LABEL" || true)"
-	bin="$t/Library/Application Support/gpt-home/bin/homed"
+	bin="$t/Library/Application Support/homie/bin/homed"
 
 	run_capture mac_home "$t" --dry-run
 	[[ "$RC" -eq 0 ]] || fail "dry run failed"
@@ -135,7 +135,7 @@ test_mac_files_only() {
 	check_mac_files "$t" "$REAL_LABEL" "$bin"
 	assert_eq "$("$bin" version)" "homed 0.0.1" "installed version"
 	assert_absent "$bin.prev"
-	: >"$t/Library/Application Support/gpt-home/keep"
+	: >"$t/Library/Application Support/homie/keep"
 
 	local before after
 	before="$(ls -li "$bin" "$t/Library/LaunchAgents/$REAL_LABEL.plist")"
@@ -146,7 +146,7 @@ test_mac_files_only() {
 	expect_ok "update" mac_home "$t" --no-start --version v0.0.2
 	assert_eq "$("$bin" version)" "homed 0.0.2" "updated version"
 	assert_eq "$("$bin.prev" version)" "homed 0.0.1" "the old binary is kept as homed.prev"
-	[[ -f "$t/Library/Application Support/gpt-home/keep" ]] || fail "data lost on update"
+	[[ -f "$t/Library/Application Support/homie/keep" ]] || fail "data lost on update"
 	pass "data kept on update"
 
 	expect_fail "bad checksum" "checksum mismatch" mac_home "$t" --no-start --version v0.0.4
@@ -170,11 +170,11 @@ test_mac_files_only() {
 	expect_ok "uninstall" mac_home "$t" --no-start --uninstall --yes
 	assert_absent "$bin"
 	assert_absent "$t/Library/LaunchAgents/$REAL_LABEL.plist"
-	assert_file "$t/Library/Application Support/gpt-home/keep"
+	assert_file "$t/Library/Application Support/homie/keep"
 	expect_ok "reinstall" mac_home "$t" --no-start
 	expect_ok "purge" mac_home "$t" --no-start --uninstall --purge --yes
-	assert_absent "$t/Library/Application Support/gpt-home"
-	assert_absent "$t/Library/Logs/gpt-home"
+	assert_absent "$t/Library/Application Support/homie"
+	assert_absent "$t/Library/Logs/homie"
 
 	[[ ! -e "$WORK/launchctl.log" ]] || fail "launchctl was called: $(cat "$WORK/launchctl.log")"
 	pass "launchctl was never called"
@@ -192,7 +192,7 @@ test_mac_launchd() {
 		return 0
 	fi
 	mkdir -p "$t"
-	data="$t/Library/Application Support/gpt-home"
+	data="$t/Library/Application Support/homie"
 	bin="$data/bin/homed"
 	plist="$t/Library/LaunchAgents/$TEST_LABEL.plist"
 	mac_launchd_home() { env HOME="$t" bash "$HOME_SH" --release-base "http://127.0.0.1:$PORT" --allow-http --label "$TEST_LABEL" "$@"; }
@@ -203,7 +203,7 @@ test_mac_launchd() {
 	out_has "PIN: 1234 5678"
 	out_has "Local Network permission"
 	out_has "relay connect -"
-	out_has "brew services start gpt-home"
+	out_has "brew services start homie"
 	check_mac_files "$t" "$TEST_LABEL" "$bin"
 	expect_ok "agent is loaded" launchctl print "$domain/$TEST_LABEL"
 	wait_for 10 "the agent wrote its first run" test -s "$data/runs"
@@ -272,7 +272,7 @@ linux_nostart() { # PLATFORM
 		printf '   skipped: cannot build the image for %s (no emulation?)\n' "$p"
 		return 0
 	fi
-	run_capture docker run --rm --name "gpthome-t41-$(platform_tag "$p")-ns" \
+	run_capture docker run --rm --name "homie-t41-$(platform_tag "$p")-ns" \
 		--platform "$p" --add-host host.docker.internal:host-gateway \
 		-v "$INSTALL_DIR:/src/install:ro" -e "BASE=http://host.docker.internal:$PORT" \
 		"$tag" bash /src/install/test/in-container.sh nostart
@@ -284,7 +284,7 @@ linux_nostart() { # PLATFORM
 linux_systemd() { # PLATFORM
 	local p="$1" tag name
 	tag="$(image_tag "$p" systemd)"
-	name="gpthome-t41-$(platform_tag "$p")-sd"
+	name="homie-t41-$(platform_tag "$p")-sd"
 	step "linux $p: systemd as PID 1"
 	build_image "$p" systemd || {
 		printf '   skipped: cannot build the image for %s\n' "$p"
@@ -296,7 +296,7 @@ linux_systemd() { # PLATFORM
 	run_capture docker exec "$name" bash /src/install/test/in-container.sh systemd
 	printf '%s\n' "$OUT" | sed 's/^/   | /'
 	if [[ "$RC" -ne 0 ]]; then
-		docker exec "$name" journalctl -u gpt-home --no-pager -n 30 2>&1 | sed 's/^/   journal| /' >&2 || true
+		docker exec "$name" journalctl -u homie --no-pager -n 30 2>&1 | sed 's/^/   journal| /' >&2 || true
 		fail "the systemd container test for $p failed"
 	fi
 	docker rm -f "$name" >/dev/null

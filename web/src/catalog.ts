@@ -1,5 +1,5 @@
 // The built-in catalog of the Add devices sheet (DESIGN.md §8.6): recommended modules, previewed lazily.
-export const catalog: { repo: string; icon: string }[] = [{ repo: 'devXpro/gpt-tv', icon: 'tv' }]
+export const catalog: { repo: string; icon: string }[] = [{ repo: 'devXpro/homie-tv', icon: 'tv' }]
 
 /** parseRepo accepts "owner/repo" or a GitHub URL and returns "owner/repo", or undefined. */
 export function parseRepo(input: string): string | undefined {

@@ -13,10 +13,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/keys"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/keys"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -319,11 +319,11 @@ func TestOfflineCommands(t *testing.T) {
 		t.Fatalf("plugin add: %s", out)
 	}
 	for _, bad := range [][]string{
-		{"plugin", "add", "--data-dir", dir, "--id", "fake", "--", "sh"},                  // exists
-		{"plugin", "add", "--data-dir", dir, "--id", "TV", "--", "sh"},                    // invalid id
-		{"plugin", "add", "--data-dir", dir, "--id", "kettle"},                            // no command
-		{"plugin", "add", "--data-dir", dir, "--id", "kettle", "--", "/no/such/gpt-tool"}, // missing binary
-		{"plugin", "remove", "--data-dir", dir, "kettle"},                                 // unknown
+		{"plugin", "add", "--data-dir", dir, "--id", "fake", "--", "sh"},                    // exists
+		{"plugin", "add", "--data-dir", dir, "--id", "TV", "--", "sh"},                      // invalid id
+		{"plugin", "add", "--data-dir", dir, "--id", "kettle"},                              // no command
+		{"plugin", "add", "--data-dir", dir, "--id", "kettle", "--", "/no/such/homie-tool"}, // missing binary
+		{"plugin", "remove", "--data-dir", dir, "kettle"},                                   // unknown
 	} {
 		if _, _, err := cli(t, "", bad...); err == nil {
 			t.Errorf("homed %v: want an error", bad)
@@ -386,7 +386,7 @@ func TestKeyNewToKeychain(t *testing.T) {
 	securityCmd = fake
 	t.Cleanup(func() { securityCmd = old })
 
-	out, errOut, err := cli(t, "", "key", "new", "--keychain", "gpt-home-key", "--data-dir", dir)
+	out, errOut, err := cli(t, "", "key", "new", "--keychain", "homie-key", "--data-dir", dir)
 	if err != nil {
 		t.Fatalf("%v: %s", err, errOut)
 	}
@@ -395,7 +395,7 @@ func TestKeyNewToKeychain(t *testing.T) {
 	if strings.TrimSpace(args) != "-i" {
 		t.Fatalf("security args = %q", args)
 	}
-	const prefix = `add-generic-password -U -s "gpt-home-key" -a "roman" -w "`
+	const prefix = `add-generic-password -U -s "homie-key" -a "roman" -w "`
 	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, `"`) {
 		t.Fatalf("security stdin = %q", line)
 	}
@@ -412,7 +412,7 @@ func TestKeyNewToKeychain(t *testing.T) {
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho boom\nexit 45\n"), 0o700); err != nil { //nolint:gosec // test script
 		t.Fatal(err)
 	}
-	if _, _, err := cli(t, "", "key", "new", "--keychain", "gpt-home-key", "--data-dir", dir); err == nil ||
+	if _, _, err := cli(t, "", "key", "new", "--keychain", "homie-key", "--data-dir", dir); err == nil ||
 		!strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
 	}

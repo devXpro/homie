@@ -20,12 +20,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/admin"
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/install"
-	"github.com/devXpro/gpt-home/internal/plugins"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/admin"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/install"
+	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // fakeGitHub serves releases over TLS the way api.github.com and its asset host do, for any repo published to it.
@@ -54,7 +54,7 @@ func (g *fakeGitHub) client() *install.Client {
 	return &install.Client{APIBase: g.srv.URL, HTTP: g.srv.Client()}
 }
 
-// publish adds a release: the archive with one executable, checksums.txt and, for a plugin, gpt-home-plugin.json.
+// publish adds a release: the archive with one executable, checksums.txt and, for a plugin, homie-plugin.json.
 func (g *fakeGitHub) publish(t *testing.T, repo, version, binary string, exe []byte, manifest string) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -193,7 +193,7 @@ func TestInstallerAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const repo = "devXpro/gpt-fake"
+	const repo = "devXpro/homie-fake"
 	manifest := `{"id":"fake","title":"Fake","description":"A test plugin.","binary":"fakeplugin","args":["serve"],` +
 		`"homepage":"https://example.com/fake"}`
 	gh.publish(t, repo, "1.0.0", "fakeplugin", exe, manifest)

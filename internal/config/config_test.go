@@ -20,7 +20,7 @@ relay:
 plugins:
   # the TV
   - id: tv
-    command: ["/bin/gpt-tv", "serve"]
+    command: ["/bin/homie-tv", "serve"]
 people:
   - id: roman
     name: Roman
@@ -57,7 +57,7 @@ func TestLoad(t *testing.T) {
 	if c.HomeName != "Мой шалаш" || c.ListenAddr() != "127.0.0.1:8080" || c.Relay.Domain != "homie.test" {
 		t.Fatalf("config = %+v", c)
 	}
-	if p := c.Plugin("tv"); p == nil || p.Command[0] != "/bin/gpt-tv" {
+	if p := c.Plugin("tv"); p == nil || p.Command[0] != "/bin/homie-tv" {
 		t.Fatalf("plugin tv = %+v", p)
 	}
 	r := c.Person("roman")
@@ -92,7 +92,7 @@ func TestArchivePhase1(t *testing.T) {
 		t.Fatalf("backup mode: %v, %v", st, err)
 	}
 	out := readFile(t, filepath.Join(dir, FileName))
-	for _, gone := range []string{"home_name", "plugins:", "people:", hashA, "gpt-tv"} {
+	for _, gone := range []string{"home_name", "plugins:", "people:", hashA, "homie-tv"} {
 		if strings.Contains(out, gone) {
 			t.Errorf("homed.yaml still has %q:\n%s", gone, out)
 		}
@@ -178,7 +178,7 @@ func TestUpdateKeepsUntouchedSections(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := readFile(t, filepath.Join(dir, FileName))
-	for _, keep := range []string{"# my home", "# loopback only", "# the TV", `command: ["/bin/gpt-tv", "serve"]`} {
+	for _, keep := range []string{"# my home", "# loopback only", "# the TV", `command: ["/bin/homie-tv", "serve"]`} {
 		if !strings.Contains(out, keep) {
 			t.Errorf("lost %q:\n%s", keep, out)
 		}
@@ -202,7 +202,7 @@ func TestUpdateRemovesEmptySection(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := readFile(t, filepath.Join(dir, FileName))
-	if strings.Contains(out, "plugins:\n  #") || strings.Contains(out, "gpt-tv") {
+	if strings.Contains(out, "plugins:\n  #") || strings.Contains(out, "homie-tv") {
 		t.Fatalf("plugins still there:\n%s", out)
 	}
 	if !strings.Contains(out, "people:") {

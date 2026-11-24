@@ -1,11 +1,11 @@
 # Relay (server side)
 
-The relay is the only thing GPT-Home needs on a public server. It is a dumb pipe: Caddy terminates TLS, frps hands the
+The relay is the only thing Homie needs on a public server. It is a dumb pipe: Caddy terminates TLS, frps hands the
 traffic to the home box over a connection the home box opened itself. The server keeps no keys, no admin, no plugins and
 no database. Its only secret is the relay token.
 
 ```
-ChatGPT / a Site ──https──▶ Caddy :443 ──▶ gpt-home-frps :7000 ◀── wss (path /~!frp) ── home box (frpc inside homed)
+ChatGPT / a Site ──https──▶ Caddy :443 ──▶ homie-frps :7000 ◀── wss (path /~!frp) ── home box (frpc inside homed)
                              one domain      one port, muxed
 ```
 
@@ -30,7 +30,7 @@ ChatGPT / a Site ──https──▶ Caddy :443 ──▶ gpt-home-frps :7000 �
 - **Home offline.** With no client connected, frps answers vhost requests with `custom404Page`: `relay/offline.html`,
   status 404, `text/html`, bilingual (EN/RU), dark, self-contained. The ChatGPT Site recognizes a non-JSON 404 as "home is
   offline" (PLAN §5.7).
-- **No frps port is published.** frps is reachable only inside the docker network, as `gpt-home-frps:7000`.
+- **No frps port is published.** frps is reachable only inside the docker network, as `homie-frps:7000`.
 - **Trust.** The server terminates TLS, so it can read request contents. It cannot make the home box do admin actions:
   those need passkey assertions that are verified at home.
 
@@ -53,7 +53,7 @@ DNS first: an A record for your domain pointing at the server's public IP, DNS o
 long-lived WebSocket and the certificate issuance).
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh | sudo bash -s -- --domain home.example.com
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh | sudo bash -s -- --domain home.example.com
 ```
 
 The script needs root, Docker with the compose v2 plugin, `curl` and `ss` or `netstat`. It asks for the domain if it is
@@ -61,11 +61,11 @@ missing. It checks that the domain's A record includes one of this server's addr
 `api.ipify.org`), and explains and asks when it does not (`--yes` aborts instead; `--skip-dns-check` is for tests).
 
 Flags: `--domain D`, `--mode auto|standalone|behind-proxy`, `--network NAME`, `--dir PATH` (default
-`/opt/gpt-home-relay`), `--rotate-token`, `--print-code`, `--uninstall`, `--yes`, `--skip-dns-check`. Two flags exist for
+`/opt/homie-relay`), `--rotate-token`, `--print-code`, `--uninstall`, `--yes`, `--skip-dns-check`. Two flags exist for
 tests only: `--no-root-check` and `--no-start` (write the files, do not touch docker).
 
 The files come from the repo checkout next to the script, or, for `curl | bash`, from
-`https://raw.githubusercontent.com/devXpro/gpt-home/<ref>/relay/` (`GPT_HOME_REF`, default `main`; `GPT_HOME_RAW_BASE`
+`https://raw.githubusercontent.com/devXpro/homie/<ref>/relay/` (`HOMIE_REF`, default `main`; `HOMIE_RAW_BASE`
 overrides the whole base URL).
 
 ### Mode 1: standalone
@@ -77,7 +77,7 @@ connect code.
 ### Mode 2: behind an existing proxy
 
 Chosen by `auto` when something already listens on 80 or 443. The compose file runs only frps and attaches it to the
-external docker network `--network` (default `proxy`), as the container `gpt-home-frps`. Nothing is published. The script
+external docker network `--network` (default `proxy`), as the container `homie-frps`. Nothing is published. The script
 prints the snippet for the proxy it detects on that network (Caddy, nginx or Traefik) and the connect code. You then
 add the snippet and reload the proxy. Full versions: `relay/snippets/`.
 
@@ -85,7 +85,7 @@ Caddy:
 
 ```
 home.example.com {
-	reverse_proxy gpt-home-frps:7000 {
+	reverse_proxy homie-frps:7000 {
 		stream_close_delay 30m
 	}
 }
@@ -110,7 +110,7 @@ proves both sides, including with a global `grace_period 3s`.
 is a secret. The installer prints it once; show it again with:
 
 ```sh
-sudo bash install/server.sh --print-code --dir /opt/gpt-home-relay
+sudo bash install/server.sh --print-code --dir /opt/homie-relay
 ```
 
 On the home box run `homed relay connect -` and paste the code (it is read from stdin, so it stays out of the shell
@@ -147,18 +147,18 @@ to true and is irrelevant for wss.
 ## Operations
 
 - **Rotate the token** (all home boxes must connect again with the new code):
-  `sudo bash install/server.sh --rotate-token --dir /opt/gpt-home-relay`. The script restarts frps and prints the new
+  `sudo bash install/server.sh --rotate-token --dir /opt/homie-relay`. The script restarts frps and prints the new
   code; on the home box run `homed relay connect -`, paste it and restart homed. Rerunning the installer without the
   flag keeps the token and every file as it is. Rotate whenever the code or the token may have been seen by someone
   else: a pasted chat, a screenshot, a shared terminal, a backup of the home data dir, a person who no longer should
   have it.
 - **Update** the stack: rerun the installer (the images are pinned in the compose files; bump them in the repo).
-- **Uninstall:** `sudo bash install/server.sh --uninstall --dir /opt/gpt-home-relay`. It stops and removes the containers
+- **Uninstall:** `sudo bash install/server.sh --uninstall --dir /opt/homie-relay`. It stops and removes the containers
   and deletes the installed files. The Caddy volumes (certificates) are kept, because Let's Encrypt limits reissuance;
-  remove them with `docker volume rm gpt-home-relay_caddy_data gpt-home-relay_caddy_config`. In behind-proxy mode also
+  remove them with `docker volume rm homie-relay_caddy_data homie-relay_caddy_config`. In behind-proxy mode also
   remove the site block from your proxy.
-- **Logs:** `cd /opt/gpt-home-relay && docker compose logs -f frps` (and `caddy`).
-- **Files:** `/opt/gpt-home-relay/{docker-compose.yml,.env,frps.toml,offline.html,token,Caddyfile}`; `token` is 0600.
+- **Logs:** `cd /opt/homie-relay && docker compose logs -f frps` (and `caddy`).
+- **Files:** `/opt/homie-relay/{docker-compose.yml,.env,frps.toml,offline.html,token,Caddyfile}`; `token` is 0600.
 
 ## Troubleshooting
 

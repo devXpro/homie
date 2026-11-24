@@ -116,7 +116,7 @@ func TestCallerNil(t *testing.T) {
 // TestServerOverMCP runs a pluginkit server against a go-sdk client in memory: identity, instructions, tool _meta
 // and the caller's request _meta must all survive the protocol.
 func TestServerOverMCP(t *testing.T) {
-	s := New(Plugin{ID: "demo", Name: "gpt-demo", Title: "Demo", Version: "1.2.3", Instructions: "Be brief."})
+	s := New(Plugin{ID: "demo", Name: "homie-demo", Title: "Demo", Version: "1.2.3", Instructions: "Be brief."})
 	type in struct{}
 	type out struct {
 		Person string `json:"person"`
@@ -143,7 +143,7 @@ func TestServerOverMCP(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 
 	init := cs.InitializeResult()
-	if si := init.ServerInfo; si == nil || si.Name != "gpt-demo" || si.Title != "Demo" || si.Version != "1.2.3" {
+	if si := init.ServerInfo; si == nil || si.Name != "homie-demo" || si.Title != "Demo" || si.Version != "1.2.3" {
 		t.Fatalf("serverInfo = %+v", init.ServerInfo)
 	}
 	if init.Instructions != "Be brief." {
@@ -184,7 +184,7 @@ func TestServerOverMCP(t *testing.T) {
 }
 
 func TestServeReturnsNilWhenInputCloses(t *testing.T) {
-	s := New(Plugin{ID: "demo", Name: "gpt-demo", Version: "1"})
+	s := New(Plugin{ID: "demo", Name: "homie-demo", Version: "1"})
 	st, ct := mcp.NewInMemoryTransports()
 	served := make(chan error, 1)
 	go func() { served <- serve(t.Context(), s, st) }()
@@ -223,7 +223,7 @@ func TestI18n(t *testing.T) {
 
 func TestInventoryRef(t *testing.T) {
 	prop := map[string]any{"type": "string"}
-	if got := InventoryRef(prop); got["x-gpt-home-ref"] != "inventory" || got["type"] != "string" {
+	if got := InventoryRef(prop); got["x-homie-ref"] != "inventory" || got["type"] != "string" {
 		t.Fatalf("InventoryRef = %v", got)
 	}
 	if prop[SchemaRef] != RefInventory {
@@ -246,7 +246,7 @@ func TestProgressWithoutToken(t *testing.T) {
 // TestProgressOverMCP checks that progress reports reach a client that asked for them, with the translated message in
 // the notification _meta, and that a call without a progress token sends none.
 func TestProgressOverMCP(t *testing.T) {
-	s := New(Plugin{ID: "demo", Name: "gpt-demo", Version: "1"})
+	s := New(Plugin{ID: "demo", Name: "homie-demo", Version: "1"})
 	release := make(chan struct{})
 	type out struct {
 		Token bool `json:"token"`

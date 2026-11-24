@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/firstrun"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/firstrun"
 )
 
 // linkJSON is the answer of the socket's /local/setup-link and /local/reset-access (ADMIN-API §6).

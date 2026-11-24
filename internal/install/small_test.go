@@ -34,7 +34,7 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestParseManifest(t *testing.T) {
-	m, err := ParseManifest([]byte(`{"id":"tv","binary":"gpt-tv","minHubVersion":"v0.2.0"}`))
+	m, err := ParseManifest([]byte(`{"id":"tv","binary":"homie-tv","minHubVersion":"v0.2.0"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

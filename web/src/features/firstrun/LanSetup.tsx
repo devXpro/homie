@@ -76,7 +76,7 @@ export function LanSetup() {
     <main className="flex min-h-dvh flex-col items-center px-6 pt-[max(48px,env(safe-area-inset-top))] pb-[max(32px,env(safe-area-inset-bottom))]">
       <div className="flex w-full max-w-[420px] flex-col items-center text-center">
         <AppIcon size={56} />
-        <p className="mt-3 type-footnote font-semibold tracking-wide text-label-2">GPT-Home</p>
+        <p className="mt-3 type-footnote font-semibold tracking-wide text-label-2">Homie</p>
         <div className="mt-8 w-full">{content}</div>
       </div>
     </main>

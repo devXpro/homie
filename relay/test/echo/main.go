@@ -23,7 +23,7 @@ type reply struct {
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
-	marker := flag.String("marker", "gpt-home-echo", "value returned in the marker field")
+	marker := flag.String("marker", "homie-echo", "value returned in the marker field")
 	flag.Parse()
 
 	mux := http.NewServeMux()

@@ -1,7 +1,7 @@
 # Existing nginx
 
 nginx must forward the frpc WebSocket (`GET /~!frp`) and normal HTTP to the same
-upstream, `gpt-home-frps:7000`. The home box keeps one WebSocket open for days,
+upstream, `homie-frps:7000`. The home box keeps one WebSocket open for days,
 so the timeouts matter.
 
 In the `http {}` context:
@@ -24,14 +24,14 @@ server {
 	# ssl_certificate / ssl_certificate_key ...
 
 	# Resolve the container at request time, so nginx still starts when
-	# gpt-home-frps is down. 127.0.0.11 is docker's embedded DNS.
+	# homie-frps is down. 127.0.0.11 is docker's embedded DNS.
 	resolver 127.0.0.11 valid=10s;
-	set $gpt_home_upstream http://gpt-home-frps:7000;
+	set $homie_upstream http://homie-frps:7000;
 
 	client_max_body_size 50m;
 
 	location / {
-		proxy_pass $gpt_home_upstream;
+		proxy_pass $homie_upstream;
 		proxy_http_version 1.1;
 		proxy_set_header Host $host;
 		proxy_set_header X-Real-IP $remote_addr;

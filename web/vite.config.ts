@@ -29,7 +29,7 @@ function spaRoutes(): Plugin {
     next()
   }
   return {
-    name: 'gpt-home-spa-routes',
+    name: 'homie-spa-routes',
     configureServer(server) {
       server.middlewares.use(rewrite)
     },
@@ -43,7 +43,7 @@ function spaRoutes(): Plugin {
 // file to embed and git keeps the directory.
 function keepGitkeep(): Plugin {
   return {
-    name: 'gpt-home-keep-gitkeep',
+    name: 'homie-keep-gitkeep',
     apply: 'build',
     closeBundle() {
       writeFileSync(`${outDir}/.gitkeep`, '')

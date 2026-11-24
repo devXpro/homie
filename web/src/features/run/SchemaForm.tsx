@@ -29,7 +29,7 @@ export interface SchemaFormProps {
   onChange: (values: FormValues) => void
   /** validate one field when it loses focus */
   onBlur?: (pointer: string) => void
-  /** the module's devices, for target fields ("x-gpt-home-ref": "inventory") */
+  /** the module's devices, for target fields ("x-homie-ref": "inventory") */
   inventory?: InventoryItem[]
 }
 

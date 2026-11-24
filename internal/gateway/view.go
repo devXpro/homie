@@ -14,7 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // snapshot is the host's assistant tool set at one moment, plus the per-scope views built from it on demand. It is
@@ -123,7 +123,7 @@ func checkAddTool(t hub.Tool) (err error) {
 			err = fmt.Errorf("%v", r)
 		}
 	}()
-	s := mcp.NewServer(&mcp.Implementation{Name: "gpt-home-check", Version: "0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "homie-check", Version: "0"}, nil)
 	s.AddTool(mcpTool(t), func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) { return nil, nil })
 	return nil
 }
@@ -202,7 +202,7 @@ func (g *gateway) buildView(s *snapshot, scope string) *view {
 	v.manifest, _ = marshal(m)
 
 	v.server = mcp.NewServer(
-		&mcp.Implementation{Name: "gpt-home", Title: s.homeName, Version: v.version},
+		&mcp.Implementation{Name: "homie", Title: s.homeName, Version: v.version},
 		&mcp.ServerOptions{
 			Instructions: s.instructions,
 			Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}, // stateless: no list_changed

@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // SetupLink is a one-time link that lets the owner register a passkey (PLAN §5.8).

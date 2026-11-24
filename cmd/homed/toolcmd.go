@@ -12,7 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/config"
+	"github.com/devXpro/homie/internal/config"
 )
 
 // toolJSON is Tool and callJSON is Call (ADMIN-API §2), as far as the CLI shows them.

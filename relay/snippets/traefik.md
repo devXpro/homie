@@ -1,6 +1,6 @@
 # Existing Traefik
 
-Traefik proxies WebSockets without extra options. Give the `gpt-home-frps`
+Traefik proxies WebSockets without extra options. Give the `homie-frps`
 container labels. Put them in a `docker-compose.override.yml` next to
 `docker-compose.yml` in the install dir, so `server.sh` leaves them alone.
 
@@ -10,10 +10,10 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.gpt-home.rule=Host(`homie.example.com`)
-      - traefik.http.routers.gpt-home.entrypoints=websecure
-      - traefik.http.routers.gpt-home.tls.certresolver=letsencrypt
-      - traefik.http.services.gpt-home.loadbalancer.server.port=7000
+      - traefik.http.routers.homie.rule=Host(`homie.example.com`)
+      - traefik.http.routers.homie.entrypoints=websecure
+      - traefik.http.routers.homie.tls.certresolver=letsencrypt
+      - traefik.http.services.homie.loadbalancer.server.port=7000
 ```
 
 Adjust `proxy` (the docker network shared with Traefik), `websecure` (your TLS

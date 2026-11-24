@@ -25,20 +25,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Spec says how to run one plugin.
 type Spec struct {
 	ID      string   // plugin id, ^[a-z][a-z0-9]{1,15}$
-	Command []string // executable and arguments, e.g. ["/path/gpt-tv", "serve"]
+	Command []string // executable and arguments, e.g. ["/path/homie-tv", "serve"]
 }
 
 // Host runs plugins and implements hub.ToolHost.
 type Host struct {
-	// HubVersion goes to plugins as GPT_HOME_HUB_VERSION and as the MCP clientInfo version. Set it before Start.
+	// HubVersion goes to plugins as HOMIE_HUB_VERSION and as the MCP clientInfo version. Set it before Start.
 	HubVersion string
 
 	log     *slog.Logger
@@ -89,7 +89,7 @@ var defaultTiming = timing{
 type plugin struct {
 	id      string
 	command []string
-	dir     string // GPT_HOME_DATA_DIR and cwd
+	dir     string // HOMIE_DATA_DIR and cwd
 	logs    *logSink
 
 	stop   context.CancelFunc // stops the current supervisor; nil while none runs
@@ -302,7 +302,7 @@ func (h *Host) Status() []hub.PluginStatus {
 }
 
 // Logs returns the last lines (at most 1000) a plugin wrote to stderr, oldest first, with the host's own events
-// prefixed by "gpt-home:". It returns nil for an unknown id.
+// prefixed by "homie:". It returns nil for an unknown id.
 func (h *Host) Logs(id string) []string {
 	h.mu.Lock()
 	p := h.findLocked(id)

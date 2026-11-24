@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // Settings, relay, system and the home overview (ADMIN-API §3.4, §3.9).

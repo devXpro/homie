@@ -1,6 +1,6 @@
 # Admin design brief
 
-What the GPT-Home admin looks like, how it moves and what it says. T2.4 (admin UI) and T3.4 (People and Join UI) build
+What the Homie admin looks like, how it moves and what it says. T2.4 (admin UI) and T3.4 (People and Join UI) build
 every screen from this file without asking; the data comes from `docs/ADMIN-API.md` (called "API" below, with its
 section numbers).
 
@@ -295,7 +295,7 @@ Build from shadcn/ui primitives where one exists (named in brackets); everything
   their stores) and invalidates on `tools` and `resync`.
 - Mutations are optimistic only for switches (module on/off, person scopes); everything else waits for the answer
   with the button in its loading state.
-- Every non-GET sends `X-GPT-Home: 1` and JSON.
+- Every non-GET sends `X-Homie: 1` and JSON.
 - `401 unauthenticated` anywhere → go to `/admin/login?next=<path>` and show the toast "Сеанс истёк — войдите снова".
 - `403 step_up_required` → the step-up sheet (§8.12.3), then retry once.
 - Error codes map to copy through §10.6; unknown codes use `error.generic`.
@@ -437,7 +437,7 @@ the section shows one `--label-2` line `home.recent.empty`. Error → `ErrorStat
 | `relay_unreachable` | orange `Globe` | Дом не виден снаружи / Связь есть, но проверка не проходит | Home isn't reachable from outside / Connected, but the check fails |
 | `plugin_failing` | red module icon | {{title}} не отвечает / Перезапустить или посмотреть журнал | {{title}} isn't responding / Restart it or check the log |
 | `plugin_update` | blue `ArrowDownCircle` | Обновление для {{title}} / Версия {{version}} | Update for {{title}} / Version {{version}} |
-| `hub_update` | blue `ArrowDownCircle` | Новая версия GPT-Home / {{version}} | New GPT-Home version / {{version}} |
+| `hub_update` | blue `ArrowDownCircle` | Новая версия Homie / {{version}} | New Homie version / {{version}} |
 | `connections_stale` [P3] | orange `RefreshCw` | Обновите ChatGPT у семьи / Изменились устройства: {{count}} подключение\|подключения\|подключений | Refresh ChatGPT for the family / Devices changed: {{count}} connection(s) |
 | `connection_failed` [P3] | red `UserX` | Не удалось подключить {{name}} / Открыть | Couldn't connect {{name}} / Open |
 
@@ -477,12 +477,12 @@ States: loading → 3 skeleton rows. Empty → `EmptyState` `devices.empty.*` wi
 
 ### 8.6 Add devices — `/admin/devices/add` (sheet)
 1. **Choose** — title `add.title`. Section `add.recommended`: built-in catalog in the SPA
-   (`web/src/catalog.ts`: `[{repo:"devXpro/gpt-tv", icon:"tv"}]`), each a `Row` with the module tile, title and
+   (`web/src/catalog.ts`: `[{repo:"devXpro/homie-tv", icon:"tv"}]`), each a `Row` with the module tile, title and
    description from `GET /plugins/preview` (fetched lazily; skeleton while loading); already installed ones show
    "Установлено" and are disabled. Section `add.other`: a `TextField` `owner/repo` (also accepts a full GitHub URL) and
    a tinted button `add.find`.
 2. **Preview** — module tile 64 px, `title-2` title, description, rows: version, source (`github.com/owner/repo`, links
-   out), "Требуется GPT-Home {{minHubVersion}}" only when `compatible` is false. Primary `add.install` (step-up, then
+   out), "Требуется Homie {{minHubVersion}}" only when `compatible` is false. Primary `add.install` (step-up, then
    `POST /plugins`). `compatible: false` → button disabled + `add.incompatible`; `assetFound: false` →
    `add.no_build`.
 3. **Installing** — `StepList` of the job steps (§10.5 words) with the download `ProgressBar` under the active step.
@@ -500,7 +500,7 @@ States: loading → 3 skeleton rows. Empty → `EmptyState` `devices.empty.*` wi
 | `add.find` | Найти | Find |
 | `add.installed` | Установлено | Installed |
 | `add.install` | Установить | Install |
-| `add.incompatible` | Нужна более новая версия GPT-Home. Сначала обновите её в Настройках. | This needs a newer GPT-Home. Update it in Settings first. |
+| `add.incompatible` | Нужна более новая версия Homie. Сначала обновите её в Настройках. | This needs a newer Homie. Update it in Settings first. |
 | `add.no_build` | Для этого компьютера нет сборки модуля. | There's no build of this module for this computer. |
 | `add.not_found` | Такого модуля не нашлось. Проверьте адрес. | Couldn't find that module. Check the address. |
 | `add.done` | {{title}} установлен | {{title}} is installed |
@@ -658,7 +658,7 @@ monospace. Bottom: "Обновить код сервера" (plain; step-up; a s
 "Отозвать" (red, step-up, action sheet). Footer tinted `settings.keys.new` → sheet: label field (default
 "ChatGPT Site") → step-up → `SecretOnce` with the key.
 
-**About** (`/settings/about`): `AppIcon` 64, "GPT-Home", version and commit (monospace footnote); rows "Проверить
+**About** (`/settings/about`): `AppIcon` 64, "Homie", version and commit (monospace footnote); rows "Проверить
 обновления" (`POST /system/check-update`, inline spinner, then "У вас последняя версия" or the update row);
 "Обновить до {{version}}" (filled, the screen's primary; step-up → job sheet with `StepList`; at `restart` the sheet
 shows `settings.update.restarting` and waits for SSE `hello` with the new version, then reloads the page); "Что
@@ -837,7 +837,7 @@ original action is dropped with no error. Failure → `stepup.failed`.
 | `stepup.action.install` | установить «{{title}}» | install “{{title}}” |
 | `stepup.action.update` | обновить «{{title}}» | update “{{title}}” |
 | `stepup.action.remove_module` | удалить «{{title}}» | remove “{{title}}” |
-| `stepup.action.hub_update` | обновить GPT-Home | update GPT-Home |
+| `stepup.action.hub_update` | обновить Homie | update Homie |
 | `stepup.action.key_create` | создать ключ доступа | create an access key |
 | `stepup.action.key_revoke` | отозвать ключ доступа | revoke an access key |
 | `stepup.action.passkey_add` | добавить ключ входа | add a passkey |
@@ -1065,7 +1065,7 @@ After `ok`, the result offers the next step without the person knowing tool name
 | `login` / `build` / `publish` / `deploy` / `refresh` [P3] | Вход в ChatGPT / Готовим / Публикуем / Выкладываем / Обновляем | Signing in / Preparing / Publishing / Deploying / Refreshing |
 | `checksum_mismatch` | Файлы повреждены или подменены — установка остановлена. | The files are damaged or tampered with — install stopped. |
 | `no_asset` | Нет сборки для этого компьютера. | No build for this computer. |
-| `incompatible` | Нужна более новая версия GPT-Home. | Needs a newer GPT-Home. |
+| `incompatible` | Нужна более новая версия Homie. | Needs a newer Homie. |
 | `start_failed` | Новая версия не запустилась. | The new version didn't start. |
 | `rolled_back` | Новая версия не запустилась, вернули прежнюю. | The new version didn't start; the previous one is back. |
 | `upstream` | GitHub не отвечает. Попробуйте позже. | GitHub isn't answering. Try later. |
@@ -1109,7 +1109,7 @@ After `ok`, the result offers the next step without the person knowing tool name
 | `plugin.enable` / `.disable` / `.restart` | Модуль включён / выключен / перезапущен | Module enabled / disabled / restarted |
 | `relay.change` | Обновлён код сервера | Server code updated |
 | `settings.update` | Изменены настройки | Settings changed |
-| `hub.update` | GPT-Home обновлён | GPT-Home updated |
+| `hub.update` | Homie обновлён | Homie updated |
 | `access.reset` | Доступ сброшен с домашнего компьютера | Access reset on the home computer |
 | `setup.link` | Создана ссылка настройки | Setup link created |
 

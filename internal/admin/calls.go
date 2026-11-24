@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/audit"
-	"github.com/devXpro/gpt-home/internal/gateway"
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/plugins"
+	"github.com/devXpro/homie/internal/audit"
+	"github.com/devXpro/homie/internal/gateway"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/plugins"
 )
 
 // Admin tool calls (ADMIN-API §3.5, "Tool call rules"): validated against the input schema, detached from the HTTP

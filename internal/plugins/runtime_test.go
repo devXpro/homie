@@ -11,21 +11,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // started counts the starts of the fake plugin in its log.
 func started(h *Host) int {
-	return countPrefix(stripTimes(h.Logs("fake")), "gpt-home: started pid")
+	return countPrefix(stripTimes(h.Logs("fake")), "homie: started pid")
 }
 
-// stripTimes drops the RFC 3339 time the host puts after "gpt-home:" in its own log lines.
+// stripTimes drops the RFC 3339 time the host puts after "homie:" in its own log lines.
 func stripTimes(lines []string) []string {
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
-		if rest, ok := strings.CutPrefix(l, "gpt-home: "); ok {
+		if rest, ok := strings.CutPrefix(l, "homie: "); ok {
 			if _, after, found := strings.Cut(rest, " "); found {
-				l = "gpt-home: " + after
+				l = "homie: " + after
 			}
 		}
 		out = append(out, l)
@@ -58,7 +58,7 @@ func TestAddRestartRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, h, "the second start", func() bool { return started(h) == 2 && state(h, "fake").State == hub.PluginUp })
-	if n := countPrefix(stripTimes(h.Logs("fake")), "gpt-home: exited"); n != 1 {
+	if n := countPrefix(stripTimes(h.Logs("fake")), "homie: exited"); n != 1 {
 		t.Fatalf("restart did not stop the first process (%d exits):\n%s", n, strings.Join(h.Logs("fake"), "\n"))
 	}
 	res, err := h.Call(t.Context(), roman, "fake_echo", json.RawMessage(`{"text":"again"}`))
@@ -82,7 +82,7 @@ func TestAddRestartRemove(t *testing.T) {
 		t.Fatalf("call after remove: %v", err)
 	}
 	logFile, err := os.ReadFile(filepath.Join(dataDir, "logs", "fake.log")) //nolint:gosec // test temp dir
-	if err != nil || strings.Count(string(logFile), "gpt-home: ") == 0 || !strings.Contains(string(logFile), "exited") {
+	if err != nil || strings.Count(string(logFile), "homie: ") == 0 || !strings.Contains(string(logFile), "exited") {
 		t.Fatalf("the removed plugin's process did not exit before Remove returned: %v\n%s", err, logFile)
 	}
 	for _, op := range []func(string) error{h.Remove, h.Restart} {

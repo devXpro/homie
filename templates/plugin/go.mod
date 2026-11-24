@@ -1,16 +1,16 @@
-// Replace github.com/your-name/gpt-plug with your own module path (your repository), e.g. github.com/alice/gpt-lamp.
-module github.com/your-name/gpt-plug
+// Replace github.com/your-name/homie-plug with your own module path (your repository), e.g. github.com/alice/homie-lamp.
+module github.com/your-name/homie-plug
 
 go 1.26.0
 
 toolchain go1.26.11
 
-// For building inside the gpt-home repository only. In your own repository delete this line, then run
-//   go get github.com/devXpro/gpt-home@latest && go mod tidy
-replace github.com/devXpro/gpt-home => ../..
+// For building inside the Homie repository only. In your own repository delete this line, then run
+//   go get github.com/devXpro/homie@latest && go mod tidy
+replace github.com/devXpro/homie => ../..
 
 require (
-	github.com/devXpro/gpt-home v0.0.0-00010101000000-000000000000
+	github.com/devXpro/homie v0.0.0-00010101000000-000000000000
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 )
 

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")

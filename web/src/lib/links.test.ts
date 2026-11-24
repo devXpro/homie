@@ -3,7 +3,7 @@ import { httpsLink } from './links'
 
 describe('httpsLink', () => {
   it('keeps plain https links', () => {
-    expect(httpsLink('https://example.com/gpt-tv')?.host).toBe('example.com')
+    expect(httpsLink('https://example.com/homie-tv')?.host).toBe('example.com')
     expect(httpsLink(' https://example.com ')?.href).toBe('https://example.com/')
   })
 

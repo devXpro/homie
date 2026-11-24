@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 func TestRedact(t *testing.T) {

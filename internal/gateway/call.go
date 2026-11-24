@@ -13,8 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/devXpro/gpt-home/internal/audit"
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/audit"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 var errRateLimited = errors.New("rate limited")

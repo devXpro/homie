@@ -110,12 +110,12 @@ export function Row({
     </>
   )
   const classes = cn(
-    'gh-row flex w-full items-center gap-3 px-4 text-left outline-offset-[-2px]',
+    'homie-row flex w-full items-center gap-3 px-4 text-left outline-offset-[-2px]',
     subtitle ? 'min-h-[60px] py-2.5' : 'min-h-11 py-[11px]',
     iconInset && '[--row-inset:60px]',
     interactive && !disabled && 'transition-colors duration-75 active:bg-[var(--row-pressed)] hover:bg-[color-mix(in_srgb,var(--row-pressed)_45%,transparent)]',
     disabled && 'opacity-40',
-    flash && 'gh-flash',
+    flash && 'homie-flash',
     className,
   )
   if (to && !disabled) {

@@ -1,4 +1,4 @@
-# Test images for install/test/run.sh (names gpthome-t41-*).
+# Test images for install/test/run.sh (names homie-t41-*).
 #   base:    Debian with curl and sudo, for the --no-start flows (small, so emulated CPUs such as armv7 build in minutes)
 #   systemd: base plus systemd as PID 1 and socat, for the real service tests
 FROM debian:bookworm-slim AS base

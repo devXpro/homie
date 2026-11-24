@@ -1,4 +1,4 @@
-# Using GPT-Home
+# Using Homie
 
 A tour of the admin, then the part that matters most: connecting ChatGPT so the family can talk to the home.
 
@@ -40,7 +40,7 @@ The first screen answers one question: *can ChatGPT run my home right now?*
   passes. Otherwise it says what is wrong: *Reconnecting to the server*, *Check your home internet and the server*,
   *Connected, but not reachable from outside*, or *Connect a server in Settings*. Tap it for the details.
 - **Needs attention** appears only when something does: the server is unreachable, a plugin is not responding, or an
-  update is available for a plugin or for GPT-Home itself.
+  update is available for a plugin or for Homie itself.
 - **Devices** lists your plugins (modules) with their state and device count.
 - **Recent** shows the last actions: what, who, through which path, and how long it took. A red mark is a failure.
 
@@ -66,14 +66,14 @@ Each kind of device is a **module** (a plugin). Open one to see:
 ### Add a plugin
 
 **Devices → Add devices.** *Recommended* lists known modules (the TV plugin first); *Another module from GitHub* takes
-any `owner/repository` that publishes GPT-Home releases. Tap **Find**, check the name, version and source, then
+any `owner/repository` that publishes Homie releases. Tap **Find**, check the name, version and source, then
 **Install**. Installing, updating and removing a module ask you to confirm with Face ID or Touch ID if your last
 confirmation is older than five minutes. If a new version fails to start, the previous one comes back by itself.
 
 ### Set up a TV (LG webOS)
 
 Prepare the TV once — LG Connect Apps on, Mobile TV On → Turn on via Wi-Fi, Quick Start+ on, and a fixed IP in your
-router ([details](https://github.com/devXpro/gpt-tv/blob/main/docs/families/lg-webos.md#tv-setup)). Then, with the TV
+router ([details](https://github.com/devXpro/homie-tv/blob/main/docs/families/lg-webos.md#tv-setup)). Then, with the TV
 switched on:
 
 1. **Devices → Add devices**, pick the TV module under *Recommended*, **Install**.
@@ -135,22 +135,22 @@ You need:
 Keychain of the Mac you publish from (the command asks for the key, so it never lands in your shell history):
 
 ```sh
-security add-generic-password -U -s gpt-home-key -a "$USER" -w
+security add-generic-password -U -s homie-key -a "$USER" -w
 ```
 
 If that Mac is the home box, one command does both and never shows the key:
 
 ```sh
-homed key new --label "ChatGPT Site" --keychain gpt-home-key
+homed key new --label "ChatGPT Site" --keychain homie-key
 ```
 
 ### 2. Publish your Site
 
 ```sh
-git clone https://github.com/devXpro/gpt-home.git
-node gpt-home/site/release/release.mjs --login                     # sign Codex in to YOUR ChatGPT account (device code)
+git clone https://github.com/devXpro/homie.git
+node homie/site/release/release.mjs --login                     # sign Codex in to YOUR ChatGPT account (device code)
 HOME_API_URL=https://home.example.com \
-  node gpt-home/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash
+  node homie/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash
 ```
 
 - `--title` is the name ChatGPT shows for the plugin — your home's name. `--slug` is the Site's unique address name.
@@ -192,9 +192,9 @@ plugin). Create a separate access key for them (label it with their name), then 
 a **profile**, which keeps their Codex login and key apart from yours:
 
 ```sh
-security add-generic-password -U -s gpt-home-key-tanya -a "$USER" -w          # paste THEIR key
-node gpt-home/site/release/release.mjs --profile tanya --login                   # they approve the code on THEIR phone
-node gpt-home/site/release/release.mjs --profile tanya --title "Наш дом" --slug nash-dom
+security add-generic-password -U -s homie-key-tanya -a "$USER" -w          # paste THEIR key
+node homie/site/release/release.mjs --profile tanya --login                   # they approve the code on THEIR phone
+node homie/site/release/release.mjs --profile tanya --title "Наш дом" --slug nash-dom
 ```
 
 They approve the device code with **their** ChatGPT account (the script refuses and signs out if it sees yours), then
@@ -211,8 +211,8 @@ ChatGPT keeps its own snapshot of a plugin's tools. After you install a module, 
 republish each person's Site settings so ChatGPT re-reads them:
 
 ```sh
-node gpt-home/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash --settings-only
-node gpt-home/site/release/release.mjs --profile tanya --title "Наш дом" --slug nash-dom --settings-only
+node homie/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash --settings-only
+node homie/site/release/release.mjs --profile tanya --title "Наш дом" --slug nash-dom --settings-only
 ```
 
 The refresh is not instant (about ten minutes). `--check` shows the tools ChatGPT sees now; a new chat picks them up.

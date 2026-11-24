@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // The bootstrap, session and "me" endpoints (ADMIN-API §3.1, §3.3). The passkey ceremonies are T2.2's (AuthRoutes).

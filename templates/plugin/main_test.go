@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

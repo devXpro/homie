@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/relay"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/relay"
 )
 
 // relayJSON is RelayStatus (ADMIN-API §2).

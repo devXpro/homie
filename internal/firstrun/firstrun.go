@@ -9,11 +9,11 @@
 //   - the PIN has 8 digits and changes every 10 minutes and after every issued link. It is printed only to a terminal
 //     (Options.Terminal); under launchd or systemd the log says how to get it instead;
 //   - one client gets 5 wrong PINs per 10 minutes and then waits, without locking out the other devices;
-//   - the gh_firstrun cookie (HttpOnly, SameSite=Strict, 30 minutes) is random and kept only as a hash, in memory;
+//   - the homie_firstrun cookie (HttpOnly, SameSite=Strict, 30 minutes) is random and kept only as a hash, in memory;
 //   - links issued here live 3 minutes (the CLI's live 15); every link and relay change is logged and audited with the
 //     client's address, and a relay that is already configured is never replaced from here;
 //   - only Host names a LAN can have pass (IP literals, localhost, single-label and .local-style names), which stops
-//     DNS rebinding; mutating requests need X-GPT-Home: 1 and a same-origin Origin and Sec-Fetch-Site;
+//     DNS rebinding; mutating requests need X-Homie: 1 and a same-origin Origin and Sec-Fetch-Site;
 //   - once an owner has a passkey of the current relying party every path answers 410 setup_done.
 //
 // cmd/homed wires it: while Needed reports true, New(Options{…}) and Serve(ctx, ln); for every reopening a new Server.
@@ -41,10 +41,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // setup_listen defaults (DefaultListen).
@@ -66,7 +66,7 @@ func DefaultListen(hasRelay bool) string {
 }
 
 // CookieName is the first-run cookie. It is not __Host- and not Secure: the page is plain http on the LAN.
-const CookieName = "gh_firstrun"
+const CookieName = "homie_firstrun"
 
 const (
 	// OpenFor is how long the page stays open; then it closes until `homed admin firstrun` or a restart.
@@ -399,7 +399,7 @@ func gone(w http.ResponseWriter, r *http.Request, apiErr *wire.Error, page strin
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'")
 	w.WriteHeader(http.StatusGone)
-	_, _ = io.WriteString(w, `<!doctype html><html lang="ru"><meta charset="utf-8"><title>GPT-Home</title>`+page+`</html>`)
+	_, _ = io.WriteString(w, `<!doctype html><html lang="ru"><meta charset="utf-8"><title>Homie</title>`+page+`</html>`)
 }
 
 // lanHost accepts the Host names a browser on the home network uses: IP literals, localhost, single-label names
@@ -454,7 +454,7 @@ func (s *Server) endpoint(method string, cookie bool, h handlerFunc) http.Handle
 
 // sameOrigin is ADMIN-API §1.4 for a page whose origin is whatever LAN address the browser used.
 func sameOrigin(r *http.Request) bool {
-	if r.Header.Get("X-GPT-Home") != "1" {
+	if r.Header.Get("X-Homie") != "1" {
 		return false
 	}
 	if o := r.Header.Get("Origin"); o != "" {

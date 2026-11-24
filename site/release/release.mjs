@@ -15,13 +15,13 @@
 // --profile NAME, --plugin PREFIX (--check: the name ChatGPT shows for the plugin; found by itself when a tool of the
 // spike answers).
 //
-// Settings: HOME_API_URL, the home hub (given once, then remembered in ~/.gpt-home-site/api-url), the key from the
-// Keychain item `gpt-home-key` (never printed), HOME_LANGUAGE (optional). Needs Node 22+, git, npm, and the Codex CLI
+// Settings: HOME_API_URL, the home hub (given once, then remembered in ~/.homie-site/api-url), the key from the
+// Keychain item `homie-key` (never printed), HOME_LANGUAGE (optional). Needs Node 22+, git, npm, and the Codex CLI
 // signed in.
 //
 // Profiles: another person's Site lives in their own ChatGPT account, so it needs its own Codex login. With
-// `--profile NAME` (or GPT_HOME_SITE_PROFILE=NAME) everything above runs against ~/.gpt-home-site-NAME: its own state,
-// its own Codex home (so your login is never touched) and its own Keychain item `gpt-home-key-NAME`. First `--login`,
+// `--profile NAME` (or HOMIE_SITE_PROFILE=NAME) everything above runs against ~/.homie-site-NAME: its own state,
+// its own Codex home (so your login is never touched) and its own Keychain item `homie-key-NAME`. First `--login`,
 // then release as usual. A profile that turns out to be signed in to the SAME account as your own Codex is refused (the
 // code was approved with the wrong account). Without a profile nothing changes.
 import { spawn } from "node:child_process";
@@ -45,17 +45,17 @@ const fatal = (message) => {
   console.error(`[release] ${message}`);
   process.exit(2);
 };
-const PROFILE = (option("profile") ?? process.env.GPT_HOME_SITE_PROFILE ?? "").trim();
+const PROFILE = (option("profile") ?? process.env.HOMIE_SITE_PROFILE ?? "").trim();
 if (PROFILE && !/^[a-z][a-z0-9-]{0,19}$/.test(PROFILE)) fatal("A profile name is lowercase letters, digits and dashes, up to 20 characters, e.g. --profile tanya.");
 const SITE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const HOME_DIR = process.env.GPT_HOME_SITE_HOME ?? join(homedir(), PROFILE ? `.gpt-home-site-${PROFILE}` : ".gpt-home-site");
+const HOME_DIR = process.env.HOMIE_SITE_HOME ?? join(homedir(), PROFILE ? `.homie-site-${PROFILE}` : ".homie-site");
 const CHECKOUT = join(HOME_DIR, "checkout");
-const KEY_ITEM = process.env.GPT_HOME_KEY_ITEM ?? (PROFILE ? `gpt-home-key-${PROFILE}` : "gpt-home-key");
+const KEY_ITEM = process.env.HOMIE_KEY_ITEM ?? (PROFILE ? `homie-key-${PROFILE}` : "homie-key");
 const CODEX_HOME = PROFILE ? join(HOME_DIR, "codex") : null;
 const CODEX_ENV = CODEX_HOME ? { ...process.env, CODEX_HOME } : process.env; // a profile never inherits another login
 const TITLE = (option("title") ?? "").trim();
 const SLUG = (option("slug") ?? "").trim();
-const DESCRIPTION = (option("description") ?? "").trim() || "Private MCP tools for ChatGPT over my own home hub (GPT-Home).";
+const DESCRIPTION = (option("description") ?? "").trim() || "Private MCP tools for ChatGPT over my own home hub (Homie).";
 // The Site is found by its slug, so every command that publishes to it needs the title and the slug.
 const touchesSite = !["--dry-run", "--check", "--list-sites-tools", "--login", "--logout"].some((flag) => flags.has(flag));
 if (touchesSite) {
@@ -108,7 +108,7 @@ class AppServer {
 
   static async start(bin, cwd, env = process.env) {
     const server = new AppServer(bin, cwd, env);
-    await server.request("initialize", { clientInfo: { name: "gpt-home-site-release", version: "1.0.0" } });
+    await server.request("initialize", { clientInfo: { name: "homie-site-release", version: "1.0.0" } });
     server.write({ method: "initialized" });
     return server;
   }
@@ -278,7 +278,7 @@ async function commitRelease(message) {
   await git(["add", "--force", ".openai/hosting.json"]); // ignored for development, but every commit Sites builds from needs it
   if ((await run("git", ["-C", CHECKOUT, "diff", "--cached", "--quiet"])).ok) return null;
   // Always the Site's own identity: the checkout is the hosted repository of the Site, not a personal one.
-  const identity = ["-c", "user.name=GPT-Home Site", "-c", "user.email=gpt-home-site@users.noreply.github.com"];
+  const identity = ["-c", "user.name=Homie Site", "-c", "user.email=homie-site@users.noreply.github.com"];
   await runOrThrow("git", ["-C", CHECKOUT, ...identity, "commit", "--quiet", "-m", message]);
   return git(["rev-parse", "HEAD"]);
 }
@@ -300,7 +300,7 @@ async function packageWorker(archive) {
   const builtFile = join(CHECKOUT, "dist", ".openai", "hosting.json");
   const built = existsSync(builtFile) ? JSON.parse(await readFile(builtFile, "utf8")) : {};
   if (built.artifact_metadata != null) hosting.artifact_metadata = built.artifact_metadata;
-  const stage = await mkdtemp(join(tmpdir(), "gpt-home-package-"));
+  const stage = await mkdtemp(join(tmpdir(), "homie-package-"));
   try {
     await cp(join(CHECKOUT, "dist"), join(stage, "dist"), { recursive: true });
     await mkdir(join(stage, "dist", ".openai"), { recursive: true });
@@ -317,7 +317,7 @@ async function packageWorker(archive) {
 
 // The one model-driven step: only Codex's own tool layer uploads a local file to the Sites connector.
 async function publish(codex, projectId, commitSha, archive) {
-  const work = await mkdtemp(join(tmpdir(), "gpt-home-publish-"));
+  const work = await mkdtemp(join(tmpdir(), "homie-publish-"));
   try {
     const schema = join(work, "schema.json");
     const result = join(work, "result.json");
@@ -502,7 +502,7 @@ async function main() {
     if (server) await syncCheckout(await server.callTool("sites.create_source_repository_write_credential", { project_id: site.id }));
     log(`${await stageSource(site?.id)} files staged`);
     if (!server) await runOrThrow("git", ["-C", CHECKOUT, "init", "--quiet"]).catch(() => {});
-    const sha = (await commitRelease("GPT-Home Site")) ?? (await git(["rev-parse", "HEAD"]).catch(() => null));
+    const sha = (await commitRelease("Homie Site")) ?? (await git(["rev-parse", "HEAD"]).catch(() => null));
     log(sha ? `commit ${sha.slice(0, 7)}` : "nothing to commit");
     await build();
     const archive = join(dirname(CHECKOUT), "site.tgz");

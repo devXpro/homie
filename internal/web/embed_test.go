@@ -12,13 +12,13 @@ import (
 	"testing/fstest"
 )
 
-var bigJS = "console.log(" + strings.Repeat(`"gpt-home",`, 400) + ")"
+var bigJS = "console.log(" + strings.Repeat(`"homie",`, 400) + ")"
 
 func testFS() fstest.MapFS {
 	return fstest.MapFS{
 		"index.html":            {Data: []byte(`<!doctype html><html><head><script type="module" src="/admin/assets/index-abc.js"></script></head></html>`)},
 		"theme.js":              {Data: []byte(`document.documentElement.dataset.theme='dark'`)},
-		"manifest.webmanifest":  {Data: []byte(`{"name":"GPT-Home"}`)},
+		"manifest.webmanifest":  {Data: []byte(`{"name":"Homie"}`)},
 		"assets/index-abc.js":   {Data: []byte(bigJS)},
 		"assets/index-abc.css":  {Data: []byte(`body{margin:0}`)},
 		".gitkeep":              {Data: nil},
@@ -53,11 +53,11 @@ func TestRoutes(t *testing.T) {
 		{"lan first run", "/firstrun", 200, "text/html; charset=utf-8", "no-cache", "<!doctype html>"},
 		{"join", "/join", 200, "text/html; charset=utf-8", "no-cache", "<!doctype html>"},
 		{"explicit index", "/admin/index.html", 200, "text/html; charset=utf-8", "no-cache", "<!doctype html>"},
-		{"hashed js", "/admin/assets/index-abc.js", 200, "text/javascript; charset=utf-8", "public, max-age=31536000, immutable", "gpt-home"},
+		{"hashed js", "/admin/assets/index-abc.js", 200, "text/javascript; charset=utf-8", "public, max-age=31536000, immutable", "homie"},
 		{"hashed css", "/admin/assets/index-abc.css", 200, "text/css; charset=utf-8", "public, max-age=31536000, immutable", "margin"},
 		{"missing asset is not html", "/admin/assets/index-old.js", 404, "text/plain; charset=utf-8", "no-store", "not found"},
 		{"public file", "/admin/theme.js", 200, "text/javascript; charset=utf-8", "no-cache", "dataset.theme"},
-		{"manifest", "/admin/manifest.webmanifest", 200, "application/manifest+json", "no-cache", "GPT-Home"},
+		{"manifest", "/admin/manifest.webmanifest", 200, "application/manifest+json", "no-cache", "Homie"},
 		{"dotfile is never served", "/admin/.gitkeep", 200, "text/html; charset=utf-8", "no-cache", "<!doctype html>"},
 		{"hidden asset", "/admin/assets/.hidden-secret", 404, "text/plain; charset=utf-8", "no-store", "not found"},
 		{"traversal stays inside", "/admin/../../etc/passwd", 200, "text/html; charset=utf-8", "no-cache", "<!doctype html>"},

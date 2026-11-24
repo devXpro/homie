@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // Argument validation for admin tool calls with github.com/google/jsonschema-go (ADMIN-API §3.5). The library stops

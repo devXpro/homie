@@ -15,7 +15,7 @@ import (
 	"slices"
 	"sync/atomic"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // Prefix starts every person key.

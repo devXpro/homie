@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // connectingGrace: a disconnected relay counts as connecting this long after its last change (ADMIN-API §2).

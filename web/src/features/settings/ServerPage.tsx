@@ -72,7 +72,7 @@ export function ServerPage() {
   const tone = relayTone(look)
   return (
     <Page title={t('settings.server')} back={back}>
-      <div className={cn('gh-hero flex flex-col items-center rounded-xl px-5 py-6 text-center', TONE_STATUS[tone])}>
+      <div className={cn('homie-hero flex flex-col items-center rounded-xl px-5 py-6 text-center', TONE_STATUS[tone])}>
         <StatusOrb tone={tone} breathing={look === 'connecting'} />
         <p className="mt-3 type-title-2">{t(`relay.${look}`)}</p>
         {r.domain && <p className="mt-0.5 type-subheadline text-label-2">{r.domain}</p>}

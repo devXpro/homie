@@ -16,8 +16,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/keys"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/keys"
 )
 
 // Options configures the gateway.
@@ -27,7 +27,7 @@ type Options struct {
 	// Instructions returns the enabled plugins' instructions, appended to the hub preamble. It is read again every
 	// time the tool set changes, so it may follow plugins coming and going. Nil means none.
 	Instructions func() string
-	// InstanceID is sent as X-GPT-Home-Instance on every response; empty sends nothing.
+	// InstanceID is sent as X-Homie-Instance on every response; empty sends nothing.
 	InstanceID string
 	// Version is the hub version, the first half of the MCP serverInfo.version. Empty means "dev".
 	Version string
@@ -38,10 +38,10 @@ type Options struct {
 }
 
 const (
-	instanceHeader   = "X-GPT-Home-Instance"
+	instanceHeader   = "X-Homie-Instance"
 	defaultRateLimit = 120
 	maxBodyBytes     = 1 << 20
-	principalExtra   = "gpt-home/principal" // key of the principal in auth.TokenInfo.Extra
+	principalExtra   = "homie/principal" // key of the principal in auth.TokenInfo.Extra
 )
 
 // gateway is the http.Handler New returns.

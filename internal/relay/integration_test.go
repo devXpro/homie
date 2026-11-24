@@ -186,7 +186,7 @@ log.level = "info"
 			t.Fatal(err)
 		}
 	}
-	name := "gpthome-t03-frps-" + randomHex(t)[:8]
+	name := "homie-t03-frps-" + randomHex(t)[:8]
 	docker(t, "run", "-d", "--name", name, "-p", "127.0.0.1::7000", "-v", dir+":/etc/frp:ro", frpsImage, "-c", "/etc/frp/frps.toml")
 	t.Cleanup(func() {
 		if t.Failed() {

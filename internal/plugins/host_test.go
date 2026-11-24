@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // Binaries built once by TestMain.
@@ -34,7 +34,7 @@ func run(m *testing.M) int {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	fakeBin = filepath.Join(dir, "fakeplugin")
-	exampleBin = filepath.Join(dir, "gpt-echo")
+	exampleBin = filepath.Join(dir, "homie-echo")
 	for bin, pkg := range map[string]string{fakeBin: "./testdata/fakeplugin", exampleBin: "../../pluginkit/example"} {
 		out, err := exec.Command("go", "build", "-o", bin, pkg).CombinedOutput() //nolint:gosec // fixed test packages
 		if err != nil {
@@ -431,7 +431,7 @@ func TestStderrLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"fake plugin starting\n", "hello from stderr\n", "gpt-home: "} {
+	for _, want := range []string{"fake plugin starting\n", "hello from stderr\n", "homie: "} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("%s lacks %q:\n%s", path, want, b)
 		}
@@ -442,7 +442,7 @@ func TestStderrLog(t *testing.T) {
 }
 
 func TestEnvAndDataDir(t *testing.T) {
-	t.Setenv("GPT_HOME_TEST_LEAK", "secret")
+	t.Setenv("HOMIE_TEST_LEAK", "secret")
 	h, dataDir := newHost(t, fastTiming, fake())
 	waitUp(t, h, "fake")
 	res, err := h.Call(t.Context(), roman, "fake_env", nil)
@@ -463,18 +463,18 @@ func TestEnvAndDataDir(t *testing.T) {
 		env[k] = v
 	}
 	want := map[string]string{
-		"GPT_HOME_PLUGIN_ID":   "fake",
-		"GPT_HOME_DATA_DIR":    pluginDir,
-		"GPT_HOME_LOG_LEVEL":   "debug",
-		"GPT_HOME_HUB_VERSION": "test-version",
+		"HOMIE_PLUGIN_ID":   "fake",
+		"HOMIE_DATA_DIR":    pluginDir,
+		"HOMIE_LOG_LEVEL":   "debug",
+		"HOMIE_HUB_VERSION": "test-version",
 	}
 	for k, v := range want {
 		if env[k] != v {
 			t.Errorf("env %s = %q, want %q", k, env[k], v)
 		}
 	}
-	allowed := []string{"PATH", "HOME", "LANG", "TZ", "GPT_HOME_PLUGIN_ID", "GPT_HOME_DATA_DIR", "GPT_HOME_LOG_LEVEL",
-		"GPT_HOME_HUB_VERSION"}
+	allowed := []string{"PATH", "HOME", "LANG", "TZ", "HOMIE_PLUGIN_ID", "HOMIE_DATA_DIR", "HOMIE_LOG_LEVEL",
+		"HOMIE_HUB_VERSION"}
 	if runtime.GOOS == "darwin" {
 		allowed = append(allowed, "__CF_USER_TEXT_ENCODING") // added by macOS to every process
 	}
@@ -594,7 +594,7 @@ func TestNewValidation(t *testing.T) {
 			t.Errorf("%s: New succeeded", tt.name)
 		}
 	}
-	h, err := New([]Spec{{ID: "tv", Command: []string{"bin/gpt-tv"}}}, t.TempDir(), nil)
+	h, err := New([]Spec{{ID: "tv", Command: []string{"bin/homie-tv"}}}, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

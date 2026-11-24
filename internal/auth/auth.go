@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // Lifetimes (PLAN §5.8, ADMIN-API §1.3, §1.5, §3.2).
 const (
 	// CookieName is the session cookie: __Host- binds it to the exact origin, path / and Secure.
-	CookieName = "__Host-gh_session"
+	CookieName = "__Host-homie_session"
 	// IdleTimeout ends a session that made no request for this long.
 	IdleTimeout = 12 * time.Hour
 	// AbsoluteTimeout ends every session this long after sign-in.

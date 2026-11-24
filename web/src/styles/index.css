@@ -245,13 +245,13 @@
 }
 
 /* Row separators: a hairline inset 16 px, or 60 px after an icon tile (DESIGN.md §3.3). */
-.gh-row {
+.homie-row {
   position: relative;
 }
-.gh-row + .gh-row::before,
-.gh-row + .gh-sep::before,
-.gh-sep + .gh-row::before,
-.gh-sep + .gh-sep::before {
+.homie-row + .homie-row::before,
+.homie-row + .homie-sep::before,
+.homie-sep + .homie-row::before,
+.homie-sep + .homie-sep::before {
   content: '';
   position: absolute;
   top: 0;
@@ -260,21 +260,21 @@
   border-top: var(--hairline) solid var(--separator);
   pointer-events: none;
 }
-.gh-sep {
+.homie-sep {
   position: relative;
 }
 
 /* iOS spinner: 8 spokes turning in steps. Spinners keep turning with reduced motion: they carry meaning. */
-@keyframes gh-spin-steps {
+@keyframes homie-spin-steps {
   to {
     transform: rotate(360deg);
   }
 }
-.gh-spinner {
-  animation: gh-spin-steps 0.8s steps(8) infinite;
+.homie-spinner {
+  animation: homie-spin-steps 0.8s steps(8) infinite;
 }
 
-@keyframes gh-shimmer {
+@keyframes homie-shimmer {
   from {
     background-position: 150% 0;
   }
@@ -282,15 +282,15 @@
     background-position: -50% 0;
   }
 }
-.gh-skeleton {
+.homie-skeleton {
   background-color: var(--fill);
   background-image: linear-gradient(90deg, transparent 0%, var(--skeleton-shine) 50%, transparent 100%);
   background-size: 50% 100%;
   background-repeat: no-repeat;
-  animation: gh-shimmer 1.6s ease-in-out infinite;
+  animation: homie-shimmer 1.6s ease-in-out infinite;
 }
 
-@keyframes gh-breathe {
+@keyframes homie-breathe {
   from {
     transform: scale(1);
     opacity: 0.7;
@@ -300,11 +300,11 @@
     opacity: 1;
   }
 }
-.gh-breathe {
-  animation: gh-breathe 1.2s ease-in-out infinite alternate;
+.homie-breathe {
+  animation: homie-breathe 1.2s ease-in-out infinite alternate;
 }
 
-@keyframes gh-flash {
+@keyframes homie-flash {
   from {
     background-color: var(--accent-tint);
   }
@@ -312,12 +312,12 @@
     background-color: transparent;
   }
 }
-.gh-flash {
-  animation: gh-flash 1.2s ease-out;
+.homie-flash {
+  animation: homie-flash 1.2s ease-out;
 }
 
 /* Hero glow (DESIGN.md §3.1): the relay status colour mixed into the card. --status is set per state class. */
-.gh-hero {
+.homie-hero {
   background-color: var(--surface-1);
   background-image: radial-gradient(
     120% 90% at 50% 0%,
@@ -325,26 +325,26 @@
     transparent 70%
   );
 }
-.gh-status-success {
+.homie-status-success {
   --status: var(--success);
 }
-.gh-status-warning {
+.homie-status-warning {
   --status: var(--warning);
 }
-.gh-status-danger {
+.homie-status-danger {
   --status: var(--danger);
 }
-.gh-status-gray {
+.homie-status-gray {
   --status: var(--gray);
 }
 
-.gh-orb {
+.homie-orb {
   background: radial-gradient(circle at 35% 30%, color-mix(in srgb, white 45%, var(--status)) 0%, var(--status) 55%);
   box-shadow: 0 0 32px color-mix(in srgb, var(--status) 45%, transparent);
 }
 
 /* Range input styled as the iOS slider (DESIGN.md §6). --value is set through the CSSOM, which the CSP allows. */
-.gh-slider {
+.homie-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -352,22 +352,22 @@
   background: transparent;
   --value: 50%;
 }
-.gh-slider::-webkit-slider-runnable-track {
+.homie-slider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 9999px;
   background: linear-gradient(to right, var(--accent) var(--value), var(--fill) var(--value));
 }
-.gh-slider::-moz-range-track {
+.homie-slider::-moz-range-track {
   height: 4px;
   border-radius: 9999px;
   background: var(--fill);
 }
-.gh-slider::-moz-range-progress {
+.homie-slider::-moz-range-progress {
   height: 4px;
   border-radius: 9999px;
   background: var(--accent);
 }
-.gh-slider::-webkit-slider-thumb {
+.homie-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 28px;
@@ -379,7 +379,7 @@
     0 0.5px 4px rgba(0, 0, 0, 0.12),
     0 6px 13px rgba(0, 0, 0, 0.12);
 }
-.gh-slider::-moz-range-thumb {
+.homie-slider::-moz-range-thumb {
   width: 28px;
   height: 28px;
   border: 0;
@@ -391,9 +391,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gh-skeleton,
-  .gh-breathe,
-  .gh-flash {
+  .homie-skeleton,
+  .homie-breathe,
+  .homie-flash {
     animation: none;
   }
 }

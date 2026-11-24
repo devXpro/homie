@@ -49,14 +49,14 @@ function Harness({ tl, prefill, onArgs }: { tl: Tool; prefill?: FormValues; onAr
 }
 
 describe('SchemaForm', () => {
-  it('renders gpt-tv volume: device picker, slider with its value, Russian labels', async () => {
+  it('renders homie-tv volume: device picker, slider with its value, Russian labels', async () => {
     const user = userEvent.setup()
     let sent: Record<string, unknown> | undefined
     const tl = tool(
       {
         type: 'object',
         properties: {
-          tv: { type: 'string', 'x-gpt-home-ref': 'inventory', description: "The TV's id or name." },
+          tv: { type: 'string', 'x-homie-ref': 'inventory', description: "The TV's id or name." },
           percent: { type: 'integer', minimum: 0, maximum: 100 },
         },
         required: ['percent'],
@@ -79,7 +79,7 @@ describe('SchemaForm', () => {
   it('"Другое…" opens a free field for a device that is not listed', async () => {
     const user = userEvent.setup()
     let sent: Record<string, unknown> | undefined
-    const tl = tool({ type: 'object', properties: { tv: { type: 'string', 'x-gpt-home-ref': 'inventory' } }, required: ['tv'] }, { target: 'tv' })
+    const tl = tool({ type: 'object', properties: { tv: { type: 'string', 'x-homie-ref': 'inventory' } }, required: ['tv'] }, { target: 'tv' })
     render(<Harness tl={tl} onArgs={(a) => (sent = a)} />)
     await user.selectOptions(screen.getByRole('combobox'), '\u0000other')
     await user.type(screen.getByRole('textbox', { name: 'Своё значение' }), 'Kitchen TV')

@@ -1,11 +1,11 @@
 # Install the relay server
 
-The relay is the only public part of GPT-Home: Caddy for TLS and frps to hand the traffic to your home box. It keeps
+The relay is the only public part of Homie: Caddy for TLS and frps to hand the traffic to your home box. It keeps
 no keys, no admin, no plugins and no database — just a domain, a certificate and one secret token. Your home box dials
 **out** to it, so the home needs no open port, no router setup and no static IP.
 
 ```
-ChatGPT ──https──▶ Caddy :443 ──▶ gpt-home-frps :7000 ◀══ wss :443 (opened by the home box) ══ homed
+ChatGPT ──https──▶ Caddy :443 ──▶ homie-frps :7000 ◀══ wss :443 (opened by the home box) ══ homed
                   one domain      one port, not published
 ```
 
@@ -62,7 +62,7 @@ docker compose version
 ## 3. Run the installer
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
   | sudo bash -s -- --domain home.example.com
 ```
 
@@ -70,7 +70,7 @@ It is safe to pipe: everything runs inside one function called on the last line,
 nothing. Prefer to read it first?
 
 ```sh
-curl -fsSLo server.sh https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh
+curl -fsSLo server.sh https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh
 less server.sh
 sudo bash server.sh --domain home.example.com
 ```
@@ -81,7 +81,7 @@ What it does:
 2. **DNS check:** the domain's A records must include one of this server's addresses. On a mismatch it explains and
    asks whether to continue (with `--yes` it stops instead).
 3. **Mode:** *standalone* if nothing listens on 80 and 443, otherwise *behind-proxy* (see below).
-4. **Files** in `/opt/gpt-home-relay`: the compose file, `frps.toml`, the offline page, `.env`, the Caddyfile
+4. **Files** in `/opt/homie-relay`: the compose file, `frps.toml`, the offline page, `.env`, the Caddyfile
    (standalone) and `token` — 64 random hex characters, mode `0600`, kept across reruns.
 5. `docker compose up -d`.
 6. **Standalone:** waits up to two minutes for Let's Encrypt and a TLS handshake on `https://<domain>`.
@@ -103,17 +103,17 @@ that means the relay works.
 
 ### Standalone (the default on a fresh server)
 
-The compose file runs two containers: `gpt-home-caddy` (owns 80, 443 and 443/udp; certificates from Let's Encrypt)
-and `gpt-home-frps` (no published port). Nothing else to do.
+The compose file runs two containers: `homie-caddy` (owns 80, 443 and 443/udp; certificates from Let's Encrypt)
+and `homie-frps` (no published port). Nothing else to do.
 
 ### Behind an existing proxy
 
-When something already listens on 80 or 443, the installer runs only `gpt-home-frps` and attaches it to your proxy's
+When something already listens on 80 or 443, the installer runs only `homie-frps` and attaches it to your proxy's
 Docker network (`--network`, default `proxy`). Your proxy keeps TLS; you add one site that forwards the domain to
-`gpt-home-frps:7000`. Force the mode with `--mode behind-proxy`:
+`homie-frps:7000`. Force the mode with `--mode behind-proxy`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
   | sudo bash -s -- --domain home.example.com --mode behind-proxy --network proxy
 ```
 
@@ -124,7 +124,7 @@ The network must exist (`docker network ls`) and your proxy must be on it.
 
 ```
 home.example.com {
-	reverse_proxy gpt-home-frps:7000 {
+	reverse_proxy homie-frps:7000 {
 		stream_close_delay 30m
 	}
 }
@@ -166,12 +166,12 @@ server {
 	# ssl_certificate / ssl_certificate_key ...
 
 	resolver 127.0.0.11 valid=10s;                     # Docker's DNS: nginx starts even when frps is down
-	set $gpt_home_upstream http://gpt-home-frps:7000;
+	set $homie_upstream http://homie-frps:7000;
 
 	client_max_body_size 50m;
 
 	location / {
-		proxy_pass $gpt_home_upstream;
+		proxy_pass $homie_upstream;
 		proxy_http_version 1.1;
 		proxy_set_header Host $host;
 		proxy_set_header X-Real-IP $remote_addr;
@@ -194,7 +194,7 @@ server {
 <details>
 <summary><b>Traefik</b></summary>
 
-Put labels on the frps service in `/opt/gpt-home-relay/docker-compose.override.yml` (the installer leaves that file
+Put labels on the frps service in `/opt/homie-relay/docker-compose.override.yml` (the installer leaves that file
 alone), then rerun the installer or `docker compose up -d` in that directory:
 
 ```yaml
@@ -203,10 +203,10 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.gpt-home.rule=Host(`home.example.com`)
-      - traefik.http.routers.gpt-home.entrypoints=websecure
-      - traefik.http.routers.gpt-home.tls.certresolver=letsencrypt
-      - traefik.http.services.gpt-home.loadbalancer.server.port=7000
+      - traefik.http.routers.homie.rule=Host(`home.example.com`)
+      - traefik.http.routers.homie.entrypoints=websecure
+      - traefik.http.routers.homie.tls.certresolver=letsencrypt
+      - traefik.http.services.homie.loadbalancer.server.port=7000
 ```
 
 Adjust `proxy`, `websecure` and `letsencrypt` to your setup, and keep rate-limit or buffering middlewares off this
@@ -220,16 +220,16 @@ router: the home's channel is one long request. Full notes: [relay/snippets/trae
 Create a network for frps, install behind it, and publish frps on the loopback only with an override file:
 
 ```sh
-sudo docker network create gpt-home
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
-  | sudo bash -s -- --domain home.example.com --mode behind-proxy --network gpt-home
-sudo tee /opt/gpt-home-relay/docker-compose.override.yml >/dev/null <<'EOF'
+sudo docker network create homie
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
+  | sudo bash -s -- --domain home.example.com --mode behind-proxy --network homie
+sudo tee /opt/homie-relay/docker-compose.override.yml >/dev/null <<'EOF'
 services:
   frps:
     ports:
       - "127.0.0.1:7000:7000"
 EOF
-sudo docker compose -f /opt/gpt-home-relay/docker-compose.yml -f /opt/gpt-home-relay/docker-compose.override.yml up -d
+sudo docker compose -f /opt/homie-relay/docker-compose.yml -f /opt/homie-relay/docker-compose.override.yml up -d
 ```
 
 Then point your proxy at `http://127.0.0.1:7000` with the same settings as the nginx block above.
@@ -254,7 +254,7 @@ Paste the code, press Enter. Or paste it into the first-run page in the browser.
 ### Show the connect code again
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh | sudo bash -s -- --print-code
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh | sudo bash -s -- --print-code
 ```
 
 (`--dir` if you installed elsewhere.)
@@ -280,7 +280,7 @@ publishes ports through its own iptables rules, so `ufw` alone may not reflect w
 
 ## Operations
 
-All commands below take `--dir` if you did not install into `/opt/gpt-home-relay`. Running the installer from the
+All commands below take `--dir` if you did not install into `/opt/homie-relay`. Running the installer from the
 saved file works the same as piping it: `sudo bash server.sh …`.
 
 ### Rotate the token
@@ -289,7 +289,7 @@ Do it whenever the connect code or the token may have been seen: a pasted chat, 
 backup of the home data dir, someone who should no longer have it.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh | sudo bash -s -- --rotate-token
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh | sudo bash -s -- --rotate-token
 ```
 
 frps restarts with the new token and the new connect code is printed. The home box disconnects at once; give it the
@@ -303,30 +303,30 @@ Rerun the installer. It keeps the token, rewrites only the files that changed (p
 restarts only what needs it.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
   | sudo bash -s -- --domain home.example.com
 ```
 
 ### Uninstall
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh | sudo bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh | sudo bash -s -- --uninstall
 ```
 
 It stops and removes the containers and deletes the installed files. The Caddy certificate volumes are kept, because
 Let's Encrypt limits reissuance; remove them with
-`sudo docker volume rm gpt-home-relay_caddy_data gpt-home-relay_caddy_config`. Behind a proxy, also remove the site
+`sudo docker volume rm homie-relay_caddy_data homie-relay_caddy_config`. Behind a proxy, also remove the site
 block from your proxy.
 
 ### Logs and files
 
 ```sh
-sudo docker compose -f /opt/gpt-home-relay/docker-compose.yml ps
-sudo docker compose -f /opt/gpt-home-relay/docker-compose.yml logs -f frps
-sudo docker compose -f /opt/gpt-home-relay/docker-compose.yml logs -f caddy      # standalone
+sudo docker compose -f /opt/homie-relay/docker-compose.yml ps
+sudo docker compose -f /opt/homie-relay/docker-compose.yml logs -f frps
+sudo docker compose -f /opt/homie-relay/docker-compose.yml logs -f caddy      # standalone
 ```
 
-`/opt/gpt-home-relay/` holds `docker-compose.yml`, `.env`, `frps.toml`, `offline.html`, `token` (0600) and, standalone,
+`/opt/homie-relay/` holds `docker-compose.yml`, `.env`, `frps.toml`, `offline.html`, `token` (0600) and, standalone,
 `Caddyfile`.
 
 ## Installer options
@@ -336,14 +336,14 @@ sudo docker compose -f /opt/gpt-home-relay/docker-compose.yml logs -f caddy     
 | `--domain D` | the relay's domain (asked for when missing) |
 | `--mode M` | `auto` (default), `standalone` (own Caddy on 80/443) or `behind-proxy` (frps only) |
 | `--network NAME` | behind-proxy: the proxy's Docker network (default `proxy`) |
-| `--dir PATH` | install directory (default `/opt/gpt-home-relay`) |
+| `--dir PATH` | install directory (default `/opt/homie-relay`) |
 | `--rotate-token` | generate a new token; home boxes must connect again |
 | `--print-code` | print the connect code of an existing install and exit |
 | `--uninstall` | stop the containers and remove the installed files |
 | `--yes` | ask nothing (a failed DNS check then stops the install) |
 | `--skip-dns-check` | skip the DNS check (tests) |
 
-Environment: `GPT_HOME_REF` picks the git ref the relay files are downloaded from (default `main`).
+Environment: `HOMIE_REF` picks the git ref the relay files are downloaded from (default `main`).
 
 How the relay works inside — the single frps port, `stream_close_delay`, the token, the home client's TLS settings:
 [RELAY.md](RELAY.md). What the server can and cannot see: [SECURITY.md](SECURITY.md#the-relay-server). Problems:

@@ -3,7 +3,7 @@
 (function () {
   var pref = 'dark';
   try {
-    pref = window.localStorage.getItem('gh.theme') || 'dark';
+    pref = window.localStorage.getItem('homie.theme') || 'dark';
   } catch (e) {
     pref = 'dark';
   }

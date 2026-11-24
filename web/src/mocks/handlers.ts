@@ -1,5 +1,5 @@
 // MSW handlers for the whole admin API (docs/ADMIN-API.md §3–§5): sessions, step-up, CSRF, plugins with a fake
-// gpt-tv, calls with progress, jobs, the audit log, settings, relay, the SSE stream and the LAN first-run API.
+// homie-tv, calls with progress, jobs, the audit log, settings, relay, the SSE stream and the LAN first-run API.
 
 import { Validator, type Schema } from '@cfworker/json-schema'
 import { delay, http, HttpResponse, sse } from 'msw'
@@ -39,8 +39,8 @@ interface MockConfig {
   slow: boolean
 }
 
-const CONFIG_KEY = 'gh.mock'
-const SIGNED_KEY = 'gh.mock.signedIn'
+const CONFIG_KEY = 'homie.mock'
+const SIGNED_KEY = 'homie.mock.signedIn'
 
 function readConfig(): MockConfig {
   const q = new URLSearchParams(window.location.search)
@@ -156,7 +156,7 @@ function summary(p: MockPlugin): PluginSummary {
 
 function detail(p: MockPlugin): PluginDetail {
   const { tools: _counts, ...rest } = summary(p)
-  return { ...rest, instructions: p.instructions, command: [`/Users/devxpro/Library/Application Support/gpt-home/plugins/${p.summary.id}/bin/${p.summary.version}/gpt-${p.summary.id}`, 'serve'], tools: p.tools }
+  return { ...rest, instructions: p.instructions, command: [`/Users/devxpro/Library/Application Support/homie/plugins/${p.summary.id}/bin/${p.summary.version}/homie-${p.summary.id}`, 'serve'], tools: p.tools }
 }
 
 function emitPlugin(p: MockPlugin) {
@@ -181,7 +181,7 @@ function redact(args: Record<string, unknown>) {
   return out
 }
 
-// ---------------------------------------------------------------- the fake gpt-tv
+// ---------------------------------------------------------------- the fake homie-tv
 
 interface Ctx {
   progress: (message: string, ru: string, progress?: number, total?: number) => void
@@ -196,7 +196,7 @@ interface Outcome {
 
 function pick(p: MockPlugin, ref: unknown): MockTV | Outcome {
   const r = typeof ref === 'string' ? ref.trim() : ''
-  if (p.tvs.length === 0) return { ok: false, text: 'No TV is set up yet. Add one in the GPT-Home admin.' }
+  if (p.tvs.length === 0) return { ok: false, text: 'No TV is set up yet. Add one in the Homie admin.' }
   if (!r) {
     if (p.tvs.length === 1) return p.tvs[0]
     return { ok: false, text: `Which TV? Set tv to one of: ${p.tvs.map((t) => `"${t.id}" (${t.name})`).join(', ')}.` }
@@ -225,7 +225,7 @@ async function runTv(name: string, args: Record<string, unknown>, p: MockPlugin,
       const t = pick(p, args.tv)
       if (!isTV(t)) return t
       await ctx.sleep(ms(700))
-      if (!t.paired) return { ok: false, text: `${t.name} is not paired with GPT-Home yet. Pair it in the GPT-Home admin, then try again.` }
+      if (!t.paired) return { ok: false, text: `${t.name} is not paired with Homie yet. Pair it in the Homie admin, then try again.` }
       t.power = 'off'
       return { ok: true, text: `${t.name} is off.`, structured: { tv: t.id, state: 'off' } }
     }
@@ -408,12 +408,12 @@ function previewOf(repo: string): PluginPreview | undefined {
     return p ? { installed: { version: p.summary.version } } : {}
   }
   switch (repo.toLowerCase()) {
-    case 'devxpro/gpt-tv':
-      return { repo: 'devXpro/gpt-tv', id: 'tv', title: 'TV', description: 'LG webOS TVs: power, volume, inputs.', version: '0.2.0', publishedAt: iso(3 * 86400_000), homepage: 'https://github.com/devXpro/gpt-tv', minHubVersion: '0.2.0', compatible: true, assetFound: true, ...installed('tv') }
-    case 'someone/gpt-kettle':
-      return { repo: 'someone/gpt-kettle', id: 'kettle', title: 'Kettle', description: 'Xiaomi smart kettles: boil, keep warm, temperature.', version: '1.4.0', publishedAt: iso(20 * 86400_000), homepage: 'https://github.com/someone/gpt-kettle', minHubVersion: '0.4.0', compatible: false, assetFound: true }
-    case 'someone/gpt-vacuum':
-      return { repo: 'someone/gpt-vacuum', id: 'vacuum', title: 'Vacuum', description: 'Robot vacuums: start, stop, clean a room.', version: '0.1.0', publishedAt: iso(40 * 86400_000), minHubVersion: '0.2.0', compatible: true, assetFound: false }
+    case 'devxpro/homie-tv':
+      return { repo: 'devXpro/homie-tv', id: 'tv', title: 'TV', description: 'LG webOS TVs: power, volume, inputs.', version: '0.2.0', publishedAt: iso(3 * 86400_000), homepage: 'https://github.com/devXpro/homie-tv', minHubVersion: '0.2.0', compatible: true, assetFound: true, ...installed('tv') }
+    case 'someone/homie-kettle':
+      return { repo: 'someone/homie-kettle', id: 'kettle', title: 'Kettle', description: 'Xiaomi smart kettles: boil, keep warm, temperature.', version: '1.4.0', publishedAt: iso(20 * 86400_000), homepage: 'https://github.com/someone/homie-kettle', minHubVersion: '0.4.0', compatible: false, assetFound: true }
+    case 'someone/homie-vacuum':
+      return { repo: 'someone/homie-vacuum', id: 'vacuum', title: 'Vacuum', description: 'Robot vacuums: start, stop, clean a room.', version: '0.1.0', publishedAt: iso(40 * 86400_000), minHubVersion: '0.2.0', compatible: true, assetFound: false }
   }
   return undefined
 }
@@ -425,7 +425,7 @@ const pendingNames = new Map<string, { personName?: string; homeName?: string }>
 
 function creationOptions(name: string) {
   return {
-    rp: { name: 'GPT-Home', id: window.location.hostname },
+    rp: { name: 'Homie', id: window.location.hostname },
     user: { id: randomB64(16), name, displayName: name },
     challenge: randomB64(32),
     pubKeyCredParams: [
@@ -451,8 +451,8 @@ export const handlers = [
   // The home is offline: the relay's HTML 404 for every admin call (DESIGN.md §8.12.1).
   http.all(`${A}/*`, ({ request }) => {
     if (db.offline) return offlinePage()
-    if (request.method !== 'GET' && request.headers.get('X-GPT-Home') !== '1') {
-      return fail(403, 'csrf_failed', 'missing X-GPT-Home header')
+    if (request.method !== 'GET' && request.headers.get('X-Homie') !== '1') {
+      return fail(403, 'csrf_failed', 'missing X-Homie header')
     }
     return undefined
   }),
@@ -531,12 +531,12 @@ export const handlers = [
   }),
   http.post(`${A}/auth/login/begin`, async () => {
     await delay(120)
-    if (localStorage.getItem('gh.mock.loginRate') === '1') return fail(429, 'rate_limited', 'too many sign-ins', {}, { 'Retry-After': '30' })
+    if (localStorage.getItem('homie.mock.loginRate') === '1') return fail(429, 'rate_limited', 'too many sign-ins', {}, { 'Retry-After': '30' })
     return HttpResponse.json({ ceremonyId: `cer_${rand()}`, publicKey: requestOptions() })
   }),
   http.post(`${A}/auth/login/finish`, async () => {
     await delay(250)
-    if (localStorage.getItem('gh.mock.loginFail') === '1') return fail(401, 'login_failed', 'no such passkey')
+    if (localStorage.getItem('homie.mock.loginFail') === '1') return fail(401, 'login_failed', 'no such passkey')
     setSignedIn(true)
     db.ownerReady = true
     db.stepUpUntil = Date.now() + 5 * 60_000
@@ -679,8 +679,8 @@ export const handlers = [
     await delay(200)
     if (!pv) return fail(404, 'not_found', 'no such repo')
     if (plugin(pv.id)) return fail(409, 'conflict', `plugin id ${pv.id} is taken`)
-    const job = startJob('plugin.install', pv.id, `gpt-${pv.id} ${pv.version}`, () => {
-      const p = pv.id === 'tv' ? tvPlugin([], { since: new Date().toISOString(), devices: 0 }) : tvPlugin([], { id: pv.id, name: `gpt-${pv.id}`, title: pv.title })
+    const job = startJob('plugin.install', pv.id, `homie-${pv.id} ${pv.version}`, () => {
+      const p = pv.id === 'tv' ? tvPlugin([], { since: new Date().toISOString(), devices: 0 }) : tvPlugin([], { id: pv.id, name: `homie-${pv.id}`, title: pv.title })
       db.plugins.push(p)
       emitPlugin(p)
       audit({ kind: 'admin', person: { id: db.person.id, name: db.person.name }, via: 'admin', action: 'plugin.install', target: pv.id, ok: true, durationMs: 0 })
@@ -750,7 +750,7 @@ export const handlers = [
     if (!p) return fail(404, 'not_found', 'no such plugin')
     const latest = p.summary.update?.latest ?? p.summary.version
     await delay(200)
-    const job = startJob('plugin.update', p.summary.id, `gpt-${p.summary.id} ${latest}`, () => {
+    const job = startJob('plugin.update', p.summary.id, `homie-${p.summary.id} ${latest}`, () => {
       p.summary.version = latest
       delete p.summary.update
       p.summary.state = 'up'
@@ -967,7 +967,7 @@ export const handlers = [
     const latest = db.system.update?.latest
     if (!latest) return fail(409, 'conflict', 'no update')
     await delay(200)
-    const job = startJob('hub.update', undefined, `gpt-home ${latest}`, () => {
+    const job = startJob('hub.update', undefined, `homie ${latest}`, () => {
       db.system = { ...db.system, version: latest, startedAt: new Date().toISOString() }
       delete db.system.update
     })
@@ -980,7 +980,7 @@ export const handlers = [
   http.all('/api/firstrun/*', ({ request }) => {
     if (db.firstrun.done) return fail(410, 'setup_done', 'the home has an owner')
     if (db.firstrun.closed) return fail(410, 'setup_closed', 'the setup page is closed; open it again with homed admin firstrun')
-    if (request.method !== 'GET' && request.headers.get('X-GPT-Home') !== '1') return fail(403, 'csrf_failed', 'missing X-GPT-Home header')
+    if (request.method !== 'GET' && request.headers.get('X-Homie') !== '1') return fail(403, 'csrf_failed', 'missing X-Homie header')
     return undefined
   }),
   http.get('/api/firstrun/state', async () => {

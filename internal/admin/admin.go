@@ -19,10 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/plugins"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // Principal is the person behind a request, with the times of their session.
@@ -39,7 +39,7 @@ var ErrUnauthenticated = errors.New("admin: no valid session")
 
 // Auth is what the admin API needs from internal/auth (T2.2). T2.6 adapts the auth package to it.
 type Auth interface {
-	// Authenticate returns the principal of the request's session cookie (__Host-gh_session), or ErrUnauthenticated
+	// Authenticate returns the principal of the request's session cookie (__Host-homie_session), or ErrUnauthenticated
 	// when there is none or it expired. It owns the expiry policy and may touch the session's LastSeenAt.
 	Authenticate(r *http.Request) (Principal, error)
 }
@@ -95,7 +95,7 @@ type JobReport struct {
 	Step    string // one of the job's steps; empty keeps the current one
 	Done    int64  // bytes or items done; with Total, shown as progress
 	Total   int64
-	Message string // short English text, e.g. "gpt-tv 0.2.0"
+	Message string // short English text, e.g. "homie-tv 0.2.0"
 }
 
 // Reporter receives a job's progress. It is safe to call from any goroutine.
@@ -113,7 +113,7 @@ func (e *JobError) Error() string { return e.Code + ": " + e.Message }
 // ErrNotFound is what an Installer returns from Preview when the repo or release does not exist.
 var ErrNotFound = errors.New("admin: not found")
 
-// PluginPreview is the GET /plugins/preview answer, built from a release's gpt-home-plugin.json.
+// PluginPreview is the GET /plugins/preview answer, built from a release's homie-plugin.json.
 type PluginPreview struct {
 	Repo          string     `json:"repo"`
 	ID            string     `json:"id"`
@@ -181,7 +181,7 @@ type Options struct {
 	// OriginFunc, when set, replaces Origin and is read on every request, like the passkey relying party: a relay
 	// connected while homed runs (the first-run page, `homed relay connect`) is the admin's origin at once.
 	OriginFunc func() string
-	// InstanceID goes into X-GPT-Home-Instance on every response; empty sends nothing.
+	// InstanceID goes into X-Homie-Instance on every response; empty sends nothing.
 	InstanceID string
 	Version    string // hub version, e.g. "0.2.0"; empty means "dev"
 	Commit     string

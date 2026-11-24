@@ -53,7 +53,7 @@ export function AboutPage() {
     <Page title={t('settings.about')} back={{ to: '/admin/settings', label: t('settings.title') }}>
       <div className="flex flex-col items-center pt-2 pb-8 text-center">
         <AppIcon size={64} />
-        <h2 className="mt-3 type-title-2">GPT-Home</h2>
+        <h2 className="mt-3 type-title-2">Homie</h2>
         {s ? (
           <p className="mt-1 font-mono text-[13px] leading-[18px] text-label-2">
             {s.version} · {s.commit} · {s.os}/{s.arch}

@@ -6,7 +6,7 @@
 // # Release conventions (PLAN §5.1)
 //
 // A plugin release holds GoReleaser archives <binary>_<version>_<os>_<arch>.tar.gz (version without the "v"; 32-bit
-// ARM is tried as armv7, armv6, arm), a checksums.txt ("<sha256>  <name>"), and gpt-home-plugin.json:
+// ARM is tried as armv7, armv6, arm), a checksums.txt ("<sha256>  <name>"), and homie-plugin.json:
 // {"id","title","description","binary","args":["serve"],"minHubVersion","homepage"}. A homed release has the same
 // archives for the binary "homed" and checksums.txt, but no manifest. Archives may be flat or wrapped in a single
 // directory.
@@ -16,8 +16,8 @@
 //	cl := install.NewClient(install.TokenFromEnv())
 //	in := &install.Installer{Client: cl, DataDir: dataDir, HubVersion: hubVersion}
 //
-//	cand, err := in.Resolve(ctx, "devXpro/gpt-tv", "latest")     // GET /plugins/preview: release, manifest, asset?, compatible?
-//	got, err  := in.Install(ctx, "devXpro/gpt-tv", "", "tv", h)  // POST /plugins           (job plugin.install)
+//	cand, err := in.Resolve(ctx, "devXpro/homie-tv", "latest")     // GET /plugins/preview: release, manifest, asset?, compatible?
+//	got, err  := in.Install(ctx, "devXpro/homie-tv", "", "tv", h)  // POST /plugins           (job plugin.install)
 //	got, err  := in.Update(ctx, "tv", repo, current, "", false, h) // POST /plugins/{id}/update (job plugin.update)
 //	err       := in.Remove("tv", keepData)                       // DELETE /plugins/{id}     (after the plugin stopped)
 //	got, err  := in.Locate("tv", "0.2.0")                        // read an installed version back, offline

@@ -1,4 +1,4 @@
-# GPT-Home — implementation plan
+# Homie — implementation plan
 
 Architecture approved by Roman on 2026-11-15. This file is the execution plan for the orchestrator (the main Claude
 session) and the subagents it launches. Every task card in §7 is self-contained once sections 2–6 and 9 are read.
@@ -22,7 +22,7 @@ session) and the subagents it launches. Every task card in §7 is self-contained
 
 ## 1. Goal and non-goals
 
-GPT-Home is an LLM-first home hub. ChatGPT (voice and chat) controls home devices through a self-hosted relay. Every
+Homie is an LLM-first home hub. ChatGPT (voice and chat) controls home devices through a self-hosted relay. Every
 device family is a plugin. The admin is iPhone-grade, and the whole thing installs in minutes. The first device is an
 LG webOS TV.
 
@@ -42,11 +42,11 @@ It must stay light, so these are **non-goals**:
 | Domain | Mandatory, with an A record. Roman's is `homie.jobbyjobs.work` → `169.40.15.46`, DNS-only (grey cloud), already in place. One name serves both the frpc channel (`/~!frp`) and the public traffic. |
 | Server role | A dumb relay: Caddy + frps only. No keys, no admin, no plugins, no database. |
 | Home role | `homed` (the hub) holds everything: admin, passkeys, people and keys, audit, plugins, the relay client. |
-| Plugins | Separate executables at home. They speak MCP over stdio to the hub, can be in any language, and are released from their own repos. The first one is `gpt-tv`. |
+| Plugins | Separate executables at home. They speak MCP over stdio to the hub, can be in any language, and are released from their own repos. The first one is `homie-tv`. |
 | ChatGPT side | Every person gets their own "home" plugin, named by Roman (e.g. «Мой шалаш»). Path **B** is a ChatGPT Site in that person's account calling the hub's REST façade; it is the proven pattern from librus-gpt. Path **A** is a custom MCP plugin added by URL, plus OAuth. T0.5 picks the primary path; the other stays the fallback. |
 | Admin | React + Vite + TypeScript + Tailwind + shadcn/ui + motion. Dark by default. The UX is iPhone-like: few sections, one action per screen, human words. It ships in Russian and English, is embedded in the `homed` binary and is served at `https://<domain>/admin`. |
 | Admin login | Passkeys (WebAuthn: Touch ID / Face ID), verified at home. The first passkey comes only from a one-time link the home box shows locally. Dangerous actions need a fresh passkey assertion (step-up). |
-| Repos | `devXpro/gpt-home` (public: hub, relay, admin, Site template, installers, docs) and `devXpro/gpt-tv` (public: plugin). No secrets in either. |
+| Repos | `devXpro/homie` (public: hub, relay, admin, Site template, installers, docs) and `devXpro/homie-tv` (public: plugin). No secrets in either. |
 | Install | Server: one command on a Docker VPS. One question (the domain); standalone, or behind an existing proxy. Home: Homebrew (Mac), a one-line script (Raspberry Pi / Linux), or a Docker image (NAS). A browser wizard follows. |
 
 ## 3. Architecture
@@ -57,7 +57,7 @@ ChatGPT (Roman / Tanya; voice and chat)
   │  path A: custom plugin   → MCP /mcp + OAuth (phase 3, only if chosen)
   ▼
 https://homie.jobbyjobs.work
-jobby: shared Caddy (TLS, Let's Encrypt) → gpt-home-frps:7000
+jobby: shared Caddy (TLS, Let's Encrypt) → homie-frps:7000
                                             ├─ "GET /~!frp…" → the frpc channel from home (token auth)
                                             └─ everything else → over that channel to homed
   ┆ one persistent wss connection, opened BY the home box
@@ -67,8 +67,8 @@ home box (Mac now, Raspberry Pi later): homed, 127.0.0.1:8080
   ├─ /admin, /api/admin/…  admin SPA and API (passkey sessions)      [phase 2]
   ├─ /join/{token}    invite wizard for family members               [phase 3]
   ├─ /healthz         {"ok":true}
-  └─ plugin host ── stdio MCP ──▶ gpt-tv serve ──LAN──▶ LG TV
-                               └▶ gpt-kettle serve … (future)
+  └─ plugin host ── stdio MCP ──▶ homie-tv serve ──LAN──▶ LG TV
+                               └▶ homie-kettle serve … (future)
 ```
 
 **Assistant call (path B)**
@@ -91,7 +91,7 @@ Plugins are not reachable from the network, only through the hub.
 Local working copies live in `/Users/devxpro/projects/family/`.
 
 ```
-gpt-home/                      module github.com/devXpro/gpt-home
+homie/                      module github.com/devXpro/homie
   cmd/homed/                   hub daemon + CLI
   internal/hub/                shared types and interfaces (§5.3), written in T0.0, changed only by the orchestrator
   internal/config/             homed.yaml, data dir (§5.6)
@@ -115,12 +115,12 @@ gpt-home/                      module github.com/devXpro/gpt-home
                                TESTING.md, research/
   .github/workflows/  .golangci.yml  .goreleaser.yaml  Makefile  LICENSE  README.md
 
-gpt-tv/                        module github.com/devXpro/gpt-tv  (GitHub repo exists, empty; local code uncommitted)
-  cmd/gpt-tv/                  `gpt-tv serve` (MCP stdio), `gpt-tv discover` (debug)
+homie-tv/                        module github.com/devXpro/homie-tv  (GitHub repo exists, empty; local code uncommitted)
+  cmd/homie-tv/                  `homie-tv serve` (MCP stdio), `homie-tv discover` (debug)
   tv/                          brand-neutral TV interface + Input type (exists, tested)
   provider/lgwebos/            LG webOS SSAP client (exists, NOT compiled yet, no tests yet)
   internal/wol/                Wake-on-LAN (exists, tested)
-  internal/store/              tvs.json in GPT_HOME_DATA_DIR
+  internal/store/              tvs.json in HOMIE_DATA_DIR
   internal/discovery/          SSDP + UPnP description + ARP
   internal/config, internal/keychain   (exist; to be DELETED, replaced by the store)
   docs/families/lg-webos.md
@@ -133,8 +133,8 @@ gpt-tv/                        module github.com/devXpro/gpt-tv  (GitHub repo ex
 **Process**
 - The hub starts `command[0] command[1:]…` (default args `["serve"]`) with these settings:
   - cwd = the plugin data dir;
-  - a minimal env (`PATH`, `HOME`, `LANG`, `TZ`) plus `GPT_HOME_PLUGIN_ID`, `GPT_HOME_DATA_DIR` (per plugin,
-    persistent, mode 0700), `GPT_HOME_LOG_LEVEL` (`debug|info|warn|error`) and `GPT_HOME_HUB_VERSION`.
+  - a minimal env (`PATH`, `HOME`, `LANG`, `TZ`) plus `HOMIE_PLUGIN_ID`, `HOMIE_DATA_DIR` (per plugin,
+    persistent, mode 0700), `HOMIE_LOG_LEVEL` (`debug|info|warn|error`) and `HOMIE_HUB_VERSION`.
 - stdin/stdout carry MCP over stdio: newline-delimited JSON-RPC, the protocol version the official go-sdk v1.8.0
   negotiates.
 - stderr is the plugin's log. The hub keeps the last 1000 lines in memory and in `<data_dir>/logs/<id>.log`
@@ -142,7 +142,7 @@ gpt-tv/                        module github.com/devXpro/gpt-tv  (GitHub repo ex
 
 **Identity**
 - Plugin id: `^[a-z][a-z0-9]{1,15}$`, e.g. `tv`, `kettle`.
-- `initialize` → `serverInfo.name` = the repo or binary name (`gpt-tv`), `serverInfo.title` = a human name ("TV"),
+- `initialize` → `serverInfo.name` = the repo or binary name (`homie-tv`), `serverInfo.title` = a human name ("TV"),
   `serverInfo.version` = semver.
 - Optional `instructions`: short English guidance for the model. The hub merges them into its own instructions.
 
@@ -153,23 +153,23 @@ gpt-tv/                        module github.com/devXpro/gpt-tv  (GitHub repo ex
 - Annotations follow MCP: `readOnlyHint: true` on every tool that changes nothing; `destructiveHint` and
   `idempotentHint` where they apply.
 - `_meta` keys the hub understands (all optional):
-  - `"gpt-home/audience": "admin"` — hidden from assistants; shown in the admin UI and the CLI. The default is
+  - `"homie/audience": "admin"` — hidden from assistants; shown in the admin UI and the CLI. The default is
     `"assistant"`.
-  - `"gpt-home/timeout": <seconds>` — the hub-side call timeout. Default 30, maximum 300. Pairing flows use 180.
-  - `"gpt-home/role": "inventory"` — on at most one read-only tool. It returns
+  - `"homie/timeout": <seconds>` — the hub-side call timeout. Default 30, maximum 300. Pairing flows use 180.
+  - `"homie/role": "inventory"` — on at most one read-only tool. It returns
     `{"items":[{"id","name","subtitle"?,"state"?}]}`, where `state` is one of
     `on|off|offline|unknown|paired|unpaired`. The admin renders it as the device list.
-  - `"gpt-home/i18n": {"ru": {"title", "description", "properties": {"<input property>": "<label>"}}}` —
+  - `"homie/i18n": {"ru": {"title", "description", "properties": {"<input property>": "<label>"}}}` —
     translated texts for the admin UI (→ `hub.Tool.I18n`). Assistants always get the English texts. Added
     2026-11-15 by the orchestrator.
-- An input property schema may carry `"x-gpt-home-ref": "inventory"`. It means the value is a device id from this
+- An input property schema may carry `"x-homie-ref": "inventory"`. It means the value is a device id from this
   plugin's inventory tool, and the admin renders a device picker for it.
 - **Progress.** Long-running tools (pairing) may send MCP progress notifications for the hub's `progressToken`, with
-  an English `message` and an optional notification `_meta` `"gpt-home/i18n": {"ru": "<message>"}`. The hub forwards
+  an English `message` and an optional notification `_meta` `"homie/i18n": {"ru": "<message>"}`. The hub forwards
   them to the admin UI (T2.7, ADMIN-API §8).
 
 **Calls**
-- The hub adds request `_meta` `{"gpt-home/caller":"<person name>","gpt-home/via":"site|mcp|admin|cli"}`. Plugins may
+- The hub adds request `_meta` `{"homie/caller":"<person name>","homie/via":"site|mcp|admin|cli"}`. Plugins may
   log it and must not trust it for security.
 - Results:
   - text content: short, English, human, e.g. "Living room TV is on.";
@@ -186,26 +186,26 @@ gpt-tv/                        module github.com/devXpro/gpt-tv  (GitHub repo ex
 
 **Release assets (phase 2 installs)**
 - GoReleaser archives `<binary>_<version>_<os>_<arch>.tar.gz` plus `checksums.txt`.
-- `gpt-home-plugin.json`: `{"id","title","description","binary","args":["serve"],"minHubVersion","homepage"}`.
+- `homie-plugin.json`: `{"id","title","description","binary","args":["serve"],"minHubVersion","homepage"}`.
 
 ### 5.2 `pluginkit` (Go helper; T1.1 builds it, T1.4 consumes it)
 
 ```go
-package pluginkit // github.com/devXpro/gpt-home/pluginkit
+package pluginkit // github.com/devXpro/homie/pluginkit
 
 type Plugin struct {
 	ID           string // "tv"
-	Name         string // "gpt-tv" (serverInfo.name)
+	Name         string // "homie-tv" (serverInfo.name)
 	Title        string // "TV"
 	Version      string
 	Instructions string // optional, English
 }
 
 func New(p Plugin) *mcp.Server                             // go-sdk server with identity and instructions set
-func Admin(t *mcp.Tool) *mcp.Tool                          // sets _meta "gpt-home/audience": "admin"
-func Timeout(t *mcp.Tool, d time.Duration) *mcp.Tool       // sets _meta "gpt-home/timeout"
-func Inventory(t *mcp.Tool) *mcp.Tool                      // sets _meta "gpt-home/role": "inventory"
-func DataDir() (string, error)                             // GPT_HOME_DATA_DIR, or ./data (0700) in development
+func Admin(t *mcp.Tool) *mcp.Tool                          // sets _meta "homie/audience": "admin"
+func Timeout(t *mcp.Tool, d time.Duration) *mcp.Tool       // sets _meta "homie/timeout"
+func Inventory(t *mcp.Tool) *mcp.Tool                      // sets _meta "homie/role": "inventory"
+func DataDir() (string, error)                             // HOMIE_DATA_DIR, or ./data (0700) in development
 func Caller(req *mcp.CallToolRequest) (person, via string) // reads the hub's request _meta
 func Serve(ctx context.Context, s *mcp.Server) error       // stdio until ctx is done or stdin closes
 func CheckToolName(pluginID, tool string) error            // the §5.1 rule; the hub uses it too
@@ -246,8 +246,8 @@ type Tool struct {
 	OutputSchema json.RawMessage // optional
 	Annotations  json.RawMessage // MCP tool annotations, passed through unchanged; optional
 	Audience     Audience
-	Inventory    bool          // _meta "gpt-home/role": "inventory"
-	Timeout      time.Duration // from _meta "gpt-home/timeout", default 30s, max 300s
+	Inventory    bool          // _meta "homie/role": "inventory"
+	Timeout      time.Duration // from _meta "homie/timeout", default 30s, max 300s
 }
 
 // Result is the outcome of a tool that ran.
@@ -337,7 +337,7 @@ is constant-time.
 
 ### 5.4 Hub public HTTP surface (served on `127.0.0.1:8080`, reached through the relay)
 
-Every response carries `X-GPT-Home-Instance: <random id persisted in the data dir>`. The relay self-check uses it to
+Every response carries `X-Homie-Instance: <random id persisted in the data dir>`. The relay self-check uses it to
 prove the public URL reaches *this* hub.
 
 **`GET /healthz`** → `200 {"ok":true}`. No auth, no details.
@@ -365,7 +365,7 @@ prove the public URL reaches *this* hub.
 
 **`/mcp`** is MCP Streamable HTTP through go-sdk, stateless, with the same bearer auth and scopes.
 - tools = the person's assistant tools.
-- `serverInfo` = `{name:"gpt-home", title:<home_name>, version:"<hub version>+<fingerprint>"}`, where the fingerprint
+- `serverInfo` = `{name:"homie", title:<home_name>, version:"<hub version>+<fingerprint>"}`, where the fingerprint
   is FNV-1a of the tools JSON plus the instructions (the same trick as the Librus Site, so ChatGPT notices tool
   changes).
 - OAuth for path A is added in T3.3 only if path A wins.
@@ -395,12 +395,12 @@ device is offline.
   log.level = "info"
   ```
 - No frps port is published to the host.
-- Behind an existing proxy, frps joins that proxy's docker network as container `gpt-home-frps`.
+- Behind an existing proxy, frps joins that proxy's docker network as container `homie-frps`.
 - Standalone, the compose file adds `caddy:2.11.4-alpine`, which owns 80 and 443.
 - Caddy block (shared Caddy on jobby, and the standalone Caddyfile template):
   ```
   homie.jobbyjobs.work {
-  	reverse_proxy gpt-home-frps:7000 {
+  	reverse_proxy homie-frps:7000 {
   		stream_close_delay 30m
   	}
   }
@@ -415,12 +415,12 @@ device is offline.
 - Token auth; `loginFailExit = false`, so it retries forever.
 - One proxy: `{name:"homed", type:"http", customDomains:[<domain>], localIP:"127.0.0.1", localPort:<listen port>}`.
 - The status (`connected`, `since`, `lastError`) is exposed.
-- Self-check every 30 s: `GET https://<domain>/healthz` must carry our `X-GPT-Home-Instance`.
+- Self-check every 30 s: `GET https://<domain>/healthz` must carry our `X-Homie-Instance`.
 
 ### 5.6 Config and data dir (home)
 
-The data dir defaults to `~/Library/Application Support/gpt-home` on macOS and `$XDG_DATA_HOME/gpt-home` on Linux,
-or `/var/lib/gpt-home` when run as a system service. It is overridden by `--data-dir` or `HOMED_DATA_DIR`. Mode 0700.
+The data dir defaults to `~/Library/Application Support/homie` on macOS and `$XDG_DATA_HOME/homie` on Linux,
+or `/var/lib/homie` when run as a system service. It is overridden by `--data-dir` or `HOMED_DATA_DIR`. Mode 0700.
 
 ```
 <data_dir>/homed.yaml        config (phase 1 also holds people and key hashes)
@@ -429,7 +429,7 @@ or `/var/lib/gpt-home` when run as a system service. It is overridden by `--data
 <data_dir>/homed.sock        local admin socket for the CLI, 0600 (phase 1)
 <data_dir>/audit/            phase 1 JSONL
 <data_dir>/logs/<plugin>.log
-<data_dir>/plugins/<id>/data/   the plugin's GPT_HOME_DATA_DIR (0700)
+<data_dir>/plugins/<id>/data/   the plugin's HOMIE_DATA_DIR (0700)
 <data_dir>/plugins/<id>/bin/<version>/   installed releases (phase 2)
 <data_dir>/homed.db          SQLite (phase 2)
 <data_dir>/sites/<person>/   per-person Codex home and Site checkout (phase 3, path B)
@@ -443,7 +443,7 @@ relay:
   domain: homie.jobbyjobs.work        # the token lives in relay-token
 plugins:
   - id: tv
-    command: ["/Users/devxpro/projects/family/gpt-tv/bin/gpt-tv", "serve"]
+    command: ["/Users/devxpro/projects/family/homie-tv/bin/homie-tv", "serve"]
 people:
   - id: roman
     name: Roman
@@ -459,13 +459,13 @@ people:
 - The same thin-proxy design as Librus. ChatGPT talks MCP to the Site, and the Site calls `GET /api/v1/tools` and
   `POST /api/v1/tools/{name}` on the hub.
 - Environment: `HOME_API_URL`, `HOME_API_KEY` (secret), `HOME_LANGUAGE` (optional).
-- `serverInfo.name` is `gpt-home`. The Site title is a release parameter (e.g. «Мой шалаш»).
+- `serverInfo.name` is `homie`. The Site title is a release parameter (e.g. «Мой шалаш»).
 - Error mapping adds two cases to Librus:
   - `422` → the tool's own error text (`isError`);
   - a non-JSON `404` (the frps offline page) → "The home hub is offline right now (the home computer may be asleep
     or without internet). Try again later."
 - `release/release.mjs` takes `--title`, `--slug`, `--description` and `--profile NAME`.
-  - State goes to `~/.gpt-home-site[-NAME]`; the key to Keychain item `gpt-home-key[-NAME]`.
+  - State goes to `~/.homie-site[-NAME]`; the key to Keychain item `homie-key[-NAME]`.
   - It keeps Librus's `--login`, `--logout`, `--check`, `--settings-only` and `--dry-run`.
   - New read-only `--list-sites-tools` dumps the `codex_apps` `sites.*` tool names and schemas.
 
@@ -477,7 +477,7 @@ people:
 - Admin (phase 2):
   - passkeys only; the RP ID is the relay domain; origin `https://<domain>`;
   - session cookie `HttpOnly; Secure; SameSite=Strict`, 12 h idle and 7 d absolute;
-  - mutating admin requests also need the header `X-GPT-Home: 1`;
+  - mutating admin requests also need the header `X-Homie: 1`;
   - step-up (an assertion no older than 5 min) for: plugin install, update or remove; key create or revoke; invite
     create; Site publish; passkey add or remove; relay change.
 - Plugins never get the caller's keys. They are not network-reachable; the hub speaks to them over stdio only.
@@ -556,7 +556,7 @@ people:
 | T1.1 pluginkit + plugin host | Opus | high | concurrency, process lifecycle, protocol |
 | T1.2 gateway | Opus | high | auth, scopes, exact contracts |
 | T1.3 homed wiring | Opus | high | integration |
-| T1.4 gpt-tv plugin | Opus | high | protocol, LAN discovery, quality of tool design |
+| T1.4 homie-tv plugin | Opus | high | protocol, LAN discovery, quality of tool design |
 | T1.5 Site finalize | Sonnet | medium | small follow-up |
 | T1.R review | Opus | high | review |
 | T2.0 admin API + design brief | Opus | high | contracts the UI and backend share |
@@ -565,7 +565,7 @@ people:
 | T2.3 admin API backend | Opus | high | broad |
 | T2.4 admin UI | Opus | max | the face of the product |
 | T2.5 plugin installer + self-update | Sonnet | high | standard, needs care |
-| T2.7 progress + plugin i18n | Opus | high | protocol across hub, pluginkit and gpt-tv |
+| T2.7 progress + plugin i18n | Opus | high | protocol across hub, pluginkit and homie-tv |
 | T2.6 integration + e2e | Opus | high | integration |
 | T2.R security review | Opus | max | security |
 | T3.1 people + invites | Opus | high | auth flows |
@@ -580,13 +580,13 @@ people:
 
 ### 7.1 Phase 0 — relay and the connection test
 
-#### T0.0 — Scaffold gpt-home  · Sonnet / medium
-**Owns:** `gpt-home/` root files, `internal/hub/hub.go`, `docs/TESTING.md`, `.github/workflows/ci.yml`.
+#### T0.0 — Scaffold Homie  · Sonnet / medium
+**Owns:** `homie/` root files, `internal/hub/hub.go`, `docs/TESTING.md`, `.github/workflows/ci.yml`.
 
 **Do**
-1. Run `git init -b main` in `/Users/devxpro/projects/family/gpt-home` (it contains `docs/PLAN.md`) and add the
-   remote `git@github.com:devXpro/gpt-home.git`. Do not push; the orchestrator creates the GitHub repo.
-2. Set up `go.mod`: module `github.com/devXpro/gpt-home`, `go 1.26` (done: frp v0.72.0 forced it). Run
+1. Run `git init -b main` in `/Users/devxpro/projects/family/homie` (it contains `docs/PLAN.md`) and add the
+   remote `git@github.com:devXpro/homie.git`. Do not push; the orchestrator creates the GitHub repo.
+2. Set up `go.mod`: module `github.com/devXpro/homie`, `go 1.26` (done: frp v0.72.0 forced it). Run
    `go get github.com/modelcontextprotocol/go-sdk@v1.8.0 github.com/fatedier/frp@v0.72.0 go.yaml.in/yaml/v3@v3.0.6`.
    Report if frp v0.72.0 cannot be required as a library.
 3. Write `internal/hub/hub.go` exactly as in §5.3, plus a trivial test so the package builds and lint runs.
@@ -602,7 +602,7 @@ people:
 7. Write CI (`.github/workflows/ci.yml`):
    - a Go job: setup-go from `go.mod`, golangci-lint action pinned to v2.12.x, tests;
    - jobs for `web/` and `site/` that run only when those directories exist.
-8. Add the MIT `LICENSE` with the holder "gpt-home contributors", and a skeleton `README.md`: pitch, status "work in
+8. Add the MIT `LICENSE` with the holder "Homie contributors", and a skeleton `README.md`: pitch, status "work in
    progress", link to `docs/PLAN.md`.
 9. Write `docs/TESTING.md` as the skeleton every later card appends to.
 
@@ -615,11 +615,11 @@ people:
 1. `relay/docker-compose.yml` (standalone):
    - services `caddy` (`caddy:2.11.4-alpine`; ports 80, 443 and 443/udp; volumes for Caddyfile, data and config)
      and `frps` (`ghcr.io/fatedier/frps:v0.72.0`, `-c /etc/frp/frps.toml`, read-only mounts for `frps.toml`, `token`
-     and `offline.html`, container_name `gpt-home-frps`);
+     and `offline.html`, container_name `homie-frps`);
    - `restart: unless-stopped`; no frps ports published.
-2. `relay/docker-compose.behind-proxy.yml`: frps only, on the external network `${GPT_HOME_PROXY_NETWORK:-proxy}`.
+2. `relay/docker-compose.behind-proxy.yml`: frps only, on the external network `${HOMIE_PROXY_NETWORK:-proxy}`.
 3. `relay/frps.toml` per §5.5. Confirm every key against
-   `/Users/devxpro/go/pkg/mod/github.com/fatedier/frp@v0.72.0` (run `go mod download` in gpt-home first).
+   `/Users/devxpro/go/pkg/mod/github.com/fatedier/frp@v0.72.0` (run `go mod download` in homie first).
 4. `relay/offline.html`: bilingual (EN/RU) "Home is offline / Дом не на связи", dark, self-contained, no external
    assets.
 5. `relay/Caddyfile.tmpl` (standalone) and `relay/snippets/{caddy,nginx,traefik}.md` for the behind-proxy mode.
@@ -627,7 +627,7 @@ people:
    - Caddy: `stream_close_delay 30m`.
 6. `install/server.sh`:
    - flags: `--domain D` (asked for if missing; required), `--mode auto|standalone|behind-proxy`,
-     `--network NAME` (behind-proxy; default `proxy`), `--dir` (default `/opt/gpt-home-relay`), `--rotate-token`,
+     `--network NAME` (behind-proxy; default `proxy`), `--dir` (default `/opt/homie-relay`), `--rotate-token`,
      `--print-code`, `--uninstall`, `--yes`, `--skip-dns-check` (tests only).
    - Preflight: root or sudo; `docker`; `docker compose version` v2; `curl`; `ss` or `netstat`.
    - DNS check: the domain's A records must include a public address of this server. Compare local interface
@@ -650,7 +650,7 @@ people:
 8. `docs/RELAY.md`: how it works, both modes, rotating the token, uninstall, troubleshooting.
 
 **Acceptance:** shellcheck is clean. `relay/test/run.sh` passes. `install/server.sh --mode behind-proxy --dir
-/tmp/gpt-home-relay-test --domain homie.test --skip-dns-check --yes` writes the files and prints a valid connect code
+/tmp/homie-relay-test --domain homie.test --skip-dns-check --yes` writes the files and prints a valid connect code
 on this Mac (run it without root via a `--no-root-check` test flag, or document how you ran it). Nothing touches jobby.
 
 #### T0.2 — Deploy the relay on jobby  · Orchestrator
@@ -664,7 +664,7 @@ After T0.1 is accepted:
    - check that the other WebSocket routes keep their `stream_close_delay`.
 4. Check that `curl -sS https://homie.jobbyjobs.work/` returns the offline page with a valid Let's Encrypt
    certificate.
-5. Store the connect code in the Mac Keychain as `gpt-home-relay-code`. Never print it.
+5. Store the connect code in the Mac Keychain as `homie-relay-code`. Never print it.
 
 #### T0.3 — homed spike: embedded relay client and stub endpoints  · Opus / high
 **Owns:** `cmd/homed/**`, `internal/relay/**`, `internal/spike/**` (temporary), `docs/research/frp-embedding.md`.
@@ -688,7 +688,7 @@ After T0.1 is accepted:
      read-only, guarded by the bearer key in env `HOMED_SPIKE_KEY`;
    - `/mcp` through go-sdk Streamable HTTP exposing `home_ping` **without auth, only with
      `--spike-authless-mcp`**;
-   - every response carries `X-GPT-Home-Instance`.
+   - every response carries `X-Homie-Instance`.
 4. `cmd/homed`:
    - `homed run --data-dir D --listen 127.0.0.1:8080 --spike [--spike-authless-mcp]`;
    - `homed relay connect <code>` writes `relay.domain` into `homed.yaml` and the token into `relay-token` (0600);
@@ -710,13 +710,13 @@ orchestrator should run against the real domain.
 `core/mcp.test.mjs`, `app/mcp/route.ts` and `release/release.mjs`.
 
 **Do**
-1. Copy the Librus Site into `gpt-home/site/`. Leave out `node_modules`, `dist`, `build`, `.openai/hosting.json`,
+1. Copy the Librus Site into `homie/site/`. Leave out `node_modules`, `dist`, `build`, `.openai/hosting.json`,
    state and keys.
 2. Apply §5.7:
    - env names, `serverInfo.name`, wording ("home hub" instead of "school service");
    - 422 and offline-404 handling;
    - the tests updated and extended for both.
-3. `release/release.mjs` per §5.7, including `--list-sites-tools`. The commit identity becomes "GPT-Home Site".
+3. `release/release.mjs` per §5.7, including `--list-sites-tools`. The commit identity becomes "Homie Site".
 4. `site/README.md`: settings, release, profiles, voice notes. Keep the "Always allow" step and say why: voice cannot
    approve write actions.
 
@@ -728,7 +728,7 @@ orchestrator should run against the real domain.
 #### T0.5 — Live connection test  · Orchestrator + Roman
 1. On the Mac:
    - `homed relay connect` with the code from the Keychain;
-   - `homed run --spike`, with `HOMED_SPIKE_KEY` from Keychain item `gpt-home-spike-key`;
+   - `homed run --spike`, with `HOMED_SPIKE_KEY` from Keychain item `homie-spike-key`;
    - check `https://homie.jobbyjobs.work/healthz` from outside.
 2. Run `node site/release/release.mjs --list-sites-tools` and fill `docs/research/sites-tools.md`.
 3. **Path B**
@@ -828,7 +828,7 @@ under the host in a test.
    - `homed plugin add --id tv -- <command…>`, `homed plugin list`, `homed plugin remove`;
    - `homed tool list`, `homed tool call <name> '<json>'` (through the socket, `Via:"cli"`);
    - `homed version`.
-5. `docs/DEV.md`: running homed and gpt-tv locally, plus a launchd plist example for running at login.
+5. `docs/DEV.md`: running homed and homie-tv locally, plus a launchd plist example for running at login.
 
 **Acceptance:** an integration test with the fake plugin passes:
 - `homed run`;
@@ -838,8 +838,8 @@ under the host in a test.
 
 Lint clean. The orchestrator can run the T1.6 steps from `docs/DEV.md` alone.
 
-#### T1.4 — gpt-tv plugin  · Opus / high
-**Owns:** all of `gpt-tv/`. The existing uncommitted code is yours to finish.
+#### T1.4 — homie-tv plugin  · Opus / high
+**Owns:** all of `homie-tv/`. The existing uncommitted code is yours to finish.
 
 **Context**
 - The TV facts in §9.
@@ -856,8 +856,8 @@ say so in your report.
 
 **Do**
 1. `go.mod`:
-   - module `github.com/devXpro/gpt-tv`;
-   - require `github.com/devXpro/gpt-home` (pluginkit) with `replace github.com/devXpro/gpt-home => ../gpt-home`
+   - module `github.com/devXpro/homie-tv`;
+   - require `github.com/devXpro/homie` (pluginkit) with `replace github.com/devXpro/homie => ../homie`
      (development only, noted in the README);
    - go-sdk v1.8.0; `github.com/coder/websocket`.
 2. Delete `internal/config` and `internal/keychain`.
@@ -894,8 +894,8 @@ say so in your report.
    - Results are short human texts plus `structuredContent`.
    - Not-paired and offline cases are `isError: true` with a fix hint, e.g. "Turn on Mobile TV On in the TV settings"
      for a failed wake.
-7. `cmd/gpt-tv`: `serve` (default) and `discover` (prints the TVs found).
-8. Copy `.golangci.yml` from gpt-home. Write the `README.md`, `docs/families/lg-webos.md` and `docs/TESTING.md`. The
+7. `cmd/homie-tv`: `serve` (default) and `discover` (prints the TVs found).
+8. Copy `.golangci.yml` from homie. Write the `README.md`, `docs/families/lg-webos.md` and `docs/TESTING.md`. The
    lg-webos doc covers the TV setup: LG Connect Apps, Mobile TV On → Turn on via Wi-Fi, Quick Start+, DHCP
    reservation; plus the limitations: ws:3000 only, newer firmware needs wss:3001.
 
@@ -903,7 +903,7 @@ say so in your report.
 
 **Acceptance:**
 - green with `-race`, lint clean;
-- `gpt-tv discover` finds `192.168.68.66`, model `49UJ634V-ZD`, MAC `20:3d:bd:38:e1:c8`;
+- `homie-tv discover` finds `192.168.68.66`, model `49UJ634V-ZD`, MAC `20:3d:bd:38:e1:c8`;
 - an in-memory MCP client test lists the 5 assistant tools and 5 admin tools with the right `_meta`.
 
 #### T1.5 — Site finalize  · Sonnet / medium
@@ -912,10 +912,10 @@ Apply what T0.5 learned: naming, the offline text, the `--check` tool, README st
 `--home-api-url` flag so the hub can drive the script later.
 
 #### T1.6 — Integration on Roman's Mac  · Orchestrator + Roman
-1. Build homed and gpt-tv.
-2. `homed relay connect`, then `homed plugin add --id tv -- …/gpt-tv serve`.
+1. Build homed and homie-tv.
+2. `homed relay connect`, then `homed plugin add --id tv -- …/homie-tv serve`.
 3. `homed tool call tv_discover` → `tv_add` → `tv_pair`; Roman presses OK on the TV.
-4. `homed key new --person roman --name Roman` → Keychain `gpt-home-key`.
+4. `homed key new --person roman --name Roman` → Keychain `homie-key`.
 5. Publish «Мой шалаш» by the chosen path.
 6. Voice checks: «включи телик», «громкость двадцать», «переключи на HDMI 2», «выключи телик»; and the TV offline
    case.
@@ -923,7 +923,7 @@ Apply what T0.5 learned: naming, the offline text, the `--check` tool, README st
 8. Set up launchd so homed runs at login. Note: macOS asks for Local Network access once.
 
 #### T1.R — Phase 1 review  · Opus / high
-Review gpt-home phase 1 and gpt-tv for correctness and security:
+Review Homie phase 1 and homie-tv for correctness and security:
 - auth and scope bypass, key handling, redaction;
 - process handling, races, timeouts;
 - the frp client config (certificate verification on!).
@@ -1019,17 +1019,17 @@ JSON Schema before calling and stream progress over SSE. Tests run with httptest
 **Owns:** `internal/install/**`.
 - GitHub Releases client (unauthenticated, with an optional token).
 - Pick the asset by GOOS/GOARCH and the GoReleaser naming.
-- Verify `checksums.txt`; unpack to `plugins/<id>/bin/<version>/`; read `gpt-home-plugin.json`.
+- Verify `checksums.txt`; unpack to `plugins/<id>/bin/<version>/`; read `homie-plugin.json`.
 - Atomic switch, with a rollback if the new version fails to start.
 - `homed` self-update: download, verify, replace, then exit and let the service manager restart it.
 - Tests run against an httptest fake of the GitHub API.
 
 #### T2.7 — Progress plumbing and plugin i18n  · Opus / high
-**Owns:** `internal/plugins/**`, `pluginkit/**`, `docs/PLUGINS.md`, and in gpt-tv `internal/tools/**` (+ its tests).
+**Owns:** `internal/plugins/**`, `pluginkit/**`, `docs/PLUGINS.md`, and in homie-tv `internal/tools/**` (+ its tests).
 
 **Do**
 1. `internal/plugins`:
-   - parse `_meta "gpt-home/i18n"` into `hub.Tool.I18n` (lenient: skip malformed entries with a warning);
+   - parse `_meta "homie/i18n"` into `hub.Tool.I18n` (lenient: skip malformed entries with a warning);
    - progress through the context, without changing `hub.ToolHost`: `plugins.WithProgress(ctx, func(Progress))`. If
      the callback is present, `Call` sends a `progressToken` and forwards every progress notification (progress,
      total, message, i18n) to it. See ADMIN-API §8.
@@ -1037,14 +1037,14 @@ JSON Schema before calling and stream progress over SSE. Tests run with httptest
    - `I18n(t *mcp.Tool, lang string, text Text) *mcp.Tool` with its own exported `Text` type. Plugins outside this
      module cannot import `internal/hub`.
    - `Progress(ctx, req, progress, total float64, message string, i18n map[string]string) error`.
-   - A helper to set `x-gpt-home-ref: "inventory"` on a property schema.
-3. `docs/PLUGINS.md`: document i18n, progress and `x-gpt-home-ref`.
-4. gpt-tv `internal/tools`:
+   - A helper to set `x-homie-ref: "inventory"` on a property schema.
+3. `docs/PLUGINS.md`: document i18n, progress and `x-homie-ref`.
+4. homie-tv `internal/tools`:
    - Russian texts for all 10 tools and their input labels;
-   - `x-gpt-home-ref: "inventory"` on every `tv` argument;
+   - `x-homie-ref: "inventory"` on every `tv` argument;
    - `tv_pair` sends progress "Press OK on the TV remote" / «Нажмите OK на пульте телевизора»;
    - `tv_discover` sends progress while it searches.
-5. Tests for all of the above. gpt-tv tests must still pass with the `replace ../gpt-home`.
+5. Tests for all of the above. homie-tv tests must still pass with the `replace ../homie`.
 
 #### T2.6 — Integration and e2e  · Opus / high
 Wire the store (and the config import), auth, admin, web and installer into `homed run`. Playwright e2e runs against
@@ -1113,7 +1113,7 @@ The invite and publisher (or OAuth) flows: correctness and security.
 - `home.sh` (Linux and Raspberry Pi):
   - detect amd64, arm64 or armv7;
   - download the release and verify the checksum;
-  - create user `gpt-home` and `/var/lib/gpt-home`;
+  - create user `homie` and `/var/lib/homie`;
   - install and start a systemd unit;
   - print the setup URL and PIN.
 - macOS: a LaunchAgent plist used by the Homebrew formula (`brew services`).
@@ -1121,12 +1121,12 @@ The invite and publisher (or OAuth) flows: correctness and security.
 
 #### T4.2 — Release pipeline  · Sonnet / medium
 **Owns:** `.goreleaser.yaml`, `.github/workflows/release.yml` in both repos.
-- gpt-home:
+- homie:
   - homed for darwin amd64/arm64 and linux amd64/arm64/armv7;
   - a `web` build hook; the Site archive asset; checksums;
   - Homebrew formula to `devXpro/homebrew-tap` (created by the orchestrator);
   - multi-arch images on ghcr.
-- gpt-tv: the binaries plus the `gpt-home-plugin.json` asset.
+- homie-tv: the binaries plus the `homie-plugin.json` asset.
 
 #### T4.3 — Installer CI  · Sonnet / medium
 GitHub Actions jobs:
@@ -1158,7 +1158,7 @@ These are never delegated:
 - anything on jobby (T0.2, T4.5) — a Caddy reload is announced first;
 - every ChatGPT, Codex or Sites account action (T0.5, T1.6, T3.5);
 - TV pairing and commands (T1.6);
-- Keychain items: `gpt-home-relay-code`, `gpt-home-spike-key`, `gpt-home-key`, `gpt-home-key-tanya`.
+- Keychain items: `homie-relay-code`, `homie-spike-key`, `homie-key`, `homie-key-tanya`.
 
 ## 9. Environment facts
 
@@ -1193,7 +1193,7 @@ These are never delegated:
 ## 10. Agent prompt template (orchestrator)
 
 ```
-You are a subagent implementing task <ID> of /Users/devxpro/projects/family/gpt-home/docs/PLAN.md.
+You are a subagent implementing task <ID> of /Users/devxpro/projects/family/homie/docs/PLAN.md.
 Read §2, §3, §4, §5, §6 and §9 of that file, then the card <ID> in §7. Do exactly that card, inside its "Owns"
 paths, following §6. <Extra context from earlier reports, if any.>
 When done, reply with the report of §6.10. Do not commit, push, or perform any live action the card does not allow.

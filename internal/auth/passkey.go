@@ -10,11 +10,11 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // rpDisplayName is the relying party name the browser may show next to the domain.
-const rpDisplayName = "GPT-Home"
+const rpDisplayName = "Homie"
 
 // relyingParty returns the current relying party and its go-webauthn instance.
 func (a *Auth) relyingParty() (RelyingParty, *webauthn.WebAuthn, error) {

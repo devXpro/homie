@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -127,7 +127,7 @@ func (h *Host) runOnce(ctx context.Context, p *plugin) (time.Duration, error) {
 	}
 
 	refresh := make(chan struct{}, 1)
-	client := mcp.NewClient(&mcp.Implementation{Name: "gpt-home", Version: h.HubVersion}, &mcp.ClientOptions{
+	client := mcp.NewClient(&mcp.Implementation{Name: "homie", Version: h.HubVersion}, &mcp.ClientOptions{
 		Logger:       h.log.With("plugin", p.id),
 		Capabilities: &mcp.ClientCapabilities{},
 		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {

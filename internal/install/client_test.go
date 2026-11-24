@@ -11,10 +11,10 @@ import (
 
 func TestClientTokenGoesToTheAPIHostOnly(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.add("devXpro/gpt-tv", tvRelease(t, "0.2.0"))
+	f.add("devXpro/homie-tv", tvRelease(t, "0.2.0"))
 	inst := newTestInstaller(t, f)
 	inst.Client = f.client(testToken)
-	if _, err := inst.Install(t.Context(), "devXpro/gpt-tv", "", "tv", nil); err != nil {
+	if _, err := inst.Install(t.Context(), "devXpro/homie-tv", "", "tv", nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.apiAuth) == 0 {
@@ -37,8 +37,8 @@ func TestClientTokenGoesToTheAPIHostOnly(t *testing.T) {
 
 func TestClientUnauthenticatedByDefault(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.add("devXpro/gpt-tv", tvRelease(t, "0.2.0"))
-	if _, err := f.client("").Latest(t.Context(), "devXpro/gpt-tv"); err != nil {
+	f.add("devXpro/homie-tv", tvRelease(t, "0.2.0"))
+	if _, err := f.client("").Latest(t.Context(), "devXpro/homie-tv"); err != nil {
 		t.Fatal(err)
 	}
 	if f.apiAuth[0] != "" {
@@ -53,13 +53,13 @@ func TestClientErrorsNeverContainTheToken(t *testing.T) {
 		"not found": func() error { _, err := c.Latest(t.Context(), "devXpro/missing"); return err },
 		"rate limit": func() error {
 			f.rateLim = true
-			_, err := c.Latest(t.Context(), "devXpro/gpt-tv")
+			_, err := c.Latest(t.Context(), "devXpro/homie-tv")
 			f.rateLim = false
 			return err
 		},
 		"unreachable": func() error {
 			c2 := &Client{APIBase: "https://127.0.0.1:1", Token: testToken}
-			_, err := c2.Latest(t.Context(), "devXpro/gpt-tv")
+			_, err := c2.Latest(t.Context(), "devXpro/homie-tv")
 			return err
 		},
 	} {
@@ -80,7 +80,7 @@ func TestClientStatusMapping(t *testing.T) {
 		t.Fatalf("404: %v", err)
 	}
 	f.rateLim = true
-	_, err := c.Latest(t.Context(), "devXpro/gpt-tv")
+	_, err := c.Latest(t.Context(), "devXpro/homie-tv")
 	if !errors.Is(err, ErrRateLimited) || !errors.Is(err, ErrUpstream) || Code(err) != "upstream" {
 		t.Fatalf("rate limit: %v", err)
 	}
@@ -94,15 +94,15 @@ func TestClientStatusMapping(t *testing.T) {
 
 func TestClientPrereleaseAndDraftAreNotLatest(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.add("devXpro/gpt-tv", tvRelease(t, "0.1.0"))
+	f.add("devXpro/homie-tv", tvRelease(t, "0.1.0"))
 	pre := tvRelease(t, "0.2.0-rc.1")
 	pre.prerel = true
-	f.add("devXpro/gpt-tv", pre)
-	rel, err := f.client("").Latest(t.Context(), "devXpro/gpt-tv")
+	f.add("devXpro/homie-tv", pre)
+	rel, err := f.client("").Latest(t.Context(), "devXpro/homie-tv")
 	if err != nil || rel.Version != "0.1.0" {
 		t.Fatalf("latest = %+v %v", rel, err)
 	}
-	rel, err = f.client("").ReleaseByVersion(t.Context(), "devXpro/gpt-tv", "v0.2.0-rc.1")
+	rel, err = f.client("").ReleaseByVersion(t.Context(), "devXpro/homie-tv", "v0.2.0-rc.1")
 	if err != nil || !rel.Prerelease {
 		t.Fatalf("explicit prerelease: %+v %v", rel, err)
 	}
@@ -111,7 +111,7 @@ func TestClientPrereleaseAndDraftAreNotLatest(t *testing.T) {
 func TestClientRefusesPlainHTTP(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("{}")) }))
 	t.Cleanup(plain.Close)
-	if _, err := (&Client{APIBase: plain.URL}).Latest(t.Context(), "devXpro/gpt-tv"); !errors.Is(err, ErrInsecureURL) {
+	if _, err := (&Client{APIBase: plain.URL}).Latest(t.Context(), "devXpro/homie-tv"); !errors.Is(err, ErrInsecureURL) {
 		t.Fatalf("http API base: %v", err)
 	}
 }
@@ -134,10 +134,10 @@ func TestClientRefusesRedirectToHTTP(t *testing.T) {
 func TestDownloadSizeLimits(t *testing.T) {
 	f := newFakeGitHub(t)
 	r := tvRelease(t, "0.2.0")
-	f.add("devXpro/gpt-tv", r)
+	f.add("devXpro/homie-tv", r)
 	inst := newTestInstaller(t, f)
 	inst.Limits = Limits{MaxArchiveBytes: 10}
-	_, err := inst.Install(t.Context(), "devXpro/gpt-tv", "", "tv", nil)
+	_, err := inst.Install(t.Context(), "devXpro/homie-tv", "", "tv", nil)
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("err = %v", err)
 	}
@@ -157,12 +157,12 @@ func TestDownloadSizeLimits(t *testing.T) {
 }
 
 func TestTokenFromEnv(t *testing.T) {
-	t.Setenv("GPT_HOME_GITHUB_TOKEN", "")
+	t.Setenv("HOMIE_GITHUB_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "  second ")
 	if got := TokenFromEnv(); got != "second" {
 		t.Fatalf("got %q", got)
 	}
-	t.Setenv("GPT_HOME_GITHUB_TOKEN", "first")
+	t.Setenv("HOMIE_GITHUB_TOKEN", "first")
 	if got := TokenFromEnv(); got != "first" {
 		t.Fatalf("got %q", got)
 	}

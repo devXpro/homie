@@ -746,8 +746,8 @@ func TestPlugins(t *testing.T) {
 	db, c := newTestDB(t)
 	r := db.Plugins()
 
-	tv := Plugin{ID: "tv", Source: PluginGitHub, Repo: "devXpro/gpt-tv", Version: "0.1.0",
-		Command: []string{"/bin/0.1.0/gpt-tv", "serve"}, Enabled: true}
+	tv := Plugin{ID: "tv", Source: PluginGitHub, Repo: "devXpro/homie-tv", Version: "0.1.0",
+		Command: []string{"/bin/0.1.0/homie-tv", "serve"}, Enabled: true}
 	if err := r.Create(ctx, tv); err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +758,7 @@ func TestPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := r.Get(ctx, "tv")
-	if err != nil || got.Repo != "devXpro/gpt-tv" || !got.Enabled || fmt.Sprint(got.Command) != "[/bin/0.1.0/gpt-tv serve]" ||
+	if err != nil || got.Repo != "devXpro/homie-tv" || !got.Enabled || fmt.Sprint(got.Command) != "[/bin/0.1.0/homie-tv serve]" ||
 		!got.InstalledAt.Equal(epoch) || !got.UpdatedAt.Equal(epoch) {
 		t.Errorf("Get = %+v, %v", got, err)
 	}
@@ -771,13 +771,13 @@ func TestPlugins(t *testing.T) {
 	}
 
 	c.advance(time.Hour)
-	got.Version, got.PreviousVersion, got.Enabled, got.Command = "0.2.0", "0.1.0", false, []string{"/bin/0.2.0/gpt-tv", "serve"}
+	got.Version, got.PreviousVersion, got.Enabled, got.Command = "0.2.0", "0.1.0", false, []string{"/bin/0.2.0/homie-tv", "serve"}
 	got.InstalledAt = epoch.Add(99 * time.Hour) // must be ignored
 	if err := r.Update(ctx, got); err != nil {
 		t.Fatal(err)
 	}
 	upd, _ := r.Get(ctx, "tv")
-	if upd.Version != "0.2.0" || upd.PreviousVersion != "0.1.0" || upd.Enabled || fmt.Sprint(upd.Command) != "[/bin/0.2.0/gpt-tv serve]" ||
+	if upd.Version != "0.2.0" || upd.PreviousVersion != "0.1.0" || upd.Enabled || fmt.Sprint(upd.Command) != "[/bin/0.2.0/homie-tv serve]" ||
 		!upd.InstalledAt.Equal(epoch) || !upd.UpdatedAt.Equal(c.now()) {
 		t.Errorf("after Update = %+v", upd)
 	}

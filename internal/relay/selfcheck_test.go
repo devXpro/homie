@@ -20,7 +20,7 @@ func TestSelfCheck(t *testing.T) {
 		wantErr string
 	}{
 		{"our hub", hub("me", http.StatusOK), pki.CAFile, ""},
-		{"another hub", hub("someone-else", http.StatusOK), pki.CAFile, "another gpt-home hub"},
+		{"another hub", hub("someone-else", http.StatusOK), pki.CAFile, "another Homie hub"},
 		{"not a hub", hub("", http.StatusOK), pki.CAFile, "no instance id"},
 		{"home offline", hub("", http.StatusNotFound), pki.CAFile, "home is offline"},
 		{"hub error", hub("me", http.StatusInternalServerError), pki.CAFile, "status 500"},

@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // Store is the in-memory store. The zero value is not usable; call New.

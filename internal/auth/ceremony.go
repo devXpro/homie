@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // ceremonyKind tells the four passkey ceremonies apart; a ceremony can only be finished by its own endpoint.

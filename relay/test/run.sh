@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docker smoke test of the GPT-Home relay (see docs/RELAY.md, docs/TESTING.md).
+# Docker smoke test of the Homie relay (see docs/RELAY.md, docs/TESTING.md).
 #
 # Brings up the standalone stack (Caddy + frps) from install/server.sh output,
 # with a `tls internal` Caddyfile for the fake domain homie.test, connects a real
@@ -12,23 +12,23 @@
 #   - the channel is TLS-verified and token-protected;
 #   - even a valid token cannot open tcp proxies (allowPorts), and vhostHTTPTimeout is 330 s.
 #
-# Everything is named gpthome-test-* and removed on exit. Needs: docker (compose
+# Everything is named homie-test-* and removed on exit. Needs: docker (compose
 # v2), go, curl, openssl. Nothing leaves this machine except image pulls.
 set -euo pipefail
 
-readonly PROJECT="gpthome-test"
-readonly NET="gpthome-test-net"
+readonly PROJECT="homie-test"
+readonly NET="homie-test-net"
 readonly DOMAIN="homie.test"
-readonly C_CADDY="gpthome-test-caddy"
-readonly C_FRPS="gpthome-test-frps"
-readonly C_ECHO="gpthome-test-echo"
-readonly C_FRPC="gpthome-test-frpc"
-readonly C_BAD="gpthome-test-frpc-bad"
-readonly C_CURL="gpthome-test-curl"
-readonly C_E2E="gpthome-test-frps-e2e"
-readonly NET_E2E="gpthome-test-proxy"
-readonly VOL_DATA="gpthome-test-caddy-data"
-readonly VOL_CONFIG="gpthome-test-caddy-config"
+readonly C_CADDY="homie-test-caddy"
+readonly C_FRPS="homie-test-frps"
+readonly C_ECHO="homie-test-echo"
+readonly C_FRPC="homie-test-frpc"
+readonly C_BAD="homie-test-frpc-bad"
+readonly C_CURL="homie-test-curl"
+readonly C_E2E="homie-test-frps-e2e"
+readonly NET_E2E="homie-test-proxy"
+readonly VOL_DATA="homie-test-caddy-data"
+readonly VOL_CONFIG="homie-test-caddy-config"
 readonly FRPC_IMAGE="ghcr.io/fatedier/frpc:v0.72.0"
 readonly ALPINE_IMAGE="alpine:3.21"
 readonly CURL_IMAGE="curlimages/curl:8.11.1"
@@ -177,7 +177,7 @@ main() {
 	local arch token frps_ports i code payload decoded new_token logins started e2e_env e2e_args
 
 	ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-	WORK="$(mktemp -d "${TMPDIR:-/tmp}/gpthome-test-relay.XXXXXX")"
+	WORK="$(mktemp -d "${TMPDIR:-/tmp}/homie-test-relay.XXXXXX")"
 	WORK="$(cd "$WORK" && pwd -P)"
 	COMPOSE_ARGS=(-p "$PROJECT" -f "$WORK/relay/docker-compose.yml" -f "$WORK/relay/docker-compose.test.yml")
 	trap cleanup EXIT
@@ -226,19 +226,19 @@ main() {
 	# GNU stat first: on Linux `stat -f` is the file system status and prints something else.
 	[[ "$(stat -c %a "$WORK/relay/token" 2>/dev/null || stat -f %Lp "$WORK/relay/token")" == "600" ]] || fail "token is not 0600"
 	pass "--rotate-token writes a new 0600 token"
-	bash "$ROOT/install/server.sh" --mode behind-proxy --network gpthome-test-proxy --dir "$WORK/behind" \
+	bash "$ROOT/install/server.sh" --mode behind-proxy --network homie-test-proxy --dir "$WORK/behind" \
 		--domain "$DOMAIN" --skip-dns-check --yes --no-root-check --no-start >/dev/null 2>&1 || fail "behind-proxy run failed"
 	[[ -s "$WORK/behind/frps.toml" && ! -e "$WORK/behind/Caddyfile" ]] || fail "behind-proxy wrote the wrong files"
 	docker compose --project-directory "$WORK/behind" -f "$WORK/behind/docker-compose.yml" config >"$WORK/behind.config" 2>&1 ||
 		fail "behind-proxy compose file does not validate: $(cat "$WORK/behind.config")"
-	grep -q 'name: gpthome-test-proxy' "$WORK/behind.config" || fail "behind-proxy network name is not taken from --network"
+	grep -q 'name: homie-test-proxy' "$WORK/behind.config" || fail "behind-proxy network name is not taken from --network"
 	pass "behind-proxy mode writes frps-only files that validate"
 
 	log "installer end to end, behind-proxy mode: up, rotate (frps restarts), uninstall"
 	docker network create "$NET_E2E" >/dev/null
 	mkdir -p "$WORK/e2e"
 	printf 'services:\n  frps:\n    container_name: %s\n' "$C_E2E" >"$WORK/e2e/docker-compose.test.yml"
-	e2e_env=(COMPOSE_FILE=docker-compose.yml:docker-compose.test.yml COMPOSE_PROJECT_NAME=gpthome-test-e2e)
+	e2e_env=(COMPOSE_FILE=docker-compose.yml:docker-compose.test.yml COMPOSE_PROJECT_NAME=homie-test-e2e)
 	e2e_args=(--mode behind-proxy --network "$NET_E2E" --dir "$WORK/e2e" --domain "$DOMAIN" --skip-dns-check --yes --no-root-check)
 	env "${e2e_env[@]}" bash "$ROOT/install/server.sh" "${e2e_args[@]}" >"$WORK/e2e.out" 2>&1 ||
 		fail "behind-proxy install failed: $(cat "$WORK/e2e.out")"
@@ -276,7 +276,7 @@ services:
     container_name: $C_FRPS
     networks:
       default:
-        aliases: [gpt-home-frps]
+        aliases: [homie-frps]
 networks:
   default:
     name: $NET
@@ -422,7 +422,7 @@ EOF
 
 	log "an untrusted server certificate is rejected by frpc"
 	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
-		-subj "/CN=gpthome-test-other-ca" -keyout "$WORK/frpc/other.key" -out "$WORK/frpc/other-ca.crt" >/dev/null 2>&1
+		-subj "/CN=homie-test-other-ca" -keyout "$WORK/frpc/other.key" -out "$WORK/frpc/other-ca.crt" >/dev/null 2>&1
 	frpc_toml /etc/frp/token /ca/other-ca.crt >"$WORK/frpc/bad-ca.toml"
 	docker run -d --name "$C_BAD" --network "$NET" \
 		-v "$WORK/frpc/bad-ca.toml:/etc/frp/frpc.toml:ro" \

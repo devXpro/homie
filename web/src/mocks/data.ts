@@ -81,7 +81,7 @@ const DAY = 24 * HOUR
 
 export const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
 
-const inventoryRef = (description: string) => ({ type: 'string', description, 'x-gpt-home-ref': 'inventory' })
+const inventoryRef = (description: string) => ({ type: 'string', description, 'x-homie-ref': 'inventory' })
 const tvOptional = inventoryRef("The TV's id or name, as tv_list shows it. Leave it out when only one TV is set up.")
 const tvRequired = inventoryRef("The TV's id or name, as tv_list shows it.")
 const object = (properties: Record<string, JSONSchema>, required?: string[]): JSONSchema =>
@@ -89,7 +89,7 @@ const object = (properties: Record<string, JSONSchema>, required?: string[]): JS
 const command = { destructiveHint: false, idempotentHint: true }
 const tvLabel = { tv: 'Телевизор' }
 
-/** The gpt-tv tools as the hub lists them (gpt-tv internal/tools, with T2.7's Russian texts). */
+/** The homie-tv tools as the hub lists them (homie-tv internal/tools, with T2.7's Russian texts). */
 export function tvTools(): Tool[] {
   const tool = (t: Omit<Tool, 'pluginId' | 'timeoutMs' | 'inventory'> & Partial<Pick<Tool, 'timeoutMs' | 'inventory'>>): Tool => ({
     pluginId: 'tv',
@@ -249,14 +249,14 @@ export function tvPlugin(tvs: MockTV[], over: Partial<PluginSummary> = {}): Mock
   return {
     summary: {
       id: 'tv',
-      name: 'gpt-tv',
+      name: 'homie-tv',
       title: 'TV',
       description: 'LG webOS TVs: power, volume, inputs.',
       version: '0.2.0',
       state: 'up',
       since: iso(2 * HOUR + 14 * MIN),
       enabled: true,
-      source: { kind: 'github', repo: 'devXpro/gpt-tv', homepage: 'https://github.com/devXpro/gpt-tv' },
+      source: { kind: 'github', repo: 'devXpro/homie-tv', homepage: 'https://github.com/devXpro/homie-tv' },
       tools: { assistant: 5, admin: 5 },
       inventoryTool: 'tv_list',
       devices: tvs.length,
@@ -266,7 +266,7 @@ export function tvPlugin(tvs: MockTV[], over: Partial<PluginSummary> = {}): Mock
     instructions: TV_INSTRUCTIONS,
     tvs: tvs.map((t) => ({ ...t })),
     logs: [
-      `${new Date(Date.now() - 2 * HOUR).toISOString()} INFO gpt-tv 0.2.0 serving MCP over stdio`,
+      `${new Date(Date.now() - 2 * HOUR).toISOString()} INFO homie-tv 0.2.0 serving MCP over stdio`,
       `${new Date(Date.now() - 2 * HOUR).toISOString()} INFO store: 1 TV in tvs.json`,
       `${new Date(Date.now() - 47 * MIN).toISOString()} INFO tv_power_on tv=tv caller=Роман via=site`,
       `${new Date(Date.now() - 47 * MIN + 2400).toISOString()} INFO wake-on-lan sent to 20:3d:bd:38:e1:c8`,
@@ -405,7 +405,7 @@ export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
       })
       tv.logs.push(`${new Date(Date.now() - 9 * MIN).toISOString()} ERROR lgwebos: ws dial 192.168.68.66:3001: connection refused`, `${new Date(Date.now() - 9 * MIN).toISOString()} FATAL panic: runtime error: invalid memory address`)
       state.plugins = [tv]
-      state.system.update = { latest: '0.3.0', notesUrl: 'https://github.com/devXpro/gpt-home/releases/tag/v0.3.0', checkedAt: iso(HOUR) }
+      state.system.update = { latest: '0.3.0', notesUrl: 'https://github.com/devXpro/homie/releases/tag/v0.3.0', checkedAt: iso(HOUR) }
       break
     }
     case 'unreachable':
@@ -448,7 +448,7 @@ export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
 
 /**
  * inventoryItems is what tv_list returns: "model · host" and the power state. An unpaired TV that is on reports the
- * contract's `unpaired` state (PLAN §5.1); today's gpt-tv appends an English "not paired" to the subtitle instead.
+ * contract's `unpaired` state (PLAN §5.1); today's homie-tv appends an English "not paired" to the subtitle instead.
  */
 export function inventoryItems(p: MockPlugin) {
   return p.tvs.map((t) => ({

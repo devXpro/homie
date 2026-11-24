@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // The server-sent event stream GET /api/admin/events (ADMIN-API §4).

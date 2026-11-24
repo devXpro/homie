@@ -14,13 +14,13 @@ import (
 )
 
 // InstanceHeader carries the hub's instance id on every hub response (PLAN §5.4).
-const InstanceHeader = "X-GPT-Home-Instance"
+const InstanceHeader = "X-Homie-Instance"
 
 // selfCheckTimeout bounds one self-check request.
 const selfCheckTimeout = 10 * time.Second
 
 // SelfCheck proves that https://<domain>/healthz reaches this hub: the answer must be 200 and carry our instance id
-// in X-GPT-Home-Instance. It trusts the system roots.
+// in X-Homie-Instance. It trusts the system roots.
 func SelfCheck(ctx context.Context, domain, instanceID string) error {
 	return Config{Domain: domain}.SelfCheck(ctx, instanceID)
 }
@@ -54,9 +54,9 @@ func (c Config) SelfCheck(ctx context.Context, instanceID string) error {
 	case resp.StatusCode != http.StatusOK:
 		return fmt.Errorf("self-check: status %d", resp.StatusCode)
 	case got == "":
-		return errors.New("self-check: the answer has no instance id; the domain does not reach a gpt-home hub")
+		return errors.New("self-check: the answer has no instance id; the domain does not reach a Homie hub")
 	case got != instanceID:
-		return errors.New("self-check: the domain reaches another gpt-home hub")
+		return errors.New("self-check: the domain reaches another Homie hub")
 	}
 	return nil
 }

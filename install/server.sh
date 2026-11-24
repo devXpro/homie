@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# GPT-Home relay installer.
+# Homie relay installer.
 #
-# Installs the server side of GPT-Home (Caddy + frps, see docs/RELAY.md) on a
+# Installs the server side of Homie (Caddy + frps, see docs/RELAY.md) on a
 # Docker host and prints the connect code for the home box.
 #
-#   curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
+#   curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
 #     | sudo bash -s -- --domain home.example.com
 #
 # Safe for `curl | bash`: everything happens inside main(), which is called on
 # the last line, so a truncated download runs nothing.
 set -euo pipefail
 
-readonly GPT_HOME_RAW_BASE="${GPT_HOME_RAW_BASE:-https://raw.githubusercontent.com/devXpro/gpt-home/${GPT_HOME_REF:-main}}"
-readonly DEFAULT_DIR="/opt/gpt-home-relay"
+readonly HOMIE_RAW_BASE="${HOMIE_RAW_BASE:-https://raw.githubusercontent.com/devXpro/homie/${HOMIE_REF:-main}}"
+readonly DEFAULT_DIR="/opt/homie-relay"
 readonly TLS_WAIT_SECONDS=120
 
 DOMAIN=""
@@ -54,7 +54,7 @@ Usage: server.sh --domain DOMAIN [options]
   --domain D          public domain of the relay (A record -> this server). Asked for if missing.
   --mode M            auto (default), standalone (own Caddy on 80/443) or behind-proxy (frps only).
   --network NAME      docker network of the existing proxy (behind-proxy). Default: proxy.
-  --dir PATH          install directory. Default: /opt/gpt-home-relay.
+  --dir PATH          install directory. Default: /opt/homie-relay.
   --rotate-token      generate a new token (home boxes must connect again).
   --print-code        print the connect code of an existing install and exit.
   --uninstall         stop the containers and remove the installed files.
@@ -320,8 +320,8 @@ fetch_asset() {
 	if [[ -n "$SCRIPT_RELAY_DIR" ]]; then
 		cp -- "$SCRIPT_RELAY_DIR/$1" "$2"
 	else
-		curl -fsSL --retry 3 "$GPT_HOME_RAW_BASE/relay/$1" -o "$2" ||
-			die "cannot download relay/$1 from $GPT_HOME_RAW_BASE"
+		curl -fsSL --retry 3 "$HOMIE_RAW_BASE/relay/$1" -o "$2" ||
+			die "cannot download relay/$1 from $HOMIE_RAW_BASE"
 	fi
 }
 
@@ -406,7 +406,7 @@ install_files() {
 	fetch_asset "$compose_src" "$tmp/docker-compose.yml"
 	write_file "$tmp/docker-compose.yml" "$DIR/docker-compose.yml" 644
 
-	printf 'GPT_HOME_DOMAIN=%s\nGPT_HOME_MODE=%s\nGPT_HOME_PROXY_NETWORK=%s\n' "$DOMAIN" "$MODE" "$NETWORK" >"$tmp/env"
+	printf 'HOMIE_DOMAIN=%s\nHOMIE_MODE=%s\nHOMIE_PROXY_NETWORK=%s\n' "$DOMAIN" "$MODE" "$NETWORK" >"$tmp/env"
 	write_file "$tmp/env" "$DIR/.env" 600
 }
 
@@ -461,7 +461,7 @@ print_snippet() {
 Add this to your Caddyfile, then validate and reload Caddy:
 
 $DOMAIN {
-	reverse_proxy gpt-home-frps:7000 {
+	reverse_proxy homie-frps:7000 {
 		stream_close_delay 30m
 	}
 }
@@ -470,23 +470,23 @@ EOF
 	nginx)
 		cat >&2 <<EOF
 
-nginx: proxy $DOMAIN to gpt-home-frps:7000 with WebSocket upgrade headers
+nginx: proxy $DOMAIN to homie-frps:7000 with WebSocket upgrade headers
 (Upgrade/Connection from \$http_upgrade), proxy_http_version 1.1,
 proxy_read_timeout 1h and proxy_buffering off. Full example:
-$GPT_HOME_RAW_BASE/relay/snippets/nginx.md
+$HOMIE_RAW_BASE/relay/snippets/nginx.md
 EOF
 		;;
 	traefik)
 		cat >&2 <<EOF
 
-Traefik: add these labels to the gpt-home-frps service (docker-compose.override.yml):
+Traefik: add these labels to the homie-frps service (docker-compose.override.yml):
 
   traefik.enable=true
   traefik.docker.network=$NETWORK
-  traefik.http.routers.gpt-home.rule=Host(\`$DOMAIN\`)
-  traefik.http.routers.gpt-home.entrypoints=websecure
-  traefik.http.routers.gpt-home.tls.certresolver=<your resolver>
-  traefik.http.services.gpt-home.loadbalancer.server.port=7000
+  traefik.http.routers.homie.rule=Host(\`$DOMAIN\`)
+  traefik.http.routers.homie.entrypoints=websecure
+  traefik.http.routers.homie.tls.certresolver=<your resolver>
+  traefik.http.services.homie.loadbalancer.server.port=7000
 EOF
 		;;
 	*) ;;
@@ -505,7 +505,7 @@ print_proxy_help() {
 		print_snippet "$kind"
 	done <<<"$found"
 	info ""
-	info "frps is reachable from the proxy as gpt-home-frps:7000 (network '$NETWORK'). No port is published."
+	info "frps is reachable from the proxy as homie-frps:7000 (network '$NETWORK'). No port is published."
 }
 
 print_result() {
@@ -531,7 +531,7 @@ print_result() {
 do_print_code() {
 	local domain token
 	domain="$DOMAIN"
-	[[ -n "$domain" ]] || domain="$(env_get GPT_HOME_DOMAIN)"
+	[[ -n "$domain" ]] || domain="$(env_get HOMIE_DOMAIN)"
 	[[ -n "$domain" ]] || die "no install found in $DIR; pass --domain"
 	DOMAIN="$domain"
 	validate_domain
@@ -552,7 +552,7 @@ do_uninstall() {
 	done
 	rmdir "$DIR" 2>/dev/null || warn "$DIR still holds other files; left in place"
 	info "Removed. Caddy's certificate volumes were kept (Let's Encrypt rate limits)."
-	info "Delete them with: docker volume rm gpt-home-relay_caddy_data gpt-home-relay_caddy_config"
+	info "Delete them with: docker volume rm homie-relay_caddy_data homie-relay_caddy_config"
 }
 
 do_install() {

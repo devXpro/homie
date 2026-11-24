@@ -1,8 +1,8 @@
-// Command example is a minimal gpt-home plugin built on pluginkit. It shows an assistant tool, an admin tool and an
+// Command example is a minimal Homie plugin built on pluginkit. It shows an assistant tool, an admin tool and an
 // inventory tool.
 //
-//	go build -o bin/gpt-echo ./pluginkit/example
-//	homed plugin add --id echo -- "$PWD/bin/gpt-echo" serve
+//	go build -o bin/homie-echo ./pluginkit/example
+//	homed plugin add --id echo -- "$PWD/bin/homie-echo" serve
 package main
 
 import (
@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -40,7 +40,7 @@ type listOut struct {
 func newServer() *mcp.Server {
 	s := pluginkit.New(pluginkit.Plugin{
 		ID:           "echo",
-		Name:         "gpt-echo",
+		Name:         "homie-echo",
 		Title:        "Echo",
 		Version:      "0.1.0",
 		Instructions: "Use echo_say to repeat a phrase back to the user.",

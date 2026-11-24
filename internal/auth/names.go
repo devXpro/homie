@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
+	"github.com/devXpro/homie/internal/auth/wire"
 )
 
 // tokenBytes is the entropy of session cookies and setup tokens.

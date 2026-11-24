@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/devXpro/gpt-home/internal/hub"
+	"github.com/devXpro/homie/internal/hub"
 )
 
 // Run-time changes of the plugin set: the admin installs, removes, disables and restarts plugins while homed runs.

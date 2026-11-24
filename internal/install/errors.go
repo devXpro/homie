@@ -16,8 +16,8 @@ var (
 	ErrNoAsset = errors.New("install: no release asset for this OS and CPU")
 	// ErrIncompatible means the plugin needs a newer hub (minHubVersion).
 	ErrIncompatible = errors.New("install: plugin needs a newer hub version")
-	// ErrBadManifest means gpt-home-plugin.json is missing fields or has invalid ones.
-	ErrBadManifest = errors.New("install: invalid gpt-home-plugin.json")
+	// ErrBadManifest means homie-plugin.json is missing fields or has invalid ones.
+	ErrBadManifest = errors.New("install: invalid homie-plugin.json")
 	// ErrNoChecksum means checksums.txt is missing or has no line for the archive.
 	ErrNoChecksum = errors.New("install: no checksum for the archive")
 	// ErrChecksumMismatch means the downloaded bytes do not match checksums.txt.

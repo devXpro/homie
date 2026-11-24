@@ -13,7 +13,7 @@ export async function open(page: Page, path: string, scenario = 'default', extra
  * Chrome virtual authenticator with Touch ID-like user verification.
  */
 export async function useRealWebAuthn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('gh.mock.webauthn', 'real'))
+  await page.addInitScript(() => localStorage.setItem('homie.mock.webauthn', 'real'))
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('WebAuthn.enable')
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {

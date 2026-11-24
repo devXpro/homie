@@ -39,7 +39,7 @@ async function waitForHealth(url: string, homed: ChildProcess, log: string) {
 
 export default async function globalSetup() {
   // Under /tmp and short: the unix socket path must fit in 103 bytes.
-  const work = mkdtempSync('/tmp/gh-e2e-')
+  const work = mkdtempSync('/tmp/homie-e2e-')
   const homedBin = path.join(work, 'homed')
   const fakeBin = path.join(work, 'fakeplugin')
   const data = path.join(work, 'data')

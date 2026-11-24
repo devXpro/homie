@@ -1,7 +1,7 @@
-# GPT-Home relay: Caddy terminates TLS and hands everything to frps.
+# Homie relay: Caddy terminates TLS and hands everything to frps.
 # The domain is filled in by install/server.sh.
 __DOMAIN__ {
-	reverse_proxy gpt-home-frps:7000 {
+	reverse_proxy homie-frps:7000 {
 		# Keep the frpc websocket channel alive across `caddy reload`.
 		stream_close_delay 30m
 	}

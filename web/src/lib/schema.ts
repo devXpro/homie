@@ -111,7 +111,7 @@ function fieldsOf(schema: JSONSchema, prefix: string, tool: Tool | undefined, la
   const ordered = [...names.filter((n) => required.has(n)), ...names.filter((n) => !required.has(n))]
   return ordered.map((name) => {
     const s = props[name] ?? {}
-    const isTarget = prefix === '' && (name === target || s['x-gpt-home-ref'] === 'inventory')
+    const isTarget = prefix === '' && (name === target || s['x-homie-ref'] === 'inventory')
     const kind = kindOf(name, s, isTarget)
     const spec: FieldSpec = {
       name,

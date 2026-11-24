@@ -31,11 +31,11 @@ export function ceremonyError(err: unknown): CeremonyError {
 
 // The mock API (npm run dev:mock) answers with options no authenticator can sign for a real relying party, and a
 // developer's Touch ID should not collect junk passkeys for localhost. So mock mode fakes the browser prompt unless
-// localStorage "gh.mock.webauthn" is "real" (the Playwright smoke tests use Chrome's virtual authenticator with it).
+// localStorage "homie.mock.webauthn" is "real" (the Playwright smoke tests use Chrome's virtual authenticator with it).
 // Production builds drop these branches: every call site tests MODE, a build-time constant, first.
 function fakeMode(): 'off' | 'ok' | 'cancel' {
   if (import.meta.env.MODE !== 'mock') return 'off'
-  const v = localStorage.getItem('gh.mock.webauthn')
+  const v = localStorage.getItem('homie.mock.webauthn')
   if (v === 'real') return 'off'
   return v === 'cancel' ? 'cancel' : 'ok'
 }

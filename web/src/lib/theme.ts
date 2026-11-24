@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react'
 
 export type ThemePref = 'dark' | 'light' | 'system'
 
-const KEY = 'gh.theme'
+const KEY = 'homie.theme'
 const listeners = new Set<() => void>()
 const media = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
 

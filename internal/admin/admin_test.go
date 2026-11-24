@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 const origin = "https://homie.example"
@@ -43,7 +43,7 @@ func newEnv(t *testing.T, mods ...func(*Options)) *env {
 	st.passkeys["pk1"] = store.Passkey{ID: "pk1", PersonID: "roman", Name: "MacBook Pro", CreatedAt: created}
 	st.passkeys["pk2"] = store.Passkey{ID: "pk2", PersonID: "roman", Name: "iPhone", CreatedAt: created}
 	st.passkeys["pk3"] = store.Passkey{ID: "pk3", PersonID: "tanya", Name: "iPhone", CreatedAt: created}
-	st.plugins["tv"] = store.Plugin{ID: "tv", Source: store.PluginGitHub, Repo: "devXpro/gpt-tv", Version: "0.2.0", Enabled: true}
+	st.plugins["tv"] = store.Plugin{ID: "tv", Source: store.PluginGitHub, Repo: "devXpro/homie-tv", Version: "0.2.0", Enabled: true}
 	auth := &fakeAuth{st: st, byTok: map[string]Principal{}}
 	for _, s := range []struct{ tok, id, person, passkey string }{
 		{"tok-roman", "s_r1", "roman", "pk1"},
@@ -361,7 +361,7 @@ func TestToolsAndPlugins(t *testing.T) {
 
 	r = e.do(call{method: "GET", path: "/plugins/tv", tok: "tok-roman"})
 	expect(t, r, 200, "")
-	if r.body["name"] != "gpt-tv" || r.body["inventoryTool"] != "tv_list" || len(r.body["tools"].([]any)) != 3 ||
+	if r.body["name"] != "homie-tv" || r.body["inventoryTool"] != "tv_list" || len(r.body["tools"].([]any)) != 3 ||
 		r.body["command"] != nil {
 		t.Fatalf("detail = %s", r.raw)
 	}
@@ -592,18 +592,18 @@ func encodeCode(t *testing.T, domain string) string {
 func TestJobs(t *testing.T) {
 	e := newEnv(t)
 	e.stepUp("tok-roman")
-	expect(t, e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"devXpro/gpt-tv","id":"tv"}`}), 409, "conflict")
+	expect(t, e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"devXpro/homie-tv","id":"tv"}`}), 409, "conflict")
 	expect(t, e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"nope"}`}), 400, "invalid_args")
 	expect(t, e.do(call{method: "POST", path: "/plugins", tok: "tok-roman",
 		body: `{"source":"local","id":"x1","command":["/bin/x"]}`}), 400, "invalid_args")
 
-	r := e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"devXpro/gpt-kettle","version":"0.1.0","id":"kettle"}`})
+	r := e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"devXpro/homie-kettle","version":"0.1.0","id":"kettle"}`})
 	expect(t, r, 202, "")
 	id := r.body["id"].(string)
 	if r.body["kind"] != "plugin.install" || r.body["step"] != "resolve" {
 		t.Fatalf("job = %s", r.raw)
 	}
-	r = e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"devXpro/gpt-kettle","id":"kettle"}`})
+	r = e.do(call{method: "POST", path: "/plugins", tok: "tok-roman", body: `{"repo":"devXpro/homie-kettle","id":"kettle"}`})
 	expect(t, r, 409, "job_running")
 	if r.body["error"].(map[string]any)["jobId"] != id {
 		t.Fatalf("409 = %s", r.raw)
@@ -633,7 +633,7 @@ func TestJobs(t *testing.T) {
 		return r.body["state"] == "failed" && er["code"] == "checksum_mismatch"
 	})
 
-	r = e.do(call{method: "GET", path: "/plugins/preview?repo=devXpro/gpt-tv", tok: "tok-roman"})
+	r = e.do(call{method: "GET", path: "/plugins/preview?repo=devXpro/homie-tv", tok: "tok-roman"})
 	if expect(t, r, 200, ""); r.body["installed"].(map[string]any)["version"] != "0.2.0" {
 		t.Fatalf("preview = %s", r.raw)
 	}
@@ -813,7 +813,7 @@ func jobDone(t *testing.T, e *env, id string) {
 func TestPreviewHomepage(t *testing.T) {
 	e := newEnv(t)
 	for _, c := range []struct{ homepage, want string }{
-		{"https://example.com/gpt-tv", "https://example.com/gpt-tv"},
+		{"https://example.com/homie-tv", "https://example.com/homie-tv"},
 		{" https://example.com/x ", "https://example.com/x"},
 		{"http://example.com", ""},
 		{"javascript:alert(document.domain)", ""},
@@ -825,7 +825,7 @@ func TestPreviewHomepage(t *testing.T) {
 		e.inst.mu.Lock()
 		e.inst.homepage = c.homepage
 		e.inst.mu.Unlock()
-		r := e.do(call{method: "GET", path: "/plugins/preview?repo=devXpro/gpt-tv", tok: "tok-roman"})
+		r := e.do(call{method: "GET", path: "/plugins/preview?repo=devXpro/homie-tv", tok: "tok-roman"})
 		got, _ := r.body["homepage"].(string)
 		if expect(t, r, 200, ""); got != c.want {
 			t.Errorf("homepage %q → %q, want %q", c.homepage, got, c.want)

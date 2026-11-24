@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/admin"
-	"github.com/devXpro/gpt-home/internal/install"
-	"github.com/devXpro/gpt-home/internal/plugins"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/admin"
+	"github.com/devXpro/homie/internal/install"
+	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // awaitStart bounds how long a new plugin version may take to come up (initialize and tools/list).

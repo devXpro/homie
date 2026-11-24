@@ -43,7 +43,7 @@ be found or woken), and Windows itself.
 ### macOS
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | bash
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash
 ```
 
 Run it as yourself, not with `sudo`. It downloads the latest release for your Mac, checks its SHA-256 against the
@@ -51,16 +51,16 @@ release's `checksums.txt`, and installs:
 
 | What | Where |
 |---|---|
-| the program | `~/Library/Application Support/gpt-home/bin/homed` |
-| the data dir | `~/Library/Application Support/gpt-home` |
-| the LaunchAgent | `~/Library/LaunchAgents/com.github.devxpro.gpt-home.homed.plist` (starts at login, restarts after a crash or an update) |
-| the log | `~/Library/Logs/gpt-home/homed.log` |
+| the program | `~/Library/Application Support/homie/bin/homed` |
+| the data dir | `~/Library/Application Support/homie` |
+| the LaunchAgent | `~/Library/LaunchAgents/com.github.devxpro.homie.homed.plist` (starts at login, restarts after a crash or an update) |
+| the log | `~/Library/Logs/homie/homed.log` |
 
 It starts the hub and prints the first-run page's address and PIN. `homed` is not put on your `PATH`; the commands on
 this page use a variable for it:
 
 ```sh
-H="$HOME/Library/Application Support/gpt-home/bin/homed"
+H="$HOME/Library/Application Support/homie/bin/homed"
 "$H" version
 ```
 
@@ -73,21 +73,21 @@ the display is off*. A sleeping Mac means "home is offline" for everyone.
 **Local Network permission.** The first time a plugin talks to your LAN (finding or waking the TV), macOS asks
 whether *homed* may find devices on your local network. Click **Allow**. Missed it? System Settings → Privacy &
 Security → Local Network → turn on homed, then
-`launchctl kickstart -k gui/$(id -u)/com.github.devxpro.gpt-home.homed`.
+`launchctl kickstart -k gui/$(id -u)/com.github.devxpro.homie.homed`.
 
 #### Homebrew
 
 An alternative to the installer — use one or the other, not both:
 
 ```sh
-brew tap devxpro/gpt-home https://github.com/devXpro/gpt-home
-brew install gpt-home
-brew services start gpt-home
+brew tap devxpro/homie https://github.com/devXpro/homie
+brew install homie
+brew services start homie
 homed version
 ```
 
-`homed` is on your `PATH`, the data dir is the same, the log is `$(brew --prefix)/var/log/gpt-home/homed.log`.
-Update with `brew upgrade gpt-home`: the admin's self-update would replace the file inside the Cellar and the next
+`homed` is on your `PATH`, the data dir is the same, the log is `$(brew --prefix)/var/log/homie/homed.log`.
+Update with `brew upgrade homie`: the admin's self-update would replace the file inside the Cellar and the next
 `brew upgrade` would put the brew version back.
 
 ### Raspberry Pi and Linux
@@ -97,33 +97,33 @@ Update with `brew upgrade gpt-home`: the admin's self-update would replace the f
 your Wi-Fi if there is no cable, and enable SSH. Boot, then `ssh you@homepi.local`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash
 ```
 
 It detects the CPU (amd64, arm64 or armv7), verifies the release checksum and installs:
 
 | What | Where |
 |---|---|
-| the program | `/usr/local/lib/gpt-home/homed` |
+| the program | `/usr/local/lib/homie/homed` |
 | the `homed` command | `/usr/local/bin/homed` — a small wrapper that runs the CLI as the service user, with `sudo` when needed |
-| the system user | `gpt-home` (no login shell) |
-| the data dir | `/var/lib/gpt-home` (mode 0700, owned by `gpt-home`) |
-| the service | `/etc/systemd/system/gpt-home.service`: starts at boot, `Restart=always`, sandboxed (`ProtectSystem=strict`, no new privileges, no capabilities), LAN access kept for discovery and Wake-on-LAN |
+| the system user | `homie` (no login shell) |
+| the data dir | `/var/lib/homie` (mode 0700, owned by `homie`) |
+| the service | `/etc/systemd/system/homie.service`: starts at boot, `Restart=always`, sandboxed (`ProtectSystem=strict`, no new privileges, no capabilities), LAN access kept for discovery and Wake-on-LAN |
 
 It starts the service and prints the first-run page's address and PIN.
 
 ```sh
-systemctl status gpt-home
+systemctl status homie
 homed version
 ```
 
-Local changes to the unit go in `sudo systemctl edit gpt-home`; the installed file is rewritten on every update.
+Local changes to the unit go in `sudo systemctl edit homie`; the installed file is rewritten on every update.
 
 ### Docker (NAS)
 
 ```sh
-docker run -d --name gpt-home --restart unless-stopped --network host \
-  -v gpt-home:/data ghcr.io/devxpro/gpt-home:latest
+docker run -d --name homie --restart unless-stopped --network host \
+  -v homie:/data ghcr.io/devxpro/homie:latest
 ```
 
 Or with Compose:
@@ -131,21 +131,21 @@ Or with Compose:
 ```yaml
 # docker-compose.yml
 services:
-  gpt-home:
-    image: ghcr.io/devxpro/gpt-home:latest
-    container_name: gpt-home
+  homie:
+    image: ghcr.io/devxpro/homie:latest
+    container_name: homie
     restart: unless-stopped
     network_mode: host
     volumes:
-      - gpt-home:/data
+      - homie:/data
 
 volumes:
-  gpt-home:
+  homie:
 ```
 
 ```sh
 docker compose up -d
-docker exec gpt-home homed admin firstrun      # the first-run page's address and PIN
+docker exec homie homed admin firstrun      # the first-run page's address and PIN
 ```
 
 Images exist for `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
@@ -153,7 +153,7 @@ Images exist for `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
 - **`--network host` is required.** Devices are found with SSDP multicast and woken with UDP broadcasts; neither
   crosses Docker's bridge network, so a bridged container sees no TV and cannot wake one.
 - **Data** lives in the `/data` volume, owned by uid `10001`. With a bind mount instead of a named volume, give the
-  directory to that uid: `sudo chown 10001:10001 /volume1/docker/gpt-home`.
+  directory to that uid: `sudo chown 10001:10001 /volume1/docker/homie`.
 - **Ports.** The hub listens on `127.0.0.1:8080` of the host and the first-run page on `:8090`. If the NAS already
   uses 8080, move the hub, and its health check with it:
 
@@ -162,8 +162,8 @@ Images exist for `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
       healthcheck:
         test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:18080/healthz"]
   ```
-- **CLI:** every `homed` command on this page runs as `docker exec gpt-home homed …`; the ones that read stdin need
-  `-i`: `docker exec -i gpt-home homed relay connect -`.
+- **CLI:** every `homed` command on this page runs as `docker exec homie homed …`; the ones that read stdin need
+  `-i`: `docker exec -i homie homed relay connect -`.
 - **Updates** come from a new image (`docker compose pull && docker compose up -d`); the admin's self-update cannot
   replace the read-only binary inside the image.
 
@@ -173,14 +173,14 @@ For development, or a platform without a release. Needs Go 1.26 (the `go` comman
 Node 22+ for the admin.
 
 ```sh
-git clone https://github.com/devXpro/gpt-home.git
-make -C gpt-home build          # builds the admin, then gpt-home/bin/homed with it embedded
-gpt-home/bin/homed version
-gpt-home/bin/homed run          # foreground; Ctrl-C stops it
+git clone https://github.com/devXpro/homie.git
+make -C homie build          # builds the admin, then homie/bin/homed with it embedded
+homie/bin/homed version
+homie/bin/homed run          # foreground; Ctrl-C stops it
 ```
 
 To run it as a service, use the LaunchAgent in [DEV.md](DEV.md#10-run-at-login-with-launchd) or the systemd unit in
-[`install/systemd/gpt-home.service`](../install/systemd/gpt-home.service). Running homed locally for development,
+[`install/systemd/homie.service`](../install/systemd/homie.service). Running homed locally for development,
 without a relay: [DEV.md](DEV.md).
 
 ## Connect the relay
@@ -190,9 +190,9 @@ end up in the shell history and the process list; homed refuses it):
 
 | Platform | Command |
 |---|---|
-| macOS installer | `"$HOME/Library/Application Support/gpt-home/bin/homed" relay connect -` |
+| macOS installer | `"$HOME/Library/Application Support/homie/bin/homed" relay connect -` |
 | Homebrew, Linux, Raspberry Pi | `homed relay connect -` |
-| Docker | `docker exec -i gpt-home homed relay connect -` |
+| Docker | `docker exec -i homie homed relay connect -` |
 
 Paste the code, press Enter. A running hub connects at once, no restart:
 
@@ -258,10 +258,10 @@ Open `https://<your domain>/admin` → **Devices → Add devices** → the TV mo
 
 | | macOS (installer) | macOS (Homebrew) | Linux / Raspberry Pi | Docker |
 |---|---|---|---|---|
-| status | `launchctl print gui/$(id -u)/com.github.devxpro.gpt-home.homed` | `brew services info gpt-home` | `systemctl status gpt-home` | `docker ps -f name=gpt-home` |
-| restart | `launchctl kickstart -k gui/$(id -u)/com.github.devxpro.gpt-home.homed` | `brew services restart gpt-home` | `sudo systemctl restart gpt-home` | `docker restart gpt-home` |
-| stop | `launchctl bootout gui/$(id -u)/com.github.devxpro.gpt-home.homed` | `brew services stop gpt-home` | `sudo systemctl stop gpt-home` | `docker stop gpt-home` |
-| logs | `tail -f ~/Library/Logs/gpt-home/homed.log` | `tail -f "$(brew --prefix)/var/log/gpt-home/homed.log"` | `journalctl -u gpt-home -f` | `docker logs -f gpt-home` |
+| status | `launchctl print gui/$(id -u)/com.github.devxpro.homie.homed` | `brew services info homie` | `systemctl status homie` | `docker ps -f name=homie` |
+| restart | `launchctl kickstart -k gui/$(id -u)/com.github.devxpro.homie.homed` | `brew services restart homie` | `sudo systemctl restart homie` | `docker restart homie` |
+| stop | `launchctl bootout gui/$(id -u)/com.github.devxpro.homie.homed` | `brew services stop homie` | `sudo systemctl stop homie` | `docker stop homie` |
+| logs | `tail -f ~/Library/Logs/homie/homed.log` | `tail -f "$(brew --prefix)/var/log/homie/homed.log"` | `journalctl -u homie -f` | `docker logs -f homie` |
 
 Only one `homed run` may use a data dir; stop the service before running one by hand. Every service restarts the hub
 when it exits — including on purpose, with status 75, after an update from the admin.
@@ -272,7 +272,7 @@ when it exits — including on purpose, with status 75, after an update from the
   downloads the release, verifies it, checks that the new binary runs, swaps it, and exits so the service starts the
   new version; the page reloads by itself. Works for the installer and from-source installs.
 - **Installer:** rerun the same one-liner. It keeps your data and restarts only if something changed.
-- **Homebrew:** `brew upgrade gpt-home`.
+- **Homebrew:** `brew upgrade homie`.
 - **Docker:** `docker compose pull && docker compose up -d`.
 
 Plugins update from **Devices → the module → Maintenance**; a version that does not start is rolled back by itself.
@@ -281,17 +281,17 @@ Plugins update from **Devices → the module → Maintenance**; a version that d
 
 | Platform | Command |
 |---|---|
-| macOS (installer) | `curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh \| bash -s -- --uninstall` |
-| Linux / Raspberry Pi | `curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh \| sudo bash -s -- --uninstall` |
-| Homebrew | `brew services stop gpt-home && brew uninstall gpt-home` |
-| Docker | `docker rm -f gpt-home` (the `gpt-home` volume keeps the data: `docker volume rm gpt-home`) |
+| macOS (installer) | `curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh \| bash -s -- --uninstall` |
+| Linux / Raspberry Pi | `curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh \| sudo bash -s -- --uninstall` |
+| Homebrew | `brew services stop homie && brew uninstall homie` |
+| Docker | `docker rm -f homie` (the `homie` volume keeps the data: `docker volume rm homie`) |
 
-The installer keeps the data dir; add `--purge` to delete it too (on Linux also the `gpt-home` user). macOS Keychain
-items such as `gpt-home-key` are never touched. Removing the hub does not touch your relay server, and your ChatGPT
+The installer keeps the data dir; add `--purge` to delete it too (on Linux also the `homie` user). macOS Keychain
+items such as `homie-key` are never touched. Removing the hub does not touch your relay server, and your ChatGPT
 Sites keep pointing at the domain until you delete them.
 
 ## Backups
 
-Everything is in the data dir: `~/Library/Application Support/gpt-home`, `/var/lib/gpt-home`, or the Docker volume.
+Everything is in the data dir: `~/Library/Application Support/homie`, `/var/lib/homie`, or the Docker volume.
 Stop the hub, copy the directory, start it again. Treat the copy as a secret: it holds the relay token, the TV pairing
 keys and the hashes of your access keys. Restoring it on another box moves the whole home there.

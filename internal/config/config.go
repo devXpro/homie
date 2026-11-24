@@ -31,7 +31,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/devXpro/gpt-home/internal/relay"
+	"github.com/devXpro/homie/internal/relay"
 )
 
 // Files in the data dir.
@@ -280,24 +280,24 @@ func DataDirWarning(dir string) string {
 		"not create. Run: chmod 700 %s", dir, st.Mode().Perm(), dir)
 }
 
-// DefaultDataDir is ~/Library/Application Support/gpt-home on macOS and $XDG_DATA_HOME/gpt-home (or
-// ~/.local/share/gpt-home) elsewhere.
+// DefaultDataDir is ~/Library/Application Support/homie on macOS and $XDG_DATA_HOME/homie (or
+// ~/.local/share/homie) elsewhere.
 func DefaultDataDir() (string, error) {
 	if runtime.GOOS == "darwin" {
 		base, err := os.UserConfigDir() // ~/Library/Application Support
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(base, "gpt-home"), nil
+		return filepath.Join(base, "homie"), nil
 	}
 	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "gpt-home"), nil
+		return filepath.Join(x, "homie"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "share", "gpt-home"), nil
+	return filepath.Join(home, ".local", "share", "homie"), nil
 }
 
 // Load reads and validates homed.yaml in dir. A missing file is an empty config. Unknown keys are errors, so a typo

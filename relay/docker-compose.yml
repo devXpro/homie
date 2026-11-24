@@ -1,11 +1,11 @@
-# GPT-Home relay, standalone: Caddy owns 80/443 and terminates TLS, frps stays
+# Homie relay, standalone: Caddy owns 80/443 and terminates TLS, frps stays
 # internal. Written to the install dir by install/server.sh.
-name: gpt-home-relay
+name: homie-relay
 
 services:
   caddy:
     image: caddy:2.11.4-alpine
-    container_name: gpt-home-caddy
+    container_name: homie-caddy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -20,7 +20,7 @@ services:
 
   frps:
     image: ghcr.io/fatedier/frps:v0.72.0
-    container_name: gpt-home-frps
+    container_name: homie-frps
     restart: unless-stopped
     command: ["-c", "/etc/frp/frps.toml"]
     volumes:

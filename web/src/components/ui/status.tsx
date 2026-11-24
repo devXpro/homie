@@ -27,7 +27,7 @@ export function StatusOrb({ tone, breathing, size = 56 }: { tone: Tone; breathin
   return (
     <span
       aria-hidden
-      className={cn('gh-orb inline-block shrink-0 rounded-full', TONE_STATUS[tone], breathing && 'gh-breathe')}
+      className={cn('homie-orb inline-block shrink-0 rounded-full', TONE_STATUS[tone], breathing && 'homie-breathe')}
       style={{ width: size, height: size }}
     />
   )

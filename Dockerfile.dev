@@ -1,8 +1,8 @@
-# GPT-Home hub (homed) built from the sources, for development and for hosts that cannot pull the release image.
+# Homie hub (homed) built from the sources, for development and for hosts that cannot pull the release image.
 # The release image is Dockerfile (a finished binary copied in); same runtime, same usage:
 #
-#   docker build -f Dockerfile.dev -t gpt-home:dev .
-#   docker run -d --name gpt-home --restart unless-stopped --network host -v gpt-home:/data gpt-home:dev
+#   docker build -f Dockerfile.dev -t homie:dev .
+#   docker run -d --name homie --restart unless-stopped --network host -v homie:/data homie:dev
 #
 # Why --network host and why Docker Desktop on a Mac cannot do it: see the comments in Dockerfile.
 # Build another CPU with --platform (for example linux/arm64); VERSION and COMMIT end up in `homed version`.
@@ -37,11 +37,11 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates tzdata tini \
-	&& addgroup -S -g 10001 gpt-home \
-	&& adduser -S -u 10001 -G gpt-home -h /data -H -s /sbin/nologin gpt-home \
-	&& install -d -m 0700 -o gpt-home -g gpt-home /data
+	&& addgroup -S -g 10001 homie \
+	&& adduser -S -u 10001 -G homie -h /data -H -s /sbin/nologin homie \
+	&& install -d -m 0700 -o homie -g homie /data
 COPY --from=build --chmod=0755 /out/homed /usr/local/bin/homed
-COPY LICENSE /usr/share/licenses/gpt-home/LICENSE
+COPY LICENSE /usr/share/licenses/homie/LICENSE
 ENV HOMED_DATA_DIR=/data
 VOLUME /data
 WORKDIR /data

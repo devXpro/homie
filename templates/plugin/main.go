@@ -1,10 +1,10 @@
-// Command gpt-plug is a GPT-Home plugin for smart plugs (Shelly Gen2+ over the local RPC API).
+// Command homie-plug is a Homie plugin for smart plugs (Shelly Gen2+ over the local RPC API).
 //
 // It is the plugin template of docs/PLUGINS.md: one assistant tool (plug_switch), one inventory tool (plug_list) and
 // one admin tool (plug_add, with progress). Copy the directory, rename it, and swap Shelly for your own device.
 //
-//	gpt-plug [serve]   speak MCP over stdio to the hub (the default)
-//	gpt-plug version   print the version
+//	homie-plug [serve]   speak MCP over stdio to the hub (the default)
+//	homie-plug version   print the version
 package main
 
 import (
@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -33,7 +33,7 @@ func main() {
 	err := run(ctx, os.Args[1:], os.Stdout)
 	stop()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "gpt-plug:", err)
+		fmt.Fprintln(os.Stderr, "homie-plug:", err)
 		os.Exit(1)
 	}
 }
@@ -45,7 +45,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	switch cmd {
 	case "serve":
-		dir, err := pluginkit.DataDir() // GPT_HOME_DATA_DIR under the hub, ./data in development
+		dir, err := pluginkit.DataDir() // HOMIE_DATA_DIR under the hub, ./data in development
 		if err != nil {
 			return err
 		}
@@ -54,14 +54,14 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		_, err := fmt.Fprintln(out, version)
 		return err
 	default:
-		return fmt.Errorf("unknown command %q; usage: gpt-plug [serve | version]", cmd)
+		return fmt.Errorf("unknown command %q; usage: homie-plug [serve | version]", cmd)
 	}
 }
 
 // newServer registers every tool. Tests call it with a fake device and a temp store.
 func newServer(st *Store, dev Device) *mcp.Server {
 	s := pluginkit.New(pluginkit.Plugin{
-		ID: "plug", Name: "gpt-plug", Title: "Smart plugs", Version: version, Instructions: instructions,
+		ID: "plug", Name: "homie-plug", Title: "Smart plugs", Version: version, Instructions: instructions,
 	})
 	h := &handlers{store: st, dev: dev}
 
@@ -214,7 +214,7 @@ func (h *handlers) find(arg string) (p Plug, problem string, err error) {
 		return Plug{}, "", err
 	}
 	if len(plugs) == 0 {
-		return Plug{}, "No plugs are set up yet. Add one in the GPT-Home admin.", nil
+		return Plug{}, "No plugs are set up yet. Add one in the Homie admin.", nil
 	}
 	arg = strings.TrimSpace(arg)
 	if arg == "" && len(plugs) == 1 {

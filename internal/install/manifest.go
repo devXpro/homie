@@ -13,7 +13,7 @@ import (
 )
 
 // ManifestAsset is the release asset that describes a plugin (PLAN §5.1).
-const ManifestAsset = "gpt-home-plugin.json"
+const ManifestAsset = "homie-plugin.json"
 
 // ChecksumsAsset is the GoReleaser checksum file.
 const ChecksumsAsset = "checksums.txt"
@@ -22,7 +22,7 @@ const maxManifestBytes = 64 << 10
 
 var pluginIDRE = regexp.MustCompile(`^[a-z][a-z0-9]{1,15}$`)
 
-// Manifest is gpt-home-plugin.json.
+// Manifest is homie-plugin.json.
 type Manifest struct {
 	ID            string   `json:"id"`
 	Title         string   `json:"title"`
@@ -76,7 +76,7 @@ func (m *Manifest) Compatible(hubVersion string) bool {
 	return err == nil && c >= 0
 }
 
-// FetchManifest downloads and parses the release's gpt-home-plugin.json. A release without it is ErrBadManifest:
+// FetchManifest downloads and parses the release's homie-plugin.json. A release without it is ErrBadManifest:
 // it is not a plugin release.
 func (c *Client) FetchManifest(ctx context.Context, rel *Release) (*Manifest, []byte, error) {
 	a, ok := rel.Asset(ManifestAsset)

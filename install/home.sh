@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# GPT-Home home installer.
+# Homie home installer.
 #
 # Installs the home hub (homed) from a GitHub release and runs it as a service:
 #   macOS                 a LaunchAgent in your login session
-#   Linux / Raspberry Pi  a systemd service under the system user gpt-home (needs root)
+#   Linux / Raspberry Pi  a systemd service under the system user homie (needs root)
 #
-#   macOS:  curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | bash
-#   Linux:  curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | sudo bash
+#   macOS:  curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash
+#   Linux:  curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash
 #
 # Run it again to update in place (the data is kept). Pass options after `bash -s --`, for example
 # `... | sudo bash -s -- --uninstall`. See --help.
@@ -15,17 +15,17 @@
 # runs nothing. Works with the bash 3.2 that macOS ships.
 set -euo pipefail
 
-readonly RELEASE_BASE_DEFAULT="https://github.com/devXpro/gpt-home/releases"
-readonly RAW_BASE_DEFAULT="https://raw.githubusercontent.com/devXpro/gpt-home"
-readonly DEFAULT_LABEL="com.github.devxpro.gpt-home.homed"
-readonly SERVICE_USER="gpt-home"
-readonly LINUX_DATA_DIR="/var/lib/gpt-home"
-readonly UNIT_NAME="gpt-home.service"
+readonly RELEASE_BASE_DEFAULT="https://github.com/devXpro/homie/releases"
+readonly RAW_BASE_DEFAULT="https://raw.githubusercontent.com/devXpro/homie"
+readonly DEFAULT_LABEL="com.github.devxpro.homie.homed"
+readonly SERVICE_USER="homie"
+readonly LINUX_DATA_DIR="/var/lib/homie"
+readonly UNIT_NAME="homie.service"
 readonly UNIT_PATH="/etc/systemd/system/$UNIT_NAME"
-readonly WRAPPER_MARK="Installed by the GPT-Home installer"
+readonly WRAPPER_MARK="Installed by the Homie installer"
 
-RELEASE_BASE="${GPT_HOME_RELEASE_BASE:-$RELEASE_BASE_DEFAULT}"
-RAW_BASE="${GPT_HOME_RAW_BASE:-$RAW_BASE_DEFAULT}"
+RELEASE_BASE="${HOMIE_RELEASE_BASE:-$RELEASE_BASE_DEFAULT}"
+RAW_BASE="${HOMIE_RAW_BASE:-$RAW_BASE_DEFAULT}"
 
 VERSION=""
 PREFIX=""
@@ -75,24 +75,24 @@ usage() {
 	cat <<'EOF'
 Usage: home.sh [options]
 
-Installs the GPT-Home hub (homed) and starts it as a service. Run it again to update in place.
+Installs the Homie hub (homed) and starts it as a service. Run it again to update in place.
 
   --version vX.Y.Z   install this release. Default: the latest release.
-  --prefix DIR       macOS: install the binary as DIR/bin/homed (default: ~/Library/Application Support/gpt-home).
-                     Linux: DIR/bin/homed is the command, DIR/lib/gpt-home/homed the program (default: /usr/local).
+  --prefix DIR       macOS: install the binary as DIR/bin/homed (default: ~/Library/Application Support/homie).
+                     Linux: DIR/bin/homed is the command, DIR/lib/homie/homed the program (default: /usr/local).
   --no-start         install the files only; do not touch launchd or systemd.
   --dry-run          show which release and archive would be installed; change nothing.
   --uninstall        stop the service and remove it and the program. The data is kept unless --purge.
   --purge            with --uninstall: also delete the data (people, passkeys, keys, paired devices, logs)
-                     and, on Linux, the user gpt-home.
+                     and, on Linux, the user homie.
   --yes              do not ask questions (uninstall and purge ask first).
   -h, --help         show this help.
 
 Tests only:
-  --release-base URL   release server instead of https://github.com/devXpro/gpt-home/releases
+  --release-base URL   release server instead of https://github.com/devXpro/homie/releases
   --allow-http         allow a release server without TLS
   --os OS --arch ARCH  pretend to be darwin|linux and amd64|arm64|armv7
-  --label LABEL        macOS: the LaunchAgent label (the real one is com.github.devxpro.gpt-home.homed)
+  --label LABEL        macOS: the LaunchAgent label (the real one is com.github.devxpro.homie.homed)
 EOF
 }
 
@@ -274,20 +274,20 @@ detect_platform() {
 set_paths() {
 	[[ -n "${HOME:-}" ]] || die "HOME is not set"
 	if [[ "$OS" == "darwin" ]]; then
-		DATA_DIR="$HOME/Library/Application Support/gpt-home"
+		DATA_DIR="$HOME/Library/Application Support/homie"
 		[[ -n "$PREFIX" ]] || PREFIX="$DATA_DIR"
 		BIN_DIR="$PREFIX/bin"
 		LIB_DIR="$BIN_DIR"
 		HOMED_BIN="$BIN_DIR/homed"
 		PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
-		LOG_DIR="$HOME/Library/Logs/gpt-home"
+		LOG_DIR="$HOME/Library/Logs/homie"
 		LOG_FILE="$LOG_DIR/homed.log"
 		safe_path "$DATA_DIR" || die "HOME contains characters this installer does not support: $HOME"
 	else
 		DATA_DIR="$LINUX_DATA_DIR"
 		[[ -n "$PREFIX" ]] || PREFIX="/usr/local"
 		BIN_DIR="$PREFIX/bin"
-		LIB_DIR="$PREFIX/lib/gpt-home"
+		LIB_DIR="$PREFIX/lib/homie"
 		HOMED_BIN="$LIB_DIR/homed"
 	fi
 	[[ "$PREFIX" == /* ]] || die "--prefix must be an absolute path"
@@ -386,7 +386,7 @@ fetch_asset() {
 	if [[ -n "$SCRIPT_ASSET_DIR" ]]; then
 		cp -- "$SCRIPT_ASSET_DIR/$1" "$2"
 	else
-		fetch "$RAW_BASE/${GPT_HOME_REF:-$TAG}/install/$1" "$2"
+		fetch "$RAW_BASE/${HOMIE_REF:-$TAG}/install/$1" "$2"
 	fi
 }
 
@@ -563,8 +563,8 @@ Next steps (homed is not on your PATH, so the commands use its full path):
 Logs:      tail -f '$LOG_FILE'
 Restart:   launchctl kickstart -k $(launchd_domain)/$LABEL
 Homebrew:  an alternative to this installer, not an addition to it (use one of the two):
-             brew tap devxpro/gpt-home https://github.com/devXpro/gpt-home && brew install gpt-home
-             brew services start gpt-home
+             brew tap devxpro/homie https://github.com/devXpro/homie && brew install homie
+             brew services start homie
            The hub's self-update (Settings > Updates) replaces the binary in the Cellar, and the next brew upgrade
            puts the brew version back, so with brew update through brew.
 Update:    run this installer again (the data is kept), or use Settings > Updates in the admin
@@ -583,10 +583,10 @@ mac_uninstall() {
 	rmdir "$BIN_DIR" 2>/dev/null || true
 	if [[ "$PURGE" -eq 1 ]]; then
 		confirm "Delete ALL data in $DATA_DIR (people, passkeys, access keys, paired devices)?" || die "aborted"
-		if [[ "$DATA_DIR" == "$HOME/Library/Application Support/gpt-home" ]]; then
+		if [[ "$DATA_DIR" == "$HOME/Library/Application Support/homie" ]]; then
 			rm -rf -- "$DATA_DIR" "$LOG_DIR"
 		fi
-		info "Removed homed and its data. Keychain items (such as gpt-home-key) are not touched."
+		info "Removed homed and its data. Keychain items (such as homie-key) are not touched."
 	else
 		info "Removed homed. The data in $DATA_DIR is kept; add --purge to delete it."
 	fi
@@ -596,7 +596,7 @@ mac_uninstall() {
 
 linux_preflight() {
 	local t
-	[[ "$(id -u)" -eq 0 ]] || die "run as root, for example: curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | sudo bash"
+	[[ "$(id -u)" -eq 0 ]] || die "run as root, for example: curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash"
 	for t in curl tar install useradd getent awk find cmp runuser; do
 		have "$t" || die "$t is not installed"
 	done
@@ -620,7 +620,7 @@ nologin_path() {
 linux_user_and_dirs() {
 	if ! getent passwd "$SERVICE_USER" >/dev/null; then
 		useradd --system --user-group --home-dir "$DATA_DIR" --no-create-home --shell "$(nologin_path)" \
-			--comment "GPT-Home hub" "$SERVICE_USER" || die "cannot create the user $SERVICE_USER"
+			--comment "Homie hub" "$SERVICE_USER" || die "cannot create the user $SERVICE_USER"
 		info "Created the system user $SERVICE_USER."
 	fi
 	install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_DIR"
@@ -651,7 +651,7 @@ linux_install() {
 	write_file "$TMP_DIR/homed.wrapper" "$wrapper" 755
 
 	unit_tmpl="$TMP_DIR/unit.tmpl"
-	fetch_asset "systemd/gpt-home.service" "$unit_tmpl"
+	fetch_asset "systemd/homie.service" "$unit_tmpl"
 	sed -e "s|__HOMED_BIN__|$HOMED_BIN|g" -e "s|__LIB_DIR__|$LIB_DIR|g" "$unit_tmpl" >"$TMP_DIR/unit"
 	write_file "$TMP_DIR/unit" "$UNIT_PATH" 644
 	unit_changed="$FILE_CHANGED"
@@ -673,13 +673,13 @@ linux_start() {
 	fi
 	systemctl enable "$UNIT_NAME" >/dev/null 2>&1 || warn "could not enable $UNIT_NAME at boot"
 	if [[ "$unit_changed" -eq 1 || "$BIN_CHANGED" -eq 1 ]] || ! unit_active; then
-		systemctl restart "$UNIT_NAME" || die "systemctl restart failed; see: journalctl -u gpt-home -n 50"
+		systemctl restart "$UNIT_NAME" || die "systemctl restart failed; see: journalctl -u homie -n 50"
 	else
 		info "Already installed and running; nothing to restart."
 	fi
-	wait_until 20 unit_active || die "homed did not start; see: journalctl -u gpt-home -n 50"
+	wait_until 20 unit_active || die "homed did not start; see: journalctl -u homie -n 50"
 	sleep 2
-	unit_active || die "homed started and stopped again; see: journalctl -u gpt-home -n 50"
+	unit_active || die "homed started and stopped again; see: journalctl -u homie -n 50"
 	info "homed is running ($UNIT_NAME)."
 	linux_next_steps "$fresh"
 }
@@ -707,9 +707,9 @@ Next steps:
      only reachable from this machine itself.
   3. In the admin, Devices > + adds the TV plugin.
 
-Status:    systemctl status gpt-home        Logs: journalctl -u gpt-home -f
+Status:    systemctl status homie        Logs: journalctl -u homie -f
 Update:    run this installer again (the data is kept), or use Settings > Updates in the admin
-Uninstall: curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | sudo bash -s -- --uninstall
+Uninstall: curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash -s -- --uninstall
            (add --purge to delete the data and the user too)
 EOF
 }

@@ -65,8 +65,8 @@ export const TONE_TEXT: Record<Tone, string> = {
 
 /** TONE_STATUS sets --status for the hero glow and the orb (index.css). */
 export const TONE_STATUS: Record<Tone, string> = {
-  success: 'gh-status-success',
-  warning: 'gh-status-warning',
-  danger: 'gh-status-danger',
-  gray: 'gh-status-gray',
+  success: 'homie-status-success',
+  warning: 'homie-status-warning',
+  danger: 'homie-status-danger',
+  gray: 'homie-status-gray',
 }

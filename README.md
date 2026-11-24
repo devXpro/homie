@@ -2,15 +2,15 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg">
-    <img alt="GPT-Home — your home, by voice. Self-hosted." src="docs/assets/banner-dark.svg" width="100%">
+    <img alt="Homie — your home, by voice. Self-hosted." src="docs/assets/banner-dark.svg" width="100%">
   </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/devXpro/gpt-home/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/devXpro/gpt-home/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/devXpro/gpt-home/releases"><img alt="Release" src="https://img.shields.io/github/v/release/devXpro/gpt-home?include_prereleases&sort=semver"></a>
-  <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/devXpro/gpt-home"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/devXpro/gpt-home"></a>
+  <a href="https://github.com/devXpro/homie/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/devXpro/homie/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/devXpro/homie/releases"><img alt="Release" src="https://img.shields.io/github/v/release/devXpro/homie?include_prereleases&sort=semver"></a>
+  <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/devXpro/homie"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/devXpro/homie"></a>
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 You say **«Включи телик»** to ChatGPT on your phone. A second later the living-room TV is on.
 
-GPT-Home is the small piece in between: a hub at home that turns your devices into tools ChatGPT can call, a relay on
+Homie is the small piece in between: a hub at home that turns your devices into tools ChatGPT can call, a relay on
 a server you own that gives the hub a public HTTPS address, and a beautiful admin to set it all up with Face ID.
 
 ## Why
@@ -40,7 +40,7 @@ a server you own that gives the hub a public HTTPS address, and a beautiful admi
 - **Light.** One Go binary at home with the admin built in, small enough for a Raspberry Pi. The server side
   is Caddy and frps — two containers, no database.
 - **Fast.** A persistent `wss` channel from home to the relay: no polling, no cloud round-trips through a vendor.
-- **Self-hosted, end to end.** Your domain, your server, your home box. No GPT-Home account, no telemetry, no
+- **Self-hosted, end to end.** Your domain, your server, your home box. No Homie account, no telemetry, no
   third-party tunnel that terminates your TLS.
 - **No Home Assistant bloat.** If all you want is "talk to my TV", you should not have to run a platform.
 - **Voice via ChatGPT.** Each family member gets their own private plugin in their own ChatGPT account, named after
@@ -103,7 +103,7 @@ flowchart LR
         C["Caddy<br/>TLS"] --> F["frps"]
     end
     subgraph home["Home box"]
-        H["homed<br/>hub · admin · passkeys · audit"] --> P1["gpt-tv"]
+        H["homed<br/>hub · admin · passkeys · audit"] --> P1["homie-tv"]
         H --> P2["your plugin"]
     end
     S -->|"HTTPS + access key"| C
@@ -118,7 +118,7 @@ flowchart LR
 2. The Site sends `POST https://home.example.com/api/v1/tools/tv_power_on` with your access key.
 3. Caddy terminates TLS; frps passes the request down the channel your home box opened.
 4. `homed` checks the key, your scopes and the rate limit, calls the TV plugin over stdio and writes the audit entry.
-5. `gpt-tv` wakes the TV with Wake-on-LAN and waits until it answers; *"Living room TV is on."* travels back.
+5. `homie-tv` wakes the TV with Wake-on-LAN and waits until it answers; *"Living room TV is on."* travels back.
 
 If the home box is offline, the relay answers with a "home is offline" page and ChatGPT says so plainly. More:
 [Architecture](docs/ARCHITECTURE.md).
@@ -130,7 +130,7 @@ You need a small Linux VPS with Docker, a domain, and a box at home that stays o
 **Server — 5 minutes.** Point an A record (DNS only) at the VPS, then:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
   | sudo bash -s -- --domain home.example.com
 ```
 
@@ -139,8 +139,8 @@ It gets a certificate, starts the relay and prints a **connect code** (`ghr1.…
 **Home — 5 minutes.** On a Mac, a Raspberry Pi or any Linux box:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | bash        # macOS
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | sudo bash   # Raspberry Pi / Linux
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash        # macOS
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash   # Raspberry Pi / Linux
 ```
 
 Open the first-run address it prints on your phone, type the PIN, paste the connect code, and create your passkey
@@ -155,7 +155,7 @@ Homebrew, Docker for a NAS, connecting ChatGPT and voice: **[the full quick star
 | 🚀 [Quick start](docs/QUICKSTART.md) | server, home and ChatGPT in three five-minute blocks |
 | 🛰️ [Install the relay server](docs/INSTALL-SERVER.md) | DNS, the installer, standalone or behind your proxy, firewall, token rotation |
 | 🏠 [Install the home hub](docs/INSTALL-HOME.md) | Mac, Raspberry Pi, Linux, NAS; installer, Homebrew, Docker, source; first run |
-| 📱 [Using GPT-Home](docs/USING.md) | the admin tour, setting up a TV, connecting ChatGPT, voice, family |
+| 📱 [Using Homie](docs/USING.md) | the admin tour, setting up a TV, connecting ChatGPT, voice, family |
 | 🧩 [Writing a plugin](docs/PLUGINS.md) | a 15-minute tutorial and the full protocol reference |
 | 🏛️ [Architecture](docs/ARCHITECTURE.md) | components, flows, trust boundaries, design choices |
 | 🔐 [Security model](docs/SECURITY.md) | every secret, what it unlocks, who can see what |
@@ -171,7 +171,7 @@ their GitHub address — the hub verifies the release, unpacks it safely and rol
 
 | Plugin | Devices | Status |
 |---|---|---|
-| [**gpt-tv**](https://github.com/devXpro/gpt-tv) | LG webOS TVs: power, volume, inputs; discovery and pairing in the admin | ✅ first plugin |
+| [**homie-tv**](https://github.com/devXpro/homie-tv) | LG webOS TVs: power, volume, inputs; discovery and pairing in the admin | ✅ first plugin |
 | *yours* | anything with an API: plugs, lights, a kettle, a vacuum | [write one →](docs/PLUGINS.md) |
 
 Writing one takes about 15 minutes with [`pluginkit`](pluginkit) and the [template](templates/plugin): one file of
@@ -201,12 +201,12 @@ private channel.
 
 ## Status and roadmap
 
-GPT-Home is young and used every day in one family. What works today:
+Homie is young and used every day in one family. What works today:
 
 - ✅ Relay server: installer, standalone and behind-proxy modes, offline page
 - ✅ Hub: REST façade and MCP endpoint, access keys, audit, plugin host, embedded relay client
 - ✅ Admin: passkeys, first run, devices with actions and progress, activity, settings, updates
-- ✅ Plugins: `pluginkit`, install from GitHub with rollback; **gpt-tv** for LG webOS
+- ✅ Plugins: `pluginkit`, install from GitHub with rollback; **homie-tv** for LG webOS
 - ✅ ChatGPT: a private Site per person (path B), voice
 
 Next:
@@ -232,4 +232,4 @@ Go 1.26 (the `go` command fetches go1.26.11 by itself) and Node 22+. Running a d
 
 ## License
 
-[MIT](LICENSE) © gpt-home contributors
+[MIT](LICENSE) © Homie contributors

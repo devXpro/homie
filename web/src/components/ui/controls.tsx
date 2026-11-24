@@ -193,7 +193,7 @@ export function SwitchRow({
 }) {
   const id = useId()
   return (
-    <div className={cn('gh-row flex items-center gap-3 px-4', subtitle ? 'min-h-[60px] py-2.5' : 'min-h-11 py-1.5', leading && '[--row-inset:60px]')}>
+    <div className={cn('homie-row flex items-center gap-3 px-4', subtitle ? 'min-h-[60px] py-2.5' : 'min-h-11 py-1.5', leading && '[--row-inset:60px]')}>
       {leading}
       <span className="flex min-w-0 flex-1 flex-col">
         <span id={`${id}-t`} className="type-body">
@@ -322,7 +322,7 @@ export function Slider({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-describedby={hint ? `${id}-hint` : undefined}
-        className="gh-slider"
+        className="homie-slider"
         style={{ ['--value' as string]: `${pct}%` }}
       />
     </FieldFrame>
@@ -494,7 +494,7 @@ export function CheckList<V extends string>({
             role={multiple ? 'checkbox' : 'radio'}
             aria-checked={on}
             onClick={() => onToggle(o.value)}
-            className="gh-row flex min-h-11 w-full items-center gap-3 px-4 py-[11px] text-left transition-colors duration-75 active:bg-[var(--row-pressed)]"
+            className="homie-row flex min-h-11 w-full items-center gap-3 px-4 py-[11px] text-left transition-colors duration-75 active:bg-[var(--row-pressed)]"
           >
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="type-body">{o.label}</span>

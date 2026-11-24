@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/keys"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/keys"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // stallingStore is a store whose Keys().List, once armed, reads the keys and then waits for release before it

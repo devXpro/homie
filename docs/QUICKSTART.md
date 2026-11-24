@@ -14,7 +14,7 @@ grey cloud).
 **2. Install the relay** on the VPS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/server.sh \
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
   | sudo bash -s -- --domain home.example.com
 ```
 
@@ -38,13 +38,13 @@ right — the home is not connected yet.
 
 ```sh
 # macOS
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | bash
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash
 
 # Raspberry Pi / Linux
-curl -fsSL https://raw.githubusercontent.com/devXpro/gpt-home/main/install/home.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash
 
 # NAS / Docker on Linux (host networking is required)
-docker run -d --name gpt-home --restart unless-stopped --network host -v gpt-home:/data ghcr.io/devxpro/gpt-home:latest
+docker run -d --name homie --restart unless-stopped --network host -v homie:/data ghcr.io/devxpro/homie:latest
 ```
 
 The installer starts the hub as a service and prints a first-run address and an 8-digit PIN:
@@ -76,8 +76,8 @@ homed relay connect -          # paste the connect code, press Enter
 homed admin setup-link         # open the printed link on your phone
 ```
 
-(macOS installer: the command is `"$HOME/Library/Application Support/gpt-home/bin/homed"`. Docker:
-`docker exec -i gpt-home homed …`.)
+(macOS installer: the command is `"$HOME/Library/Application Support/homie/bin/homed"`. Docker:
+`docker exec -i homie homed …`.)
 
 **4. Add the TV.** Prepare an LG webOS TV once: *LG Connect Apps* on, *Mobile TV On → Turn on via Wi-Fi* on, a fixed IP
 in your router. Then in the admin: **Devices → Add devices**, the TV module under *Recommended*, **Install**; then
@@ -90,16 +90,16 @@ On a Mac with Node 22+, `git` and the [Codex CLI](https://github.com/openai/code
 1. In the admin: **Settings → ChatGPT access → Access keys → Create a key**, copy it, and store it in the Keychain:
 
    ```sh
-   security add-generic-password -U -s gpt-home-key -a "$USER" -w
+   security add-generic-password -U -s homie-key -a "$USER" -w
    ```
 
 2. Publish your private ChatGPT Site:
 
    ```sh
-   git clone https://github.com/devXpro/gpt-home.git
-   node gpt-home/site/release/release.mjs --login
+   git clone https://github.com/devXpro/homie.git
+   node homie/site/release/release.mjs --login
    HOME_API_URL=https://home.example.com \
-     node gpt-home/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash
+     node homie/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash
    ```
 
 3. In ChatGPT: **Plugins → Created by you → connect** your home. Ask in text: *"Turn on the TV"* and choose **Always

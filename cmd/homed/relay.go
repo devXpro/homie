@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/admin"
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/relay"
+	"github.com/devXpro/homie/internal/admin"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/relay"
 )
 
 // selfCheckInterval is how often a connected relay is checked end to end (PLAN §5.5).

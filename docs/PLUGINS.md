@@ -1,4 +1,4 @@
-# Writing a GPT-Home plugin
+# Writing a Homie plugin
 
 A plugin gives the hub (`homed`) one family of devices: TVs, smart plugs, a kettle, a robot vacuum. It is a separate
 executable, written in any language, that speaks [MCP](https://modelcontextprotocol.io) over stdio. The hub starts
@@ -13,9 +13,9 @@ This guide has three parts:
 3. **[Protocol reference](#protocol-reference)** — the contract between the hub and a plugin. Everything a plugin may
    rely on is written there.
 
-Go authors get a small helper package, [`github.com/devXpro/gpt-home/pluginkit`](../pluginkit/pluginkit.go), built on
+Go authors get a small helper package, [`github.com/devXpro/homie/pluginkit`](../pluginkit/pluginkit.go), built on
 the official [go-sdk](https://github.com/modelcontextprotocol/go-sdk) v1.8.0. The first real plugin,
-[gpt-tv](https://github.com/devXpro/gpt-tv), is a good second read after the tutorial.
+[homie-tv](https://github.com/devXpro/homie-tv), is a good second read after the tutorial.
 
 ## The idea
 
@@ -41,7 +41,7 @@ The hub does the rest for you:
 - **Access.** It checks every caller's key, shows each person only the plugins they may use, rate-limits and writes the
   audit log. Your plugin never sees a key.
 - **Admin UI.** It renders every admin tool as a form generated from its JSON Schema, shows a device picker for
-  arguments marked `x-gpt-home-ref`, shows your progress messages while a tool runs, and lists your inventory as the
+  arguments marked `x-homie-ref`, shows your progress messages while a tool runs, and lists your inventory as the
   plugin's devices — in English and in any language you add.
 - **Lifecycle.** It starts your plugin, restarts it after a crash with backoff, stops it cleanly, keeps its log, and
   gives it a private data directory.
@@ -54,7 +54,7 @@ So a plugin is small: device code, a handful of tools, and a JSON file of state.
 
 ## Tutorial: a smart-plug plugin in 15 minutes
 
-We will build `gpt-plug`: switch [Shelly](https://shelly.cloud) Gen2+ smart plugs on and off by voice, through their
+We will build `homie-plug`: switch [Shelly](https://shelly.cloud) Gen2+ smart plugs on and off by voice, through their
 local HTTP API (no cloud). The finished code is [`templates/plugin`](../templates/plugin); this tutorial walks through
 it. You do not need a Shelly plug: the tests use a fake one.
 
@@ -65,25 +65,25 @@ see [INSTALL-HOME.md](INSTALL-HOME.md)).
 ### 1. Start from the template
 
 ```sh
-git clone https://github.com/devXpro/gpt-home.git
-cp -R gpt-home/templates/plugin ~/src/gpt-plug
-cd ~/src/gpt-plug
-go mod edit -module github.com/YOUR-NAME/gpt-plug
-go mod edit -dropreplace github.com/devXpro/gpt-home
-go get github.com/devXpro/gpt-home@latest
+git clone https://github.com/devXpro/homie.git
+cp -R homie/templates/plugin ~/src/homie-plug
+cd ~/src/homie-plug
+go mod edit -module github.com/YOUR-NAME/homie-plug
+go mod edit -dropreplace github.com/devXpro/homie
+go get github.com/devXpro/homie@latest
 go mod tidy
 go test ./...
 ```
 
-The template's `go.mod` has `replace github.com/devXpro/gpt-home => ../..`, which only works inside the gpt-home
+The template's `go.mod` has `replace github.com/devXpro/homie => ../..`, which only works inside the homie
 repository; the second `go mod edit` removes it. What you get:
 
 ```
-gpt-plug/
+homie-plug/
   main.go               identity and the three tools
   plug.go               the device client (Shelly) and the store (plugs.json)
   main_test.go          an in-memory MCP client against a fake plug
-  gpt-home-plugin.json  the manifest the hub's installer reads
+  homie-plugin.json  the manifest the hub's installer reads
   .goreleaser.yaml      release archives named the way the hub expects
   .github/workflows/    ci.yml (lint + test), release.yml (GoReleaser on a tag)
   .golangci.yml  LICENSE  README.md
@@ -93,7 +93,7 @@ gpt-plug/
 
 ```go
 s := pluginkit.New(pluginkit.Plugin{
-	ID: "plug", Name: "gpt-plug", Title: "Smart plugs", Version: version, Instructions: instructions,
+	ID: "plug", Name: "homie-plug", Title: "Smart plugs", Version: version, Instructions: instructions,
 })
 ```
 
@@ -123,7 +123,7 @@ seconds, not hang), and **no redirects**, so a request never leaves the device's
 ### 4. Keep state in the data dir
 
 ```go
-dir, err := pluginkit.DataDir() // GPT_HOME_DATA_DIR under the hub, ./data in development
+dir, err := pluginkit.DataDir() // HOMIE_DATA_DIR under the hub, ./data in development
 ```
 
 The hub gives every plugin a private, persistent directory (`<hub data dir>/plugins/<id>/data`, mode `0700`) and runs
@@ -232,7 +232,7 @@ _ = pluginkit.Progress(ctx, req, 1, 2, "Checking the plug at "+host,
 	map[string]string{"ru": "Проверяем розетку " + host})
 ```
 
-The admin shows the latest message under a spinner (gpt-tv shows "Press OK on the TV remote" this way). When an
+The admin shows the latest message under a spinner (homie-tv shows "Press OK on the TV remote" this way). When an
 assistant calls, there is no progress token and `Progress` does nothing, so you can call it unconditionally.
 
 ### 8. Serve
@@ -244,7 +244,7 @@ stop()
 ```
 
 **stdout belongs to the protocol.** Log to stderr (`slog` does by default; `pluginkit.New` sets its server logger to
-stderr at `GPT_HOME_LOG_LEVEL`). The hub keeps the last 1000 lines and writes them to `logs/<id>.log`; the admin shows
+stderr at `HOMIE_LOG_LEVEL`). The hub keeps the last 1000 lines and writes them to `logs/<id>.log`; the admin shows
 them under the plugin's *Module log*.
 
 ### 9. Test
@@ -276,9 +276,9 @@ golangci-lint run ./...
 Use a scratch data dir, never your real one:
 
 ```sh
-go build -o bin/gpt-plug .
+go build -o bin/homie-plug .
 W=/tmp/plug-dev
-homed plugin add --data-dir $W/data --id plug -- "$PWD/bin/gpt-plug" serve
+homed plugin add --data-dir $W/data --id plug -- "$PWD/bin/homie-plug" serve
 homed run --data-dir $W/data --listen 127.0.0.1:8080 --setup-listen 127.0.0.1:8090 \
   --dev-origin http://localhost:8080 &
 homed tool list --data-dir $W/data
@@ -301,19 +301,19 @@ git push origin v0.1.0
 `release.yml` runs GoReleaser, which publishes exactly what the hub's installer looks for:
 
 ```
-gpt-plug_0.1.0_darwin_amd64.tar.gz
-gpt-plug_0.1.0_darwin_arm64.tar.gz
-gpt-plug_0.1.0_linux_amd64.tar.gz
-gpt-plug_0.1.0_linux_arm64.tar.gz
-gpt-plug_0.1.0_linux_armv7.tar.gz
+homie-plug_0.1.0_darwin_amd64.tar.gz
+homie-plug_0.1.0_darwin_arm64.tar.gz
+homie-plug_0.1.0_linux_amd64.tar.gz
+homie-plug_0.1.0_linux_arm64.tar.gz
+homie-plug_0.1.0_linux_armv7.tar.gz
 checksums.txt
-gpt-home-plugin.json
+homie-plugin.json
 ```
 
 ### 12. Install it from the admin
 
 Open `https://<your domain>/admin` → **Devices** → **Add devices** → **Another module from GitHub**, type
-`YOUR-NAME/gpt-plug`, **Find**. The admin shows the title, version, description and homepage from your manifest. Tap
+`YOUR-NAME/homie-plug`, **Find**. The admin shows the title, version, description and homepage from your manifest. Tap
 **Install** (and confirm with Face ID or Touch ID when asked). The plugin appears under Devices; run *Add a plug* from its
 **Actions**, and say "turn on the desk lamp" to ChatGPT.
 
@@ -365,7 +365,7 @@ within its timeout, and say which. Respect context cancellation: the hub cancels
 - **Check the contract.** `pluginkit.CheckToolName(id, name)` is the hub's own name check. Assert `_meta`:
   `tool.Meta[pluginkit.MetaAudience]`, `MetaRole`, `MetaTimeout`, `MetaI18n`.
 - **Live tests** that need the LAN or a real device go behind a build tag (`//go:build integration`) and stay
-  read-only by default. gpt-tv's `make test-live` is an example.
+  read-only by default. homie-tv's `make test-live` is an example.
 - **Under the hub:** step 10 above, with `homed tool call`.
 
 ## Releasing
@@ -376,22 +376,22 @@ The hub installs plugins from GitHub releases. A release is a plugin release whe
 |---|---|
 | `<binary>_<version>_<os>_<arch>.tar.gz` | one per platform; `<version>` is the tag without the `v` (`0.1.0` for `v0.1.0`); 32-bit ARM is looked up as `armv7`, then `armv6`, then `arm`. The archive may be flat or wrap everything in one directory; it must contain the file named by `binary`. |
 | `checksums.txt` | GoReleaser format: `<sha256>  <archive name>` per line. An archive without a matching line is refused. |
-| `gpt-home-plugin.json` | the manifest below |
+| `homie-plugin.json` | the manifest below |
 
 Platforms the hub runs on: `darwin_amd64`, `darwin_arm64`, `linux_amd64`, `linux_arm64` and `linux_armv7` (Raspberry
 Pi OS 32-bit). Build them all; a missing one makes the admin say "There's no build of this module for this computer".
 
-### The manifest: `gpt-home-plugin.json`
+### The manifest: `homie-plugin.json`
 
 ```json
 {
   "id": "plug",
   "title": "Smart plugs",
   "description": "Switch Shelly Gen2+ smart plugs on and off by voice.",
-  "binary": "gpt-plug",
+  "binary": "homie-plug",
   "args": ["serve"],
   "minHubVersion": "0.1.0",
-  "homepage": "https://github.com/YOUR-NAME/gpt-plug"
+  "homepage": "https://github.com/YOUR-NAME/homie-plug"
 }
 ```
 
@@ -402,7 +402,7 @@ Pi OS 32-bit). Build them all; a missing one makes the admin say "There's no bui
 | `description` | one line for the install screen |
 | `binary` | required; a plain file name (no `/`), the executable inside the archive |
 | `args` | defaults to `["serve"]` |
-| `minHubVersion` | optional semver; an older hub refuses the install ("This needs a newer GPT-Home") |
+| `minHubVersion` | optional semver; an older hub refuses the install ("This needs a newer Homie") |
 | `homepage` | optional; shown only when it is an `https` URL |
 
 The manifest holds no version, so it is a static file in the repository, uploaded as is
@@ -412,7 +412,7 @@ The manifest holds no version, so it is a static file in the repository, uploade
 
 ```mermaid
 flowchart LR
-    R["resolve<br/>latest release"] --> M["read<br/>gpt-home-plugin.json"] --> D["download<br/>the archive for this OS/arch"] --> V["verify<br/>sha256 vs checksums.txt"] --> U["unpack<br/>plugins/&lt;id&gt;/bin/&lt;version&gt;/"] --> S["start<br/>wait for tools/list"]
+    R["resolve<br/>latest release"] --> M["read<br/>homie-plugin.json"] --> D["download<br/>the archive for this OS/arch"] --> V["verify<br/>sha256 vs checksums.txt"] --> U["unpack<br/>plugins/&lt;id&gt;/bin/&lt;version&gt;/"] --> S["start<br/>wait for tools/list"]
     S -->|"update failed to start"| B["roll back<br/>to the previous version"]
 ```
 
@@ -426,7 +426,7 @@ repository. The owner trusts the repository they install from — and the plugin
 For your own builds, add a local executable with the CLI on the home box:
 
 ```sh
-homed plugin add --id plug -- /usr/local/bin/gpt-plug serve
+homed plugin add --id plug -- /usr/local/bin/homie-plug serve
 homed plugin list
 homed plugin remove plug              # --delete-data also deletes its data dir
 ```
@@ -435,7 +435,7 @@ homed plugin remove plug              # --delete-data also deletes its data dir
 
 Anything that speaks MCP over stdio works: the official [Python](https://github.com/modelcontextprotocol/python-sdk)
 and [TypeScript](https://github.com/modelcontextprotocol/typescript-sdk) SDKs, or any other. Follow the
-[protocol reference](#protocol-reference) by hand: set the `_meta` keys on your tools, read `GPT_HOME_DATA_DIR`, never
+[protocol reference](#protocol-reference) by hand: set the `_meta` keys on your tools, read `HOMIE_DATA_DIR`, never
 print to stdout, and exit on EOF or SIGTERM. For the installer, ship a self-contained executable per platform in the
 archive layout above (a script with an interpreter the home box may not have is fragile).
 
@@ -453,10 +453,10 @@ This is the contract. A plugin may rely on everything here; the hub enforces it.
 
   | Variable | Meaning |
   |---|---|
-  | `GPT_HOME_PLUGIN_ID` | the plugin id, e.g. `tv` |
-  | `GPT_HOME_DATA_DIR` | persistent per-plugin directory, mode 0700; keep your state here |
-  | `GPT_HOME_LOG_LEVEL` | `debug`, `info`, `warn` or `error` |
-  | `GPT_HOME_HUB_VERSION` | the hub's version |
+  | `HOMIE_PLUGIN_ID` | the plugin id, e.g. `tv` |
+  | `HOMIE_DATA_DIR` | persistent per-plugin directory, mode 0700; keep your state here |
+  | `HOMIE_LOG_LEVEL` | `debug`, `info`, `warn` or `error` |
+  | `HOMIE_HUB_VERSION` | the hub's version |
 
   Nothing else is passed through, so a plugin never sees the hub's secrets in its environment.
 - stdin and stdout carry MCP: newline-delimited JSON-RPC. Use the protocol version your SDK negotiates with go-sdk
@@ -470,7 +470,7 @@ This is the contract. A plugin may rely on everything here; the hub enforces it.
 - Plugin id: `^[a-z][a-z0-9]{1,15}$`, e.g. `tv`, `kettle`. It must be the prefix of every tool name. For a local
   plugin the person adding it chooses the id (`homed plugin add --id`); for a release it is the manifest's `id`.
 - In the `initialize` (or `server/discover`) result:
-  - `serverInfo.name`: the repo or binary name, e.g. `gpt-tv`;
+  - `serverInfo.name`: the repo or binary name, e.g. `homie-tv`;
   - `serverInfo.title`: a human name, e.g. `TV`;
   - `serverInfo.version`: semver.
 - Optional `instructions`: short English guidance for the model. The hub merges them into its own instructions.
@@ -488,20 +488,20 @@ This is the contract. A plugin may rely on everything here; the hub enforces it.
 
   | Key | Value | Effect |
   |---|---|---|
-  | `gpt-home/audience` | `"admin"` | hidden from assistants; only the admin UI and the `homed` CLI see it. Default `"assistant"`. Any other value is treated as `"admin"`. |
-  | `gpt-home/timeout` | seconds (number) | the hub-side call timeout. Default 30, maximum 300 (larger values are capped). Pairing flows use 180. |
-  | `gpt-home/role` | `"inventory"` | marks the device list. Only on a `readOnlyHint` tool, at most one per plugin (the hub keeps the first by name). |
-  | `gpt-home/i18n` | `{"<lang>": {"title", "description", "properties": {"<input property>": "<label>"}}}` | translated texts for the admin UI; see below. |
+  | `homie/audience` | `"admin"` | hidden from assistants; only the admin UI and the `homed` CLI see it. Default `"assistant"`. Any other value is treated as `"admin"`. |
+  | `homie/timeout` | seconds (number) | the hub-side call timeout. Default 30, maximum 300 (larger values are capped). Pairing flows use 180. |
+  | `homie/role` | `"inventory"` | marks the device list. Only on a `readOnlyHint` tool, at most one per plugin (the hub keeps the first by name). |
+  | `homie/i18n` | `{"<lang>": {"title", "description", "properties": {"<input property>": "<label>"}}}` | translated texts for the admin UI; see below. |
 
   The inventory tool returns `{"items":[{"id","name","subtitle"?,"state"?}]}` as `structuredContent`, where `state` is
   one of `on|off|offline|unknown|paired|unpaired`. The admin renders it as the device list.
 
-#### Translations (`gpt-home/i18n`)
+#### Translations (`homie/i18n`)
 
 The admin UI is in Russian and English. A tool can carry its title, description and input labels in other languages:
 
 ```json
-"_meta": {"gpt-home/i18n": {"ru": {"title": "Громкость", "description": "Задаёт громкость динамиков, 0–100 %.",
+"_meta": {"homie/i18n": {"ru": {"title": "Громкость", "description": "Задаёт громкость динамиков, 0–100 %.",
                                    "properties": {"tv": "Телевизор", "percent": "Громкость, %"}}}}
 ```
 
@@ -511,12 +511,12 @@ The admin UI is in Russian and English. A tool can carry its title, description 
 - Only the admin UI uses them. Assistants always get the English `title` and `description`, so keep those complete.
 - The hub is lenient: a malformed language or field is skipped with a warning in the hub log, the rest is kept.
 
-#### Device arguments (`x-gpt-home-ref`)
+#### Device arguments (`x-homie-ref`)
 
 An input property whose value is a device id from the plugin's inventory tool says so in its schema:
 
 ```json
-"tv": {"type": "string", "description": "The TV's id or name, as tv_list shows it.", "x-gpt-home-ref": "inventory"}
+"tv": {"type": "string", "description": "The TV's id or name, as tv_list shows it.", "x-homie-ref": "inventory"}
 ```
 
 The admin then shows a device picker for it instead of a text field, and opens the tool from that device's screen.
@@ -524,7 +524,7 @@ Without the keyword the hub guesses (a required string property named like the p
 
 ### Calls
 
-- Every `tools/call` carries request `_meta` `{"gpt-home/caller":"<person name>","gpt-home/via":"site|mcp|admin|cli"}`.
+- Every `tools/call` carries request `_meta` `{"homie/caller":"<person name>","homie/via":"site|mcp|admin|cli"}`.
   Log it if useful; **never trust it for security**.
 - The hub validates the arguments against `inputSchema` before an admin or CLI call reaches the plugin.
 - Results:
@@ -543,12 +543,12 @@ a tool, the hub sends a `progressToken` in the request `_meta`; the tool may the
 for it:
 
 ```json
-{"method": "notifications/progress", "params": {"progressToken": "gpt-home-7", "progress": 1,
-  "message": "Press OK on the TV remote", "_meta": {"gpt-home/i18n": {"ru": "Нажмите OK на пульте телевизора"}}}}
+{"method": "notifications/progress", "params": {"progressToken": "homie-7", "progress": 1,
+  "message": "Press OK on the TV remote", "_meta": {"homie/i18n": {"ru": "Нажмите OK на пульте телевизора"}}}}
 ```
 
 - `progress` grows with every report; `total` is optional (omit it when unknown).
-- `message` is short English for a person; the notification `_meta` `gpt-home/i18n` carries its translations.
+- `message` is short English for a person; the notification `_meta` `homie/i18n` carries its translations.
 - Calls from assistants carry no token: send nothing then (`pluginkit.Progress` does that check for you).
 - The admin shows the latest report until the result arrives. A report sent together with the result may be dropped,
   so put the outcome in the result, not in a last report.
@@ -574,14 +574,14 @@ hub. See [SECURITY.md](SECURITY.md#plugins).
 
 | Function | Does |
 |---|---|
-| `New(Plugin) *mcp.Server` | a go-sdk server with `serverInfo` and `instructions` set and a stderr logger at `GPT_HOME_LOG_LEVEL`; panics on an invalid id |
-| `Admin(t)` | sets `_meta "gpt-home/audience": "admin"` |
-| `Timeout(t, d)` | sets `_meta "gpt-home/timeout"` to `d` in whole seconds, rounded up |
-| `Inventory(t)` | sets `_meta "gpt-home/role": "inventory"` (add `ReadOnlyHint: true` yourself) |
-| `I18n(t, lang, Text{Title, Description, Properties})` | adds one language to `_meta "gpt-home/i18n"`; call once per language |
-| `InventoryRef(prop)` | sets `"x-gpt-home-ref": "inventory"` on a `map[string]any` property schema (for a `*jsonschema.Schema`: `Extra[pluginkit.SchemaRef] = pluginkit.RefInventory`) |
+| `New(Plugin) *mcp.Server` | a go-sdk server with `serverInfo` and `instructions` set and a stderr logger at `HOMIE_LOG_LEVEL`; panics on an invalid id |
+| `Admin(t)` | sets `_meta "homie/audience": "admin"` |
+| `Timeout(t, d)` | sets `_meta "homie/timeout"` to `d` in whole seconds, rounded up |
+| `Inventory(t)` | sets `_meta "homie/role": "inventory"` (add `ReadOnlyHint: true` yourself) |
+| `I18n(t, lang, Text{Title, Description, Properties})` | adds one language to `_meta "homie/i18n"`; call once per language |
+| `InventoryRef(prop)` | sets `"x-homie-ref": "inventory"` on a `map[string]any` property schema (for a `*jsonschema.Schema`: `Extra[pluginkit.SchemaRef] = pluginkit.RefInventory`) |
 | `Progress(ctx, req, progress, total, message, i18n)` | sends `notifications/progress` when the hub asked for it; a no-op otherwise |
-| `DataDir()` | `GPT_HOME_DATA_DIR`, or `./data` in development; created with mode 0700; absolute |
+| `DataDir()` | `HOMIE_DATA_DIR`, or `./data` in development; created with mode 0700; absolute |
 | `Caller(req)` | the person and surface from the request `_meta`; empty outside the hub |
 | `Serve(ctx, s)` | MCP over stdio until ctx is done or stdin closes; both return nil |
 | `CheckToolName(id, tool)` | the tool name rule; the hub uses the same function |
@@ -606,7 +606,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -620,7 +620,7 @@ type pairIn struct {
 
 func main() {
 	s := pluginkit.New(pluginkit.Plugin{
-		ID: "kettle", Name: "gpt-kettle", Title: "Kettle", Version: "0.1.0",
+		ID: "kettle", Name: "homie-kettle", Title: "Kettle", Version: "0.1.0",
 		Instructions: "Boil water only when the user asks for it.",
 	})
 
@@ -649,7 +649,7 @@ func main() {
 		Properties:  map[string]string{"kettle": "Чайник"},
 	}), func(ctx context.Context, req *mcp.CallToolRequest, in pairIn) (*mcp.CallToolResult, any, error) {
 		_ = pluginkit.Progress(ctx, req, 1, 0, "Hold the kettle button", map[string]string{"ru": "Зажмите кнопку на чайнике"})
-		dir, err := pluginkit.DataDir() // GPT_HOME_DATA_DIR, or ./data in development
+		dir, err := pluginkit.DataDir() // HOMIE_DATA_DIR, or ./data in development
 		if err != nil {
 			return nil, nil, err
 		}
@@ -670,8 +670,8 @@ func main() {
 Try the bundled example under a hub:
 
 ```sh
-go build -o bin/gpt-echo ./pluginkit/example
-homed plugin add --id echo -- "$PWD/bin/gpt-echo" serve
+go build -o bin/homie-echo ./pluginkit/example
+homed plugin add --id echo -- "$PWD/bin/homie-echo" serve
 homed tool list
 homed tool call echo_say '{"text":"hello"}'
 ```
@@ -679,5 +679,5 @@ homed tool call echo_say '{"text":"hello"}'
 ### Release assets
 
 - GoReleaser archives `<binary>_<version>_<os>_<arch>.tar.gz` plus `checksums.txt`.
-- `gpt-home-plugin.json`: `{"id","title","description","binary","args":["serve"],"minHubVersion","homepage"}`.
+- `homie-plugin.json`: `{"id","title","description","binary","args":["serve"],"minHubVersion","homepage"}`.
 - Details and field rules: [Releasing](#releasing).

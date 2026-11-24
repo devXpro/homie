@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/config"
+	"github.com/devXpro/homie/internal/config"
 )
 
 // minRevokePrefix keeps `key revoke` from matching by accident when only the start of a key id is given.

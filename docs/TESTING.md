@@ -41,10 +41,10 @@ Typecheck, lint and the release dry run (the Site's own checks; they need `npm c
 npm --prefix site ci
 npm --prefix site run check   # unit tests + tsc --noEmit
 npm --prefix site run lint
-GPT_HOME_SITE_HOME=/tmp/gpt-home-site-dryrun node site/release/release.mjs --dry-run --title Test --slug test
+HOMIE_SITE_HOME=/tmp/homie-site-dryrun node site/release/release.mjs --dry-run --title Test --slug test
 ```
 
-The dry run stages the source, builds it and packs the archive in `$GPT_HOME_SITE_HOME` (default `~/.gpt-home-site`); it
+The dry run stages the source, builds it and packs the archive in `$HOMIE_SITE_HOME` (default `~/.homie-site`); it
 makes no ChatGPT or Codex call. Never run `release.mjs` without `--dry-run` as a test: it publishes to a real account.
 
 ## Web tests
@@ -92,7 +92,7 @@ token, `--rotate-token`, behind-proxy files), then the standalone compose stack 
 frps port: GET and POST reach the echo backend; the channel survives 3 forced Caddy reloads (also with
 `grace_period 3s`), while the same reload without `stream_close_delay` drops it (control); with frpc stopped the bilingual
 offline page comes back with 404; frpc reconnects by itself; a wrong token and an untrusted CA are rejected. Everything is
-named `gpthome-test-*` and removed on exit (about 80 s).
+named `homie-test-*` and removed on exit (about 80 s).
 
 ```sh
 bash relay/test/run.sh
@@ -120,7 +120,7 @@ Integration test (Docker): the embedded client against the real `ghcr.io/fatedie
 behind an in-process TLS terminator for `homie.test` with a throwaway CA. It asserts the offline 404 page before
 connecting and after stopping, requests reaching the local hub, `SelfCheck`, an automatic reconnect after the channel is
 cut (with `Status.Since` moving), and that an untrusted certificate and a wrong token never connect and show up in
-`Status.LastError`. The frps container is named `gpthome-t03-frps-*` and removed at the end (about 3 s).
+`Status.LastError`. The frps container is named `homie-t03-frps-*` and removed at the end (about 3 s).
 
 ```sh
 go test -race -tags integration -run Integration ./internal/relay/
@@ -192,7 +192,7 @@ go test -race ./cmd/homed/... ./internal/config/...
 ### Real-homed end to end (`web/tests/real`, T2.6)
 
 Playwright against a **real** homed, nothing mocked. `global-setup.ts` builds homed (with the SPA that `make web`
-embedded) and the fake plugin into a fresh `/tmp/gh-e2e-*` dir, adds the plugin, and runs `homed run --dev-origin
+embedded) and the fake plugin into a fresh `/tmp/homie-e2e-*` dir, adds the plugin, and runs `homed run --dev-origin
 http://localhost:<port>` on a data dir there (127.0.0.1 only, free ports). One story, in Chromium with Chrome's
 virtual authenticator (real WebAuthn ceremonies): the LAN first-run page (the PIN from `homed admin firstrun`, never in
 homed's log since it runs without a terminal; then the server code step, as there is no relay in development) →
@@ -274,7 +274,7 @@ go test -race ./internal/admin/...
 
 Runs real WebAuthn ceremonies (go-webauthn) against a virtual authenticator (`github.com/descope/virtualwebauthn`,
 EC2 passkeys, synced and hardware-key flags) on an in-memory store (`internal/auth/authtest`) and a fake clock; no
-network, no Docker, no browser. `internal/auth`: setup link → registration → Me and the `__Host-gh_session` cookie →
+network, no Docker, no browser. `internal/auth`: setup link → registration → Me and the `__Host-homie_session` cookie →
 discoverable sign-in → logout; an imported owner, a family invite, renames and the home name; registration and sign-in
 rejected for a wrong origin (incl. http), a wrong or parent RP ID, missing user verification or presence, bad backup
 flags, unknown passkeys and user handles; replayed and expired ceremonies, an answer to another challenge, a ceremony
@@ -304,7 +304,7 @@ go test -race ./internal/auth/... ./internal/firstrun/...
 ### Admin UI (`web/`, `internal/web`)
 
 Everything runs against the mock API in `web/src/mocks` (MSW 3, the whole of `docs/ADMIN-API.md` including SSE, the
-LAN first-run API and a fake gpt-tv with progress); scenarios are picked with `?mock=<name>`
+LAN first-run API and a fake homie-tv with progress); scenarios are picked with `?mock=<name>`
 (`web/src/mocks/data.ts`). No homed, no network after `npm ci` and `npx playwright install chromium`.
 
 - `npm --prefix web run typecheck` and `npm --prefix web run lint` (the CI web job runs both, then the build).
@@ -336,7 +336,7 @@ page, PIN 1234 5678); `npm --prefix web run dev` proxies `/api` to a homed on 12
 install/test/run.sh            # lint + mac + linux (all)
 install/test/run.sh lint       # shellcheck of home.sh, the wrapper and the tests
 install/test/run.sh mac        # macOS, temp HOME
-install/test/run.sh linux      # Docker: Debian containers gpthome-t41-*
+install/test/run.sh linux      # Docker: Debian containers homie-t41-*
 PLATFORMS="linux/amd64" SYSTEMD_PLATFORMS="" KEEP_IMAGES=1 install/test/run.sh linux
 ```
 
@@ -347,11 +347,11 @@ PLATFORMS="linux/amd64" SYSTEMD_PLATFORMS="" KEEP_IMAGES=1 install/test/run.sh l
 - mac: `--no-start` in a temp HOME with a `launchctl` shim that fails the test on any call (files, modes,
   `plutil -lint`, every plist key, re-run no-op, update, `.prev`, refusals, wrapped archive, `--prefix` with a space,
   uninstall, `--purge`; the real LaunchAgent's checksum and pid are compared before and after), then the fake homed
-  under real launchd with the TEST label `com.github.devxpro.gpt-home.homed.t41` in a temp HOME, never the real label:
+  under real launchd with the TEST label `com.github.devxpro.homie.homed.t41` in a temp HOME, never the real label:
   first-run output, re-run no-op, update restart, exit 75 restart, uninstall.
 - linux: `Dockerfile.linux` (Debian bookworm; target `base`, target `systemd` with systemd as PID 1) on every platform
   in `PLATFORMS` (default native + amd64; arm/v7 is opt-in, its image takes 30+ minutes under qemu): `--no-start` flows
-  (user, modes, owners, unit content, `systemd-analyze verify`, the wrapper as root / as gpt-home / as an unprivileged
+  (user, modes, owners, unit content, `systemd-analyze verify`, the wrapper as root / as homie / as an unprivileged
   user with and without sudo rights, idempotent re-run, update, refusals, a foreign file at the command path, files
   the service user plants in its program dir (a swapped binary, a `homed.prev` symlink) never run or written as root,
   curl | bash with templates from the raw URL, `--prefix` with a space, uninstall, purge, not-root refusal) and, on
@@ -360,7 +360,7 @@ PLATFORMS="linux/amd64" SYSTEMD_PLATFORMS="" KEEP_IMAGES=1 install/test/run.sh l
 
 ### Plugin template (`templates/plugin`)
 
-A module of its own (`replace github.com/devXpro/gpt-home => ../..`), so `./...` of the repository does not include it:
+A module of its own (`replace github.com/devXpro/homie => ../..`), so `./...` of the repository does not include it:
 
 ```sh
 go -C templates/plugin test -race ./...

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // Plugins and tools (ADMIN-API §3.5), without the calls (calls.go) and the jobs (jobs.go).

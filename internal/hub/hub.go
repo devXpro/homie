@@ -26,9 +26,9 @@ type Tool struct {
 	OutputSchema json.RawMessage // optional
 	Annotations  json.RawMessage // MCP tool annotations, passed through unchanged; optional
 	Audience     Audience
-	Inventory    bool          // _meta "gpt-home/role": "inventory"
-	Timeout      time.Duration // from _meta "gpt-home/timeout", default 30s, max 300s
-	// I18n holds translated texts from _meta "gpt-home/i18n", keyed by language ("ru"). Only the admin UI uses it;
+	Inventory    bool          // _meta "homie/role": "inventory"
+	Timeout      time.Duration // from _meta "homie/timeout", default 30s, max 300s
+	// I18n holds translated texts from _meta "homie/i18n", keyed by language ("ru"). Only the admin UI uses it;
 	// assistants always get the English Title and Description. Optional.
 	I18n map[string]ToolText
 }

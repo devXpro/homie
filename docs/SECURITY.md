@@ -1,6 +1,6 @@
 # Security model
 
-What each part of GPT-Home can see and do, what it trusts, and what follows from that. Phase 2 state: the relay, the
+What each part of Homie can see and do, what it trusts, and what follows from that. Phase 2 state: the relay, the
 hub with its admin and passkeys, person keys, plugins over stdio, the plugin installer and the first-run page.
 
 ```
@@ -17,11 +17,11 @@ the home box's terminal ──unix socket──▶ homed (the CLI: the owner, no
 | Person key (`ghk_…`) | Only its SHA-256 in `homed.db`; the key itself in the person's ChatGPT Site settings (or the macOS Keychain) | The person's Site | The assistant tools of the plugins that person may use, through the REST façade and `/mcp`. |
 | Relay token | `relay-token` (0600) in the home data dir; `token` (0600) on the server; inside the connect code | The home box and the server | Registering the domain on frps, i.e. **being** the home as seen from the internet. |
 | Passkeys | The admin's devices (iCloud Keychain, a phone); public keys in `homed.db` | Each person | Signing in to the admin, and a fresh assertion (step-up) for dangerous actions. |
-| Session cookie `__Host-gh_session` | The browser; only its SHA-256 in `homed.db` | The signed-in browser | The admin as that person, for 12 h idle / 7 days, without step-up. |
+| Session cookie `__Host-homie_session` | The browser; only its SHA-256 in `homed.db` | The signed-in browser | The admin as that person, for 12 h idle / 7 days, without step-up. |
 | Setup link (`…/admin/setup#t=…`) | Shown once (CLI or first-run page); only its SHA-256 in `homed.db` | Whoever has the link | Registering a passkey for the owner (or creating the owner): the admin. Single use, 15 min (CLI) or 3 min (first-run page). |
-| First-run PIN and cookie `gh_firstrun` | homed's memory; the PIN on homed's terminal or from `homed admin firstrun` | The person at the home box | The first-run page: storing the first relay code, and making a setup link. |
+| First-run PIN and cookie `homie_firstrun` | homed's memory; the PIN on homed's terminal or from `homed admin firstrun` | The person at the home box | The first-run page: storing the first relay code, and making a setup link. |
 | The local socket `homed.sock` | The data dir (0600, own uid checked) | The OS user that runs homed | Everything: the whole admin API without passkeys, setup links, `reset-access`. |
-| TV client key | `tvs.json` in the gpt-tv plugin data dir | gpt-tv | Controlling that TV over the LAN. |
+| TV client key | `tvs.json` in the homie-tv plugin data dir | homie-tv | Controlling that TV over the LAN. |
 
 ### The relay token is as powerful as the person keys
 
@@ -125,8 +125,8 @@ admin never talks to the domain over plain http again; Caddy may add its own.
   accepts a code for the current domain, a token rotation). Passkeys of the old domain can no longer sign in: they do
   not count as the owner's passkeys (the first-run page opens again) nor as the "last passkey" that may not be
   removed; `homed admin reset-access` then gives a new setup link.
-- **Sessions.** `__Host-gh_session` (`Secure; HttpOnly; SameSite=Strict`), stored as a hash, 12 h idle and 7 days
-  absolute. Every mutating request needs `X-GPT-Home: 1`, and a present `Origin` must be `https://<domain>` and a
+- **Sessions.** `__Host-homie_session` (`Secure; HttpOnly; SameSite=Strict`), stored as a hash, 12 h idle and 7 days
+  absolute. Every mutating request needs `X-Homie: 1`, and a present `Origin` must be `https://<domain>` and a
   present `Sec-Fetch-Site` `same-origin`.
 - **Step-up.** Installing, updating or removing plugins, updating the hub, creating or revoking keys, adding or
   removing passkeys and changing the relay need a passkey assertion no older than 5 minutes. **Signing in and
@@ -170,17 +170,17 @@ does and does not isolate:
 - **A plugin runs as the same OS user as homed. It is fully trusted.** It can read everything that user can:
   `homed.db` (key hashes, sessions, the audit log), **`relay-token`**, the admin socket, other plugins' data dirs, the
   user's files and, on a Mac, Keychain items that user can open without a prompt. Install only plugins whose authors
-  you trust as much as the hub itself. Their per-plugin data dir (`GPT_HOME_DATA_DIR`, 0700) is for tidiness, not a
+  you trust as much as the hub itself. Their per-plugin data dir (`HOMIE_DATA_DIR`, 0700) is for tidiness, not a
   sandbox.
 - Plugins never receive the callers' keys, and they are not reachable from the network through the hub: the hub talks
-  to them over stdio only. They may make their own network connections (gpt-tv talks to TVs on the LAN).
-- The request `_meta` `gpt-home/caller` and `gpt-home/via` are informational; plugins must not base security
+  to them over stdio only. They may make their own network connections (homie-tv talks to TVs on the LAN).
+- The request `_meta` `homie/caller` and `homie/via` are informational; plugins must not base security
   decisions on them.
 
 ### Installing from GitHub
 
 - **The trust anchor is the repository the owner typed.** The installer downloads the release's archive and its
-  `gpt-home-plugin.json` over https (every redirect too) and checks the archive's SHA-256 against `checksums.txt`
+  `homie-plugin.json` over https (every redirect too) and checks the archive's SHA-256 against `checksums.txt`
   **from the same release**. That catches corruption and a bad mirror, not a compromised repository or release:
   there are no signatures. The same holds for the hub's self-update.
 - **Unpacking** refuses absolute and `..` paths, links of any kind (symbolic or hard), devices and FIFOs, duplicate
@@ -192,10 +192,10 @@ does and does not isolate:
   back, e.g. after a newer release was pulled — is refused; only the local socket can ask for it, with an explicit
   `allowDowngrade`. One install, update or removal at a time per plugin.
 
-## The home LAN (gpt-tv)
+## The home LAN (homie-tv)
 
 - LG webOS 3.x speaks SSAP over plain `ws://` on port 3000, so the TV client key travels **in clear** on the LAN;
-  anyone who can sniff the LAN can capture it and control the TV. See `gpt-tv/docs/families/lg-webos.md`.
+  anyone who can sniff the LAN can capture it and control the TV. See `homie-tv/docs/families/lg-webos.md`.
 - Discovery fetches the UPnP description only from the IP that answered the SSDP search and follows no redirects; the
   SSAP websocket dial follows no redirects either.
 - Wake-on-LAN packets are broadcast on the LAN; they carry only the TV's MAC address.

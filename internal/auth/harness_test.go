@@ -13,8 +13,8 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/devXpro/gpt-home/internal/auth/authtest"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/authtest"
+	"github.com/devXpro/homie/internal/store"
 )
 
 const (
@@ -182,7 +182,7 @@ func (b *browser) do(method, path string, body any) *httptest.ResponseRecorder {
 	if rd != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("X-GPT-Home", "1")
+	req.Header.Set("X-Homie", "1")
 	if b.origin != "" {
 		req.Header.Set("Origin", b.origin)
 	}

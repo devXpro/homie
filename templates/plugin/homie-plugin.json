@@ -2,8 +2,8 @@
   "id": "plug",
   "title": "Smart plugs",
   "description": "Switch Shelly Gen2+ smart plugs on and off by voice.",
-  "binary": "gpt-plug",
+  "binary": "homie-plug",
   "args": ["serve"],
   "minHubVersion": "0.1.0",
-  "homepage": "https://github.com/your-name/gpt-plug"
+  "homepage": "https://github.com/your-name/homie-plug"
 }

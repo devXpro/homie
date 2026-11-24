@@ -64,7 +64,7 @@ func (s *logSink) copy(r io.Reader) {
 
 // event records a line from the host itself.
 func (s *logSink) event(format string, args ...any) {
-	s.add(fmt.Sprintf("gpt-home: %s %s", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...)))
+	s.add(fmt.Sprintf("homie: %s %s", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...)))
 }
 
 func (s *logSink) add(text string) {

@@ -1,18 +1,18 @@
-# GPT-Home hub (homed), installed by install/home.sh as /etc/systemd/system/gpt-home.service.
+# Homie hub (homed), installed by install/home.sh as /etc/systemd/system/homie.service.
 # The installer fills in the program paths; do not edit the installed copy, it is rewritten on
-# every update (use `systemctl edit gpt-home` for local changes).
+# every update (use `systemctl edit homie` for local changes).
 [Unit]
-Description=GPT-Home hub (homed)
-Documentation=https://github.com/devXpro/gpt-home
+Description=Homie hub (homed)
+Documentation=https://github.com/devXpro/homie
 After=network-online.target nss-lookup.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=gpt-home
-Group=gpt-home
-Environment=HOMED_DATA_DIR=/var/lib/gpt-home
-WorkingDirectory=/var/lib/gpt-home
+User=homie
+Group=homie
+Environment=HOMED_DATA_DIR=/var/lib/homie
+WorkingDirectory=/var/lib/homie
 ExecStart=__HOMED_BIN__ run
 # A hub update from the admin replaces the binary and exits with status 75 on purpose; Restart=always starts the new
 # one. Keep 75 out of SuccessExitStatus= and RestartPreventExitStatus=.
@@ -28,7 +28,7 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-ReadWritePaths=/var/lib/gpt-home __LIB_DIR__
+ReadWritePaths=/var/lib/homie __LIB_DIR__
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true

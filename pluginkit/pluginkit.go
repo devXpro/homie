@@ -1,11 +1,11 @@
-// Package pluginkit helps write gpt-home plugins in Go.
+// Package pluginkit helps write Homie plugins in Go.
 //
 // A plugin is an executable that the hub starts with the argument "serve". It speaks MCP over stdio (newline-delimited
 // JSON-RPC on stdin and stdout) and writes its log to stderr. See docs/PLUGINS.md for the full contract.
 //
 // A minimal plugin:
 //
-//	s := pluginkit.New(pluginkit.Plugin{ID: "echo", Name: "gpt-echo", Title: "Echo", Version: "0.1.0"})
+//	s := pluginkit.New(pluginkit.Plugin{ID: "echo", Name: "homie-echo", Title: "Echo", Version: "0.1.0"})
 //	mcp.AddTool(s, &mcp.Tool{Name: "echo_say", Description: "Repeats the text back."}, say)
 //	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 //	defer stop()
@@ -36,33 +36,33 @@ import (
 
 // Tool _meta keys and request _meta keys of the plugin protocol.
 const (
-	MetaAudience = "gpt-home/audience" // "admin" hides a tool from assistants; the default is "assistant"
-	MetaTimeout  = "gpt-home/timeout"  // the hub-side call timeout in seconds
-	MetaRole     = "gpt-home/role"     // "inventory" marks the device-list tool
-	MetaI18n     = "gpt-home/i18n"     // translated texts: tool _meta (see I18n) and progress _meta (see Progress)
-	MetaCaller   = "gpt-home/caller"   // request _meta: the person's display name
-	MetaVia      = "gpt-home/via"      // request _meta: "site", "mcp", "admin" or "cli"
+	MetaAudience = "homie/audience" // "admin" hides a tool from assistants; the default is "assistant"
+	MetaTimeout  = "homie/timeout"  // the hub-side call timeout in seconds
+	MetaRole     = "homie/role"     // "inventory" marks the device-list tool
+	MetaI18n     = "homie/i18n"     // translated texts: tool _meta (see I18n) and progress _meta (see Progress)
+	MetaCaller   = "homie/caller"   // request _meta: the person's display name
+	MetaVia      = "homie/via"      // request _meta: "site", "mcp", "admin" or "cli"
 )
 
 // SchemaRef is the input property schema keyword that links a property to something the hub knows; its only value is
 // RefInventory. See InventoryRef.
 const (
-	SchemaRef    = "x-gpt-home-ref"
+	SchemaRef    = "x-homie-ref"
 	RefInventory = "inventory"
 )
 
 // Environment variables the hub sets for a plugin.
 const (
-	EnvPluginID   = "GPT_HOME_PLUGIN_ID"
-	EnvDataDir    = "GPT_HOME_DATA_DIR"
-	EnvLogLevel   = "GPT_HOME_LOG_LEVEL"
-	EnvHubVersion = "GPT_HOME_HUB_VERSION"
+	EnvPluginID   = "HOMIE_PLUGIN_ID"
+	EnvDataDir    = "HOMIE_DATA_DIR"
+	EnvLogLevel   = "HOMIE_LOG_LEVEL"
+	EnvHubVersion = "HOMIE_HUB_VERSION"
 )
 
 // Plugin is the identity a plugin reports in its MCP initialize result.
 type Plugin struct {
 	ID           string // "tv"; every tool name starts with "<ID>_"
-	Name         string // "gpt-tv" (serverInfo.name)
+	Name         string // "homie-tv" (serverInfo.name)
 	Title        string // "TV" (serverInfo.title)
 	Version      string // semver
 	Instructions string // optional short English guidance for the model
@@ -74,7 +74,7 @@ var (
 )
 
 // New returns a go-sdk server with the plugin's identity and instructions set. Its log goes to stderr at the level of
-// GPT_HOME_LOG_LEVEL (default info). It panics when p.ID breaks the plugin id rule, like mcp.AddTool panics on a bad
+// HOMIE_LOG_LEVEL (default info). It panics when p.ID breaks the plugin id rule, like mcp.AddTool panics on a bad
 // tool: both are programming errors.
 func New(p Plugin) *mcp.Server {
 	if err := checkPluginID(p.ID); err != nil {
@@ -87,7 +87,7 @@ func New(p Plugin) *mcp.Server {
 	})
 }
 
-// logLevel returns the level the hub asks for in GPT_HOME_LOG_LEVEL (debug, info, warn or error); info by default.
+// logLevel returns the level the hub asks for in HOMIE_LOG_LEVEL (debug, info, warn or error); info by default.
 func logLevel() slog.Level {
 	var l slog.Level
 	if err := l.UnmarshalText([]byte(os.Getenv(EnvLogLevel))); err != nil {
@@ -121,7 +121,7 @@ type Text struct {
 	Properties  map[string]string // input property name → label, e.g. "percent" → "Громкость, %"
 }
 
-// I18n adds the texts of t in lang (a language tag such as "ru") to its _meta "gpt-home/i18n". Calling it again for
+// I18n adds the texts of t in lang (a language tag such as "ru") to its _meta "homie/i18n". Calling it again for
 // another language adds that language; for the same language it replaces the texts. Empty fields are left out.
 func I18n(t *mcp.Tool, lang string, text Text) *mcp.Tool {
 	all, _ := t.Meta[MetaI18n].(map[string]any)
@@ -147,7 +147,7 @@ func I18n(t *mcp.Tool, lang string, text Text) *mcp.Tool {
 }
 
 // InventoryRef marks an input property schema as a device id from the plugin's inventory tool, so the admin shows a
-// device picker for it. It sets "x-gpt-home-ref": "inventory" on prop and returns it; a nil prop becomes a new map.
+// device picker for it. It sets "x-homie-ref": "inventory" on prop and returns it; a nil prop becomes a new map.
 // For a *jsonschema.Schema, set Extra[SchemaRef] = RefInventory instead.
 func InventoryRef(prop map[string]any) map[string]any {
 	if prop == nil {
@@ -184,7 +184,7 @@ func setMeta(t *mcp.Tool, key string, value any) *mcp.Tool {
 	return t
 }
 
-// DataDir returns the plugin's persistent data directory: GPT_HOME_DATA_DIR when the hub runs the plugin, otherwise
+// DataDir returns the plugin's persistent data directory: HOMIE_DATA_DIR when the hub runs the plugin, otherwise
 // ./data for development. The directory is created with mode 0700 if it is missing.
 func DataDir() (string, error) {
 	dir := os.Getenv(EnvDataDir)

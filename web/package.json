@@ -1,9 +1,9 @@
 {
-  "name": "gpt-home-admin",
+  "name": "homie-admin",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "GPT-Home admin SPA, embedded in homed (internal/web).",
+  "description": "Homie admin SPA, embedded in homed (internal/web).",
   "engines": {
     "node": ">=22.22.0"
   },

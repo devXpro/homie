@@ -17,8 +17,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/keys"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/keys"
 )
 
 // fakeHost is a hub.ToolHost with a fixed tool set that tests can swap. Calls are steered by the "mode" argument.

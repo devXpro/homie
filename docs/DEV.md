@@ -1,22 +1,22 @@
 # Running homed locally
 
-How to build and run the hub (`homed`) and the TV plugin (`gpt-tv`) on a Mac, connect the relay, set up the admin
+How to build and run the hub (`homed`) and the TV plugin (`homie-tv`) on a Mac, connect the relay, set up the admin
 (passkeys at `https://<domain>/admin`), issue a person key into the Keychain, call tools by hand, and start homed at
 login with launchd. Nothing here prints a secret, except the one-time links and keys you ask for.
 
 Paths below assume the working copies in `/Users/devxpro/projects/family/`.
 
 ```sh
-G=/Users/devxpro/projects/family/gpt-home
-T=/Users/devxpro/projects/family/gpt-tv
-D="$HOME/Library/Application Support/gpt-home"   # the default data dir on macOS
+G=/Users/devxpro/projects/family/homie
+T=/Users/devxpro/projects/family/homie-tv
+D="$HOME/Library/Application Support/homie"   # the default data dir on macOS
 ```
 
 ## 1. Build
 
 ```sh
 make -C "$G" build    # builds the admin SPA (make web), then $G/bin/homed with it embedded
-make -C "$T" build    # → $T/bin/gpt-tv
+make -C "$T" build    # → $T/bin/homie-tv
 "$G/bin/homed" version
 ```
 
@@ -25,18 +25,18 @@ answers `/admin` with 503 and a hint.
 
 ## 2. The data dir
 
-`homed` keeps everything in one directory (mode 0700). It defaults to `~/Library/Application Support/gpt-home` on macOS
-and `$XDG_DATA_HOME/gpt-home` on Linux; every command takes `--data-dir D`, and `HOMED_DATA_DIR` overrides the default.
+`homed` keeps everything in one directory (mode 0700). It defaults to `~/Library/Application Support/homie` on macOS
+and `$XDG_DATA_HOME/homie` on Linux; every command takes `--data-dir D`, and `HOMED_DATA_DIR` overrides the default.
 
 | File | What |
 |---|---|
 | `homed.yaml` | what homed needs before its database opens: `listen`, `setup_listen`, the relay domain (0600) |
 | `relay-token` | the frps token (0600) |
-| `instance-id` | random id sent as `X-GPT-Home-Instance`; the relay self-check looks for it |
+| `instance-id` | random id sent as `X-Homie-Instance`; the relay self-check looks for it |
 | `homed.db` | SQLite (0600): people, passkeys, sessions, person key hashes, plugins, audit, the home name and language |
 | `homed.sock` | local admin socket of the running homed (0600, own user only); the CLI talks to it |
 | `logs/<plugin>.log` | each plugin's stderr (rotated at 5 MB) |
-| `plugins/<id>/data/` | each plugin's own data (`GPT_HOME_DATA_DIR`), e.g. gpt-tv's `tvs.json` with TV pairing keys |
+| `plugins/<id>/data/` | each plugin's own data (`HOMIE_DATA_DIR`), e.g. homie-tv's `tvs.json` with TV pairing keys |
 | `plugins/<id>/bin/<version>/` | plugins installed from GitHub releases in the admin |
 | `homed.yaml.phase1` | after the upgrade from phase 1: the old homed.yaml, as it was (§3) |
 | `audit/audit-YYYY-MM.jsonl` | the phase 1 audit log; kept, no longer written (the audit is in `homed.db`) |
@@ -74,7 +74,7 @@ The connect code goes through stdin, never through argv (`homed relay connect <c
 relay token and would land in the shell history and the process list):
 
 ```sh
-security find-generic-password -s gpt-home-relay-code -a roman -w | "$G/bin/homed" relay connect -
+security find-generic-password -s homie-relay-code -a roman -w | "$G/bin/homed" relay connect -
 ```
 
 It writes `relay.domain` into `homed.yaml` and the token into `relay-token` (0600). A running homed switches to the
@@ -88,7 +88,7 @@ Flags go **before** `--`; everything after it is the plugin's command (a `--data
 plugin):
 
 ```sh
-"$G/bin/homed" plugin add --id tv -- "$T/bin/gpt-tv" serve
+"$G/bin/homed" plugin add --id tv -- "$T/bin/homie-tv" serve
 "$G/bin/homed" plugin list
 ```
 
@@ -170,10 +170,10 @@ The same actions are in the admin: Устройства → Телевизоры
 ## 9. Issue Roman's key straight into the Keychain
 
 ```sh
-"$G/bin/homed" key new --label "ChatGPT Site" --keychain gpt-home-key
+"$G/bin/homed" key new --label "ChatGPT Site" --keychain homie-key
 ```
 
-This saves a new key for the owner (`--person ID` for someone else) as Keychain item `gpt-home-key`, account = the
+This saves a new key for the owner (`--person ID` for someone else) as Keychain item `homie-key`, account = the
 person id (an existing item is replaced); homed stores only its sha256. The key reaches `/usr/bin/security` on stdin,
 so it is in no process list and never on the terminal. Without `--keychain` the key is printed once to stdout (and
 only the key, so it can be piped). If the Keychain refuses it, the key is revoked again.
@@ -189,7 +189,7 @@ are the same keys.
 Check the key end to end without printing it (curl reads the header from stdin):
 
 ```sh
-security find-generic-password -s gpt-home-key -w | sed 's/^/Authorization: Bearer /' \
+security find-generic-password -s homie-key -w | sed 's/^/Authorization: Bearer /' \
   | curl -sS -H @- https://homie.jobbyjobs.work/api/v1/tools | head -c 300; echo
 ```
 
@@ -199,7 +199,7 @@ The Site release (`site/release/release.mjs`) reads the same Keychain item.
 
 A LaunchAgent runs homed as Roman whenever he is logged in and restarts it if it stops: after a crash, and after a
 hub update from the admin, where homed replaces its binary, shuts down cleanly and exits with status 75 on purpose
-(`KeepAlive` starts the new binary). Save as `~/Library/LaunchAgents/com.github.devxpro.gpt-home.homed.plist`:
+(`KeepAlive` starts the new binary). Save as `~/Library/LaunchAgents/com.github.devxpro.homie.homed.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -207,10 +207,10 @@ hub update from the admin, where homed replaces its binary, shuts down cleanly a
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.github.devxpro.gpt-home.homed</string>
+	<string>com.github.devxpro.homie.homed</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/devxpro/projects/family/gpt-home/bin/homed</string>
+		<string>/Users/devxpro/projects/family/homie/bin/homed</string>
 		<string>run</string>
 	</array>
 	<key>RunAtLoad</key>
@@ -220,16 +220,16 @@ hub update from the admin, where homed replaces its binary, shuts down cleanly a
 	<key>ThrottleInterval</key>
 	<integer>10</integer>
 	<key>StandardOutPath</key>
-	<string>/Users/devxpro/Library/Logs/gpt-home/homed.log</string>
+	<string>/Users/devxpro/Library/Logs/homie/homed.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/devxpro/Library/Logs/gpt-home/homed.log</string>
+	<string>/Users/devxpro/Library/Logs/homie/homed.log</string>
 </dict>
 </plist>
 ```
 
 ```sh
-L=com.github.devxpro.gpt-home.homed
-mkdir -p ~/Library/Logs/gpt-home
+L=com.github.devxpro.homie.homed
+mkdir -p ~/Library/Logs/homie
 plutil -lint ~/Library/LaunchAgents/$L.plist
 # Stop a homed running in a terminal first: only one may run per data dir.
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$L.plist   # start now and at every login
@@ -237,7 +237,7 @@ launchctl print gui/$(id -u)/$L | grep -E 'state|pid'               # running, p
 launchctl kickstart -k gui/$(id -u)/$L                               # restart (after a rebuild)
 launchctl kill HUP gui/$(id -u)/$L                                   # re-read keys, plugins and the home name from homed.db
 launchctl bootout gui/$(id -u)/$L                                    # stop and unload
-tail -f ~/Library/Logs/gpt-home/homed.log
+tail -f ~/Library/Logs/homie/homed.log
 ```
 
 launchd gives the agent `HOME`, so the default data dir is the same as in a terminal. The log file is not rotated; it
@@ -267,7 +267,7 @@ as offline): turn homed on in System Settings → Privacy & Security → Local N
 | a tool says the plugin is not running | `homed plugin list` (state and last error), `$D/logs/tv.log`, the admin's module log |
 | `relay status` offline, `last error: … token …` | the code was rotated: run §4 again |
 | `last error: … x509 …` | the relay's certificate (Caddy and Let's Encrypt on the server) |
-| `self-check: FAILED … another gpt-home hub` | a second homed is connected to the same relay |
+| `self-check: FAILED … another Homie hub` | a second homed is connected to the same relay |
 | the Site says the home is offline | homed is not running, the Mac sleeps, or the relay is down |
 | `421 misdirected request` | the request's Host is neither the relay domain nor `127.0.0.1:<port>`/`localhost:<port>` |
 | the admin says the passkey does not open the home | the relay domain changed: `homed admin reset-access` (§6) |

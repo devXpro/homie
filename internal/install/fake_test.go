@@ -70,7 +70,7 @@ func sha(b []byte) string {
 type fakeRelease struct {
 	tag      string
 	prerel   bool
-	manifest string            // gpt-home-plugin.json; "" means the release has none
+	manifest string            // homie-plugin.json; "" means the release has none
 	files    map[string][]byte // asset name -> bytes (served under /dl/)
 	sums     map[string]string // overrides for checksums.txt lines (name -> sha); default = real sha of files
 	noSums   bool
@@ -223,20 +223,20 @@ func (f *fakeGitHub) serveDownload(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-const tvManifest = `{"id":"tv","title":"TV","description":"LG TVs","binary":"gpt-tv","args":["serve"],"minHubVersion":"0.1.0","homepage":"https://github.com/devXpro/gpt-tv"}`
+const tvManifest = `{"id":"tv","title":"TV","description":"LG TVs","binary":"homie-tv","args":["serve"],"minHubVersion":"0.1.0","homepage":"https://github.com/devXpro/homie-tv"}`
 
 const script = "#!/bin/sh\nexit 0\n"
 
-// tvRelease builds a gpt-tv release for linux/arm64 whose binary content carries the version.
+// tvRelease builds a homie-tv release for linux/arm64 whose binary content carries the version.
 func tvRelease(t *testing.T, version string) *fakeRelease {
 	t.Helper()
 	arch := makeTarGz(t, []tarEntry{
-		{name: "gpt-tv", body: script + "# " + version + "\n", mode: 0o755},
+		{name: "homie-tv", body: script + "# " + version + "\n", mode: 0o755},
 		{name: "README.md", body: "readme"},
 	})
 	return &fakeRelease{
 		tag: "v" + version, manifest: tvManifest,
-		files: map[string][]byte{ArchiveName("gpt-tv", version, "linux", "arm64"): arch},
+		files: map[string][]byte{ArchiveName("homie-tv", version, "linux", "arm64"): arch},
 	}
 }
 

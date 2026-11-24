@@ -9,7 +9,7 @@ import { Spinner } from './spinner'
 
 /** Skeleton is a --fill block the exact size of the content it stands for (no layout shift). */
 export function Skeleton({ className }: { className?: string }) {
-  return <span aria-hidden className={cn('gh-skeleton block rounded-xs', className)} />
+  return <span aria-hidden className={cn('homie-skeleton block rounded-xs', className)} />
 }
 
 /**
@@ -33,7 +33,7 @@ export function SkeletonRows({
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
-          className={cn('gh-row flex items-center gap-3 px-4', subtitle ? 'min-h-[60px] py-2.5' : 'min-h-11 py-[11px]', icon && '[--row-inset:60px]')}
+          className={cn('homie-row flex items-center gap-3 px-4', subtitle ? 'min-h-[60px] py-2.5' : 'min-h-11 py-[11px]', icon && '[--row-inset:60px]')}
         >
           {icon && <Skeleton className="size-[30px] rounded-sm" />}
           <span className="flex flex-1 flex-col">

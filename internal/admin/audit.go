@@ -16,9 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/audit"
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/audit"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // AuditWriter is the phase 2 audit log (ADMIN-API §8): a non-blocking hub.Auditor for tool calls from every surface

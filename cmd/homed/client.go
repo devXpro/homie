@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/admin"
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/plugins"
-	"github.com/devXpro/gpt-home/internal/relay"
+	"github.com/devXpro/homie/internal/admin"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/relay"
 )
 
 // The CLI speaks the admin API of ADMIN-API §6: to the running homed over its socket, or, for the commands that also

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // The wire objects of ADMIN-API §2. Optional keys are omitted, never null.
@@ -240,12 +240,12 @@ func toTool(t hub.Tool) toolJSON {
 }
 
 // toolTarget names the input property that holds an inventory item id (ADMIN-API §2, Tool): the property marked
-// "x-gpt-home-ref": "inventory", else a required string property named like the plugin id, "device" or "item".
+// "x-homie-ref": "inventory", else a required string property named like the plugin id, "device" or "item".
 func toolTarget(t hub.Tool) string {
 	var schema struct {
 		Properties map[string]struct {
 			Type any    `json:"type"`
-			Ref  string `json:"x-gpt-home-ref"`
+			Ref  string `json:"x-homie-ref"`
 		} `json:"properties"`
 		Required []string `json:"required"`
 	}
@@ -288,7 +288,7 @@ func toAuditItem(rec store.AuditRecord, titles map[string]string) auditItemJSON 
 	return out
 }
 
-// pluginName is the plugin's binary or repository name, e.g. "gpt-tv".
+// pluginName is the plugin's binary or repository name, e.g. "homie-tv".
 func pluginName(p store.Plugin) string {
 	if p.Repo != "" {
 		return path.Base(p.Repo)

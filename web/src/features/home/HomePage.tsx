@@ -132,7 +132,7 @@ function Hero({ relay }: { relay: RelayStatus }) {
     <Link
       to="/admin/settings/server"
       className={cn(
-        'gh-hero flex items-center gap-4 rounded-xl p-5 transition-[filter] active:brightness-95',
+        'homie-hero flex items-center gap-4 rounded-xl p-5 transition-[filter] active:brightness-95',
         TONE_STATUS[tone],
       )}
     >

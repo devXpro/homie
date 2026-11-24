@@ -14,8 +14,8 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // API errors of the ceremonies (ADMIN-API §1.2, §3.2).
@@ -152,10 +152,10 @@ func (a *Auth) countFailure(r *http.Request, rc rateClass, err error) {
 	}
 }
 
-// sameOrigin is the CSRF rule of ADMIN-API §1.4 for mutating requests: the X-GPT-Home header, an Origin (when sent)
+// sameOrigin is the CSRF rule of ADMIN-API §1.4 for mutating requests: the X-Homie header, an Origin (when sent)
 // equal to the admin's origin, and a Sec-Fetch-Site (when sent) of same-origin.
 func (a *Auth) sameOrigin(r *http.Request) bool {
-	if r.Header.Get("X-GPT-Home") != "1" {
+	if r.Header.Get("X-Homie") != "1" {
 		return false
 	}
 	if o := r.Header.Get("Origin"); o != "" {

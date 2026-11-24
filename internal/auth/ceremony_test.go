@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 func TestRegistrationAndLogin(t *testing.T) {
@@ -30,7 +30,7 @@ func TestRegistrationAndLogin(t *testing.T) {
 	// The begin options ask for a discoverable, user-verified passkey of this domain, without attestation.
 	raw, id := b.begin("/api/admin/auth/register/begin",
 		map[string]string{"token": token, "personName": " Роман ", "homeName": "Мой шалаш"})
-	for _, want := range []string{`"rp":{"name":"GPT-Home","id":"homie.example.com"}`, `"residentKey":"required"`,
+	for _, want := range []string{`"rp":{"name":"Homie","id":"homie.example.com"}`, `"residentKey":"required"`,
 		`"userVerification":"required"`, `"attestation":"none"`, `"name":"Роман"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("creation options lack %s: %s", want, raw)

@@ -19,7 +19,7 @@ their paths, objects and errors are fixed here so phase 2 leaves room for them.
   milliseconds in keys ending `Ms`.
 - Ids are strings, also the audit ids (int64 in the store, a decimal string on the wire, so JavaScript never rounds
   them).
-- Every response carries `X-GPT-Home-Instance` (from the gateway), `Cache-Control: no-store`,
+- Every response carries `X-Homie-Instance` (from the gateway), `Cache-Control: no-store`,
   `X-Content-Type-Options: nosniff` and `X-Request-Id`.
 - Success bodies are the resource itself, with no envelope. `204` has no body.
 
@@ -73,7 +73,7 @@ Every error has this body:
 | 504 | `timeout` | a synchronous tool read timed out |
 
 ### 1.3 Authentication and roles
-- **Session cookie** `__Host-gh_session=<base64url of 32 random bytes>; Path=/; Secure; HttpOnly; SameSite=Strict`.
+- **Session cookie** `__Host-homie_session=<base64url of 32 random bytes>; Path=/; Secure; HttpOnly; SameSite=Strict`.
   Only its sha256 is stored (`store.Session.TokenHash`). Lifetime per PLAN §5.8: 12 h idle, 7 d absolute; `Max-Age` is
   the absolute remainder. Expired sessions answer `401 unauthenticated` and are deleted.
 - **Levels** used in the tables below:
@@ -91,7 +91,7 @@ Every error has this body:
 
 ### 1.4 CSRF
 Every request with a method other than `GET`/`HEAD` (the auth ceremonies and logout included) must carry
-`X-GPT-Home: 1`. If `Origin` is present it must equal `https://<domain>`; if `Sec-Fetch-Site` is present it must be
+`X-Homie: 1`. If `Origin` is present it must equal `https://<domain>`; if `Sec-Fetch-Site` is present it must be
 `same-origin`. Otherwise `403 csrf_failed`. With `SameSite=Strict` and the JSON content type this blocks cross-site
 writes even from old browsers. The socket is exempt (§6). Development mode (`homed run --dev-origin
 http://localhost:5173`, T2.6) swaps the allowed origin and the RP ID to `localhost`; it refuses to start with a relay
@@ -177,20 +177,20 @@ Every object below is the exact JSON shape; `?` marks an optional (omitted when 
 
 **PluginSummary**
 ```json
-{"id":"tv","name":"gpt-tv","title":"TV","description?":"LG webOS TVs: power, volume, inputs.",
+{"id":"tv","name":"homie-tv","title":"TV","description?":"LG webOS TVs: power, volume, inputs.",
  "version":"0.2.0","state":"up","since":"…","lastError?":"…","enabled":true,
- "source":{"kind":"github","repo?":"devXpro/gpt-tv","homepage?":"https://github.com/devXpro/gpt-tv"},
+ "source":{"kind":"github","repo?":"devXpro/homie-tv","homepage?":"https://github.com/devXpro/homie-tv"},
  "update?":{"latest":"0.3.0","checkedAt":"…"},
  "tools":{"assistant":5,"admin":5},"inventoryTool?":"tv_list","devices?":1}
 ```
 - `state`: `starting|up|failing|stopped` from `hub.PluginStatus`, or `disabled` when `enabled` is false.
-- `title` and `version` come from the plugin's `serverInfo`; before the first start, from `gpt-home-plugin.json`, or
+- `title` and `version` come from the plugin's `serverInfo`; before the first start, from `homie-plugin.json`, or
   the id.
 - `devices` is the item count of the last inventory read, when there was one.
 
 **PluginDetail** = PluginSummary plus
 ```json
-{"instructions?":"Controls the TVs at home…","previousVersion?":"0.1.0","command?":["/…/gpt-tv","serve"],
+{"instructions?":"Controls the TVs at home…","previousVersion?":"0.1.0","command?":["/…/homie-tv","serve"],
  "tools":[Tool…]}
 ```
 (`tools` here replaces the counts with the full list, assistant and admin, sorted by name.)
@@ -203,7 +203,7 @@ Every object below is the exact JSON shape; `?` marks an optional (omitted when 
  "timeoutMs":180000,"inventory":false,"target?":"tv"}
 ```
 `target` is the input property that names an inventory item (DESIGN.md §9.3): the property marked
-`"x-gpt-home-ref":"inventory"` in its schema, else a required string property named like the plugin id, `device` or
+`"x-homie-ref":"inventory"` in its schema, else a required string property named like the plugin id, `device` or
 `item`. The hub computes it once, so the SPA and the CLI agree.
 
 **InventoryItem** — `{"id":"tv","name":"Living room TV","subtitle?":"192.168.68.66 · 49UJ634V-ZD","state?":"on"}`;
@@ -220,7 +220,7 @@ Every object below is the exact JSON shape; `?` marks an optional (omitted when 
 ```
 - `progress.messageI18n` (added in T2.3/T2.7): translations of `message` by language; the UI shows its language and
   falls back to `message`. Tool objects likewise carry `i18n?: {"<lang>": {"title","description","properties":{…}}}`
-  from the plugin's `_meta "gpt-home/i18n"` (admin API only; never sent to assistants).
+  from the plugin's `_meta "homie/i18n"` (admin API only; never sent to assistants).
 - `state`: `running`; `ok` (ran, `result` set); `failed` (ran and reported `isError`; `result.text` is the plugin's
   own text); `error` (could not run: `error.code` ∈ `plugin_unavailable|timeout|unknown_tool|internal`);
   `cancelled`.
@@ -231,7 +231,7 @@ Every object below is the exact JSON shape; `?` marks an optional (omitted when 
 ```json
 {"id":"j_4Rt…","kind":"plugin.install","target":"tv","state":"running",
  "steps":["resolve","download","verify","unpack","start"],"step":"download",
- "progress?":{"done":1200000,"total":5300000},"message?":"gpt-tv 0.2.0",
+ "progress?":{"done":1200000,"total":5300000},"message?":"homie-tv 0.2.0",
  "items?":[{"id":"tanya","label":"Tanya","state":"running","message?":"…"}],
  "startedAt":"…","endedAt?":"…","error?":{"code":"checksum_mismatch","message":"…"}}
 ```
@@ -265,7 +265,7 @@ are kept for 1 hour (at most 50).
 **SystemInfo**
 ```json
 {"version":"0.2.0","commit":"8cd45e2","os":"darwin","arch":"arm64","startedAt":"…",
- "update?":{"latest":"0.3.0","notesUrl":"https://github.com/devXpro/gpt-home/releases/tag/v0.3.0","checkedAt":"…"}}
+ "update?":{"latest":"0.3.0","notesUrl":"https://github.com/devXpro/homie/releases/tag/v0.3.0","checkedAt":"…"}}
 ```
 
 **Invite** [P3] — `{"id":"i_…","kind":"member","personId":"tanya","createdAt":"…","expiresAt":"…",
@@ -373,8 +373,8 @@ Register rules:
 | `POST /plugins/{id}/restart` | owner | `{}` | `202 PluginSummary` (state `starting`) |
 | `GET /plugins/{id}/inventory` | owner | — | `200 {"items":[InventoryItem…],"fetchedAt":"…"}`; `404 no_inventory`, `422 tool_failed`, `503 plugin_unavailable`, `504 timeout` |
 | `GET /plugins/{id}/logs` | owner | `?tail=200` (1–1000) | `200 {"lines":["…"]}`, oldest first; live lines via SSE `?logs=<id>` |
-| `GET /plugins/preview` | owner | `?repo=devXpro/gpt-tv&version=latest` | `200` below; `404 not_found` (no repo or release), `502 upstream` |
-| `POST /plugins` | owner ✋ | `{"repo":"devXpro/gpt-tv","version?":"0.2.0","id?":"tv"}` | `202 Job` (`plugin.install`); `409 conflict` (id taken); `409 job_running` |
+| `GET /plugins/preview` | owner | `?repo=devXpro/homie-tv&version=latest` | `200` below; `404 not_found` (no repo or release), `502 upstream` |
+| `POST /plugins` | owner ✋ | `{"repo":"devXpro/homie-tv","version?":"0.2.0","id?":"tv"}` | `202 Job` (`plugin.install`); `409 conflict` (id taken); `409 job_running` |
 | `POST /plugins/{id}/update` | owner ✋ | `{"version?":"0.3.0","allowDowngrade?":true}` | `202 Job` (`plugin.update`); `409 job_running`; `409 downgrade`; `403 forbidden` (`allowDowngrade` from the web) |
 | `DELETE /plugins/{id}` | owner ✋ | `?keepData=false` | `202 Job` (`plugin.remove`); `409 job_running`; data dir deleted unless `keepData=true` |
 | `POST /plugins/check-updates` | owner | `{}` | `200 {"items":[PluginSummary…]}` with `update` refreshed (GitHub, cached 6 h otherwise) |
@@ -386,10 +386,10 @@ Register rules:
 | `GET /jobs` | owner | `?state=running` | `200 {"items":[Job…]}` |
 | `GET /jobs/{id}` | owner | — | `200 Job` |
 
-`GET /plugins/preview` answer (from the release's `gpt-home-plugin.json`):
+`GET /plugins/preview` answer (from the release's `homie-plugin.json`):
 ```json
-{"repo":"devXpro/gpt-tv","id":"tv","title":"TV","description":"LG webOS TVs: power, volume, inputs.",
- "version":"0.2.0","publishedAt":"…","homepage?":"https://github.com/devXpro/gpt-tv","minHubVersion":"0.2.0",
+{"repo":"devXpro/homie-tv","id":"tv","title":"TV","description":"LG webOS TVs: power, volume, inputs.",
+ "version":"0.2.0","publishedAt":"…","homepage?":"https://github.com/devXpro/homie-tv","minHubVersion":"0.2.0",
  "compatible":true,"assetFound":true,"installed?":{"version":"0.1.0"}}
 ```
 `homepage` is the plugin author's text: it is sent only when it is an absolute `https` URL with a host and no
@@ -513,7 +513,7 @@ Plain HTTP, so it is short-lived and narrow (docs/SECURITY.md):
 - The PIN has 8 digits (shown `1234 5678`; spaces and dashes are ignored) and changes every 10 minutes and after
   every issued link. homed prints it only to a terminal; under launchd or systemd it never reaches the log (the log
   says to run `homed admin firstrun` or `homed admin setup-link`).
-- Same error format and `X-GPT-Home: 1` rule; the cookie is `gh_firstrun` (`HttpOnly; SameSite=Strict`, not
+- Same error format and `X-Homie: 1` rule; the cookie is `homie_firstrun` (`HttpOnly; SameSite=Strict`, not
   `Secure`: this is http on the LAN) and lives 30 minutes.
 
 | Method, path | Level | Request | Response |
@@ -543,7 +543,7 @@ client's LAN address.
   | `POST /local/setup-link` | `{}` | `200 {"url":"https://<domain>/admin/setup#t=…","expiresAt":"…"}` (`homed admin setup-link`) |
   | `POST /local/reset-access` | `{}` | `200 {"url","expiresAt","revokedPasskeys":2,"revokedSessions":3}` (`homed admin reset-access`) |
   | `POST /local/firstrun` | `{}` | `200 {"urls":["http://192.168.68.63:8090/firstrun",…],"pin":"12345678","pinUntil":"…","closesAt":"…"}` (`homed admin firstrun`): opens the first-run page when it is closed, else shows it; `409 owner_exists`; `409 conflict` (cannot listen). Running homed only. |
-  | `POST /plugins` with `{"source":"local","id":"tv","command":["/…/gpt-tv","serve"]}` | | `201 PluginSummary` (`homed plugin add`); the web can only install from GitHub |
+  | `POST /plugins` with `{"source":"local","id":"tv","command":["/…/homie-tv","serve"]}` | | `201 PluginSummary` (`homed plugin add`); the web can only install from GitHub |
   | `PUT /relay` with a code for any domain | | `202 RelayStatus` (`homed relay connect -`) |
   | `POST /plugins/{id}/update`, `POST /system/update` with `"allowDowngrade": true` | | `202 Job`: the only way to install an older release (§3.5) |
 
@@ -590,13 +590,13 @@ client's LAN address.
   without touching `hub.go`: `internal/plugins` gets `WithProgress(ctx, func(Progress)) context.Context`; `Host.Call`
   then sets a progress token on `CallToolParams` (`SetProgressToken`) and routes the client's
   `ProgressNotificationHandler` (go-sdk v1.8.0 `ClientOptions`) to that callback. `pluginkit` gets
-  `Progress(ctx, req, progress, total float64, message string)`, and gpt-tv's `tv_pair` sends
+  `Progress(ctx, req, progress, total float64, message string)`, and homie-tv's `tv_pair` sends
   "Press OK on the TV remote" once the prompt is on screen. Until then the SPA falls back to the tool description and
-  an elapsed timer (DESIGN.md §9.5). These touch `internal/plugins`, `pluginkit` and gpt-tv: the orchestrator assigns
+  an elapsed timer (DESIGN.md §9.5). These touch `internal/plugins`, `pluginkit` and homie-tv: the orchestrator assigns
   them.
-- **`x-gpt-home-ref`.** The inventory link of a tool argument (`Tool.target`) should be declared by plugins:
-  `"tv": {"type":"string","x-gpt-home-ref":"inventory",…}`. docs/PLUGINS.md and gpt-tv need that line; until then the
-  name heuristic of §2 covers gpt-tv (`tv` = the plugin id).
+- **`x-homie-ref`.** The inventory link of a tool argument (`Tool.target`) should be declared by plugins:
+  `"tv": {"type":"string","x-homie-ref":"inventory",…}`. docs/PLUGINS.md and homie-tv need that line; until then the
+  name heuristic of §2 covers homie-tv (`tv` = the plugin id).
 - **Challenges** for ceremonies live in memory in `internal/auth` (no store table): one process, 5-minute TTL.
 - **Keys:** after every key create, revoke or scope change, rebuild `keys.Resolver` from `store.Keys.List` plus the
   people's scopes (`Resolver.Update`).

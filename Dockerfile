@@ -1,13 +1,13 @@
-# GPT-Home hub (homed) for NAS boxes and other Docker hosts.
+# Homie hub (homed) for NAS boxes and other Docker hosts.
 #
 # This is the RELEASE image: GoReleaser (dockers_v2 in .goreleaser.yaml) builds homed for linux/amd64, linux/arm64 and
 # linux/arm/v7 first and puts the finished binaries in the build context as <os>/<arch>[/<variant>]/homed, next to this
 # file and LICENSE. Nothing is compiled here. To build an image from the sources instead, use Dockerfile.dev.
 #
-#   docker run -d --name gpt-home --restart unless-stopped --network host -v gpt-home:/data ghcr.io/devxpro/gpt-home
-#   docker logs gpt-home                                  # the first-run page address
-#   docker exec gpt-home homed admin firstrun             # its address and PIN (also: homed admin setup-link)
-#   docker exec -i gpt-home homed relay connect -         # then paste the connect code of server.sh
+#   docker run -d --name homie --restart unless-stopped --network host -v homie:/data ghcr.io/devxpro/homie
+#   docker logs homie                                  # the first-run page address
+#   docker exec homie homed admin firstrun             # its address and PIN (also: homed admin setup-link)
+#   docker exec -i homie homed relay connect -         # then paste the connect code of server.sh
 #
 # --network host is required, not a convenience. The hub finds devices with SSDP (multicast) and wakes them with
 # Wake-on-LAN (UDP broadcast); neither crosses the NAT of Docker's default bridge network, so a bridged container sees
@@ -27,12 +27,12 @@ ARG TARGETPLATFORM
 # ca-certificates: TLS to the relay (wss) and to GitHub (plugin installs). tzdata: local times. tini: reaps the plugin
 # processes' orphans, the hub itself is not an init.
 RUN apk add --no-cache ca-certificates tzdata tini \
-	&& addgroup -S -g 10001 gpt-home \
-	&& adduser -S -u 10001 -G gpt-home -h /data -H -s /sbin/nologin gpt-home \
-	&& install -d -m 0700 -o gpt-home -g gpt-home /data
+	&& addgroup -S -g 10001 homie \
+	&& adduser -S -u 10001 -G homie -h /data -H -s /sbin/nologin homie \
+	&& install -d -m 0700 -o homie -g homie /data
 
 COPY --chmod=0755 $TARGETPLATFORM/homed /usr/local/bin/homed
-COPY LICENSE /usr/share/licenses/gpt-home/LICENSE
+COPY LICENSE /usr/share/licenses/homie/LICENSE
 
 ENV HOMED_DATA_DIR=/data
 VOLUME /data

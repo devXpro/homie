@@ -20,10 +20,10 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/auth/authtest"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/auth/authtest"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 const (
@@ -198,7 +198,7 @@ func (b *browser) do(method, path string, body any) *httptest.ResponseRecorder {
 	if rd != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("X-GPT-Home", "1")
+	req.Header.Set("X-Homie", "1")
 	req.Header.Set("Origin", "http://"+b.host)
 	for k, v := range b.header {
 		req.Header[k] = v
@@ -443,7 +443,7 @@ func TestLinkNeedsTheRelay(t *testing.T) {
 	// Connected, but the outside check fails: the domain does not reach this hub.
 	e.relay.set(func(f *fakeRelay) {
 		f.status = relay.Status{Connected: true}
-		f.checkedAt, f.failure = e.clock.Now(), "self-check: the domain reaches another gpt-home hub"
+		f.checkedAt, f.failure = e.clock.Now(), "self-check: the domain reaches another Homie hub"
 	})
 	st := decodeAs[state](t, b.do(http.MethodGet, "/api/firstrun/state", nil))
 	if st.Step != "connecting" || st.Relay.SelfCheck == nil || st.Relay.SelfCheck.OK {
@@ -498,7 +498,7 @@ func TestFirstRunEndToEnd(t *testing.T) {
 		raw, _ := json.Marshal(body)
 		req := httptest.NewRequest(http.MethodPost, "https://"+testDomain+path, bytes.NewReader(raw))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-GPT-Home", "1")
+		req.Header.Set("X-Homie", "1")
 		rec := httptest.NewRecorder()
 		admin.ServeHTTP(rec, req)
 		return rec
@@ -519,7 +519,7 @@ func TestFirstRunEndToEnd(t *testing.T) {
 	phone := virtualwebauthn.NewAuthenticator()
 	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
 	answer := virtualwebauthn.CreateAttestationResponse(
-		virtualwebauthn.RelyingParty{ID: testDomain, Name: "GPT-Home", Origin: "https://" + testDomain}, phone, cred, *opts)
+		virtualwebauthn.RelyingParty{ID: testDomain, Name: "Homie", Origin: "https://" + testDomain}, phone, cred, *opts)
 	wantStatus(t, post("/api/admin/auth/register/finish",
 		map[string]any{"ceremonyId": begin.CeremonyID, "credential": json.RawMessage(answer)}), http.StatusCreated)
 
@@ -577,7 +577,7 @@ func TestCSRF(t *testing.T) {
 	}{
 		"same origin":       {nil, true},
 		"no Origin":         {map[string]string{"Origin": ""}, true},
-		"no X-GPT-Home":     {map[string]string{"X-GPT-Home": ""}, false},
+		"no X-Homie":        {map[string]string{"X-Homie": ""}, false},
 		"foreign Origin":    {map[string]string{"Origin": "http://evil.example.com"}, false},
 		"other LAN port":    {map[string]string{"Origin": "http://192.168.68.63:8091"}, false},
 		"cross-site fetch":  {map[string]string{"Sec-Fetch-Site": "cross-site"}, false},
@@ -789,7 +789,7 @@ func TestServeClosesAfterTheCap(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://"+addr+"/api/firstrun/pin",
 		strings.NewReader(`{"pin":"00000000"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-GPT-Home", "1")
+	req.Header.Set("X-Homie", "1")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

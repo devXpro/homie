@@ -1,4 +1,4 @@
-# GPT-Home: the ChatGPT Site
+# Homie: the ChatGPT Site
 
 A private [ChatGPT Site](https://help.openai.com/en/articles/20001339-creating-and-using-chatgpt-sites) whose MCP server
 becomes a plugin in one person's own ChatGPT account, built the way the God Mode Site is. It is a thin proxy: the tools,
@@ -23,7 +23,7 @@ same code, the same hub and their own key. The Site's title is the name the pers
 | Variable | Meaning |
 | --- | --- |
 | `HOME_API_URL` | Required. The public address of the home hub, e.g. `https://homie.example.com`. |
-| `HOME_API_KEY` | Required, secret. This person's own key (`ghk_...`), created in the hub. The release script reads it from the Keychain item `gpt-home-key`, or `gpt-home-key-<profile>`. |
+| `HOME_API_KEY` | Required, secret. This person's own key (`ghk_...`), created in the hub. The release script reads it from the Keychain item `homie-key`, or `homie-key-<profile>`. |
 | `HOME_LANGUAGE` | Optional. The language ChatGPT speaks with you, e.g. `ru`. Unset: the language you use. |
 
 ## Errors the Site explains to the model
@@ -53,12 +53,12 @@ Options: `--title` (the Site's name in ChatGPT), `--slug` (its unique address na
 when it cannot be found by itself).
 
 The first release needs to know where the hub is: `HOME_API_URL=https://homie.example.com node release/release.mjs
---title ... --slug ...`. The address is remembered (`~/.gpt-home-site/api-url`, or `~/.gpt-home-site-NAME/api-url` for a
+--title ... --slug ...`. The address is remembered (`~/.homie-site/api-url`, or `~/.homie-site-NAME/api-url` for a
 profile), so later runs need no setting; give `HOME_API_URL` again to change it. `HOME_LANGUAGE` is passed on when set.
 
 It talks to the ChatGPT Sites tools through `codex app-server` with the Codex login of this Mac (the same route the
 God Mode plugin takes), pushes the source to the Site's own repository with a short-lived credential (commits are made as
-"GPT-Home Site"), builds on this Mac (`npm ci`, `npm run check`, `npm run build`), and makes one model call to upload
+"Homie Site"), builds on this Mac (`npm ci`, `npm run check`, `npm run build`), and makes one model call to upload
 the archive. The key is read from the Keychain and goes to the Site as a secret; it is never printed. Needs Node 22+,
 git, npm and the Codex CLI signed in.
 
@@ -82,9 +82,9 @@ Each person publishes into their own ChatGPT account. Everything is released fro
 
 | What | Where |
 | --- | --- |
-| state and the checkout | `~/.gpt-home-site-NAME` |
-| the Codex login (your own is never touched) | `~/.gpt-home-site-NAME/codex` |
-| the key | Keychain item `gpt-home-key-NAME`, and the same person's key in the hub |
+| state and the checkout | `~/.homie-site-NAME` |
+| the Codex login (your own is never touched) | `~/.homie-site-NAME/codex` |
+| the key | Keychain item `homie-key-NAME`, and the same person's key in the hub |
 
 ```sh
 node release/release.mjs --profile tanya --login                       # prints an address and a code; they approve it on their phone
@@ -101,8 +101,8 @@ The code works once and only for a few minutes; the command waits 15 minutes and
 again. Then, in their ChatGPT: **Plugins -> Created by you**, connect the plugin, choose **Always allow**, and start a
 new chat. Run `--settings-only` for every profile when tools or descriptions change.
 
-Environment overrides for tests: `GPT_HOME_SITE_HOME` (state directory), `GPT_HOME_KEY_ITEM` (Keychain item),
-`GPT_HOME_SITE_PROFILE` (profile).
+Environment overrides for tests: `HOMIE_SITE_HOME` (state directory), `HOMIE_KEY_ITEM` (Keychain item),
+`HOMIE_SITE_PROFILE` (profile).
 
 ## Voice
 

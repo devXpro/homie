@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/devXpro/gpt-home/internal/keys"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/keys"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // People and keys (ADMIN-API §3.7, phase 2 part).

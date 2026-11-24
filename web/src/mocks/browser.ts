@@ -7,7 +7,7 @@ import { configureFromUrl, handlers, setOffline } from './handlers'
 declare global {
   interface Window {
     /** Hooks for the screenshot and smoke tests (mock builds only). */
-    __ghMock?: { setOffline: (v: boolean) => void }
+    __homieMock?: { setOffline: (v: boolean) => void }
   }
 }
 
@@ -20,5 +20,5 @@ export async function startMocks() {
     quiet: true,
     serviceWorker: { url: '/admin/mockServiceWorker.js', options: { scope: '/' } },
   })
-  window.__ghMock = { setOffline }
+  window.__homieMock = { setOffline }
 }

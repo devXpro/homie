@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -48,11 +48,11 @@ func main() {
 	}
 
 	s := pluginkit.New(pluginkit.Plugin{
-		ID: "fake", Name: "gpt-fake", Title: "Fake", Version: "1.0.0",
+		ID: "fake", Name: "homie-fake", Title: "Fake", Version: "1.0.0",
 		Instructions: "Fake instructions.",
 	})
 	if *legacy {
-		s = mcp.NewServer(&mcp.Implementation{Name: "gpt-fake", Title: "Fake", Version: "1.0.0"}, &mcp.ServerOptions{
+		s = mcp.NewServer(&mcp.Implementation{Name: "homie-fake", Title: "Fake", Version: "1.0.0"}, &mcp.ServerOptions{
 			Instructions:              "Fake instructions.",
 			SupportedProtocolVersions: []string{"2025-11-25"},
 		})

@@ -127,9 +127,9 @@ const SHOTS: Shot[] = [
     scenario: 'fresh',
     ready: 'LG webOS TVs: power, volume, inputs.',
     prepare: async (p) => {
-      await p.getByRole('textbox', { name: 'Адрес на GitHub' }).fill('someone/gpt-kettle')
+      await p.getByRole('textbox', { name: 'Адрес на GitHub' }).fill('someone/homie-kettle')
       await p.getByRole('button', { name: 'Найти' }).click()
-      await expect(p.getByText('Нужна более новая версия GPT-Home. Сначала обновите её в Настройках.')).toBeVisible()
+      await expect(p.getByText('Нужна более новая версия Homie. Сначала обновите её в Настройках.')).toBeVisible()
     },
   },
   {
@@ -350,7 +350,7 @@ const SHOTS: Shot[] = [
     prepare: async (p) => {
       await p.getByRole('button', { name: 'Обновить до 0.3.0' }).click()
       await dialog(p, 'Подтвердите, что это вы').getByRole('button', { name: 'Подтвердить' }).click()
-      await expect(dialog(p, 'Обновляем GPT-Home').getByText(/из 5,3 МБ/)).toBeVisible({ timeout: 15_000 })
+      await expect(dialog(p, 'Обновляем Homie').getByText(/из 5,3 МБ/)).toBeVisible({ timeout: 15_000 })
     },
   },
 
@@ -367,7 +367,7 @@ const SHOTS: Shot[] = [
       await p.getByRole('link', { name: 'Дом' }).first().click()
       await expect(p.getByText('ChatGPT может управлять домом')).toBeVisible()
       await p.waitForTimeout(800)
-      await p.evaluate(() => (window as unknown as { __ghMock?: { setOffline: (v: boolean) => void } }).__ghMock?.setOffline(true))
+      await p.evaluate(() => (window as unknown as { __homieMock?: { setOffline: (v: boolean) => void } }).__homieMock?.setOffline(true))
       await p.getByRole('link', { name: /Телевизоры/ }).first().click()
       await expect(p.getByRole('status').filter({ hasText: 'Дом не на связи' })).toBeVisible()
     },
@@ -388,7 +388,7 @@ async function newPage(browser: Browser, device: Device, theme: Theme) {
     reducedMotion: 'reduce',
   })
   const page = await ctx.newPage()
-  await page.addInitScript((t) => localStorage.setItem('gh.theme', t), theme)
+  await page.addInitScript((t) => localStorage.setItem('homie.theme', t), theme)
   return page
 }
 

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/devXpro/gpt-home/pluginkit"
+	"github.com/devXpro/homie/pluginkit"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -45,7 +45,7 @@ type progressSink struct {
 func (h *Host) watchProgress(plugin string, fn func(Progress)) (token string, stop func()) {
 	h.mu.Lock()
 	h.progressSeq++
-	token = "gpt-home-" + strconv.FormatUint(h.progressSeq, 10)
+	token = "homie-" + strconv.FormatUint(h.progressSeq, 10)
 	sink := &progressSink{plugin: plugin, fn: fn}
 	if h.progress == nil {
 		h.progress = map[string]*progressSink{}
@@ -83,7 +83,7 @@ func (h *Host) deliverProgress(plugin string, p *mcp.ProgressNotificationParams)
 	}
 }
 
-// messageI18n reads the notification _meta "gpt-home/i18n": {"<lang>": "<message>"}, skipping anything malformed.
+// messageI18n reads the notification _meta "homie/i18n": {"<lang>": "<message>"}, skipping anything malformed.
 func messageI18n(meta mcp.Meta) map[string]string {
 	langs, _ := meta[pluginkit.MetaI18n].(map[string]any)
 	var out map[string]string

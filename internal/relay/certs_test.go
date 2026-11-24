@@ -33,7 +33,7 @@ func newTestPKI(t *testing.T) testPKI {
 	now := time.Now()
 	caTmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "gpt-home test CA"},
+		Subject:               pkix.Name{CommonName: "homie test CA"},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(24 * time.Hour),
 		IsCA:                  true,

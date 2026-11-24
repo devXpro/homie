@@ -1,4 +1,4 @@
-// The Site's MCP server for GPT-Home: a thin proxy. The tools, their descriptions and the rules for the model live in
+// The Site's MCP server for Homie: a thin proxy. The tools, their descriptions and the rules for the model live in
 // the home hub (GET /api/v1/tools, reached through the relay); this file speaks MCP to ChatGPT and forwards the calls.
 // No dependencies, so it runs under node --test.
 
@@ -85,7 +85,7 @@ const pick = (tool) => Object.fromEntries(TOOL_KEYS.filter((key) => tool[key] !=
 function describeServer(manifest, config) {
   const tools = (manifest.tools ?? []).map(pick);
   const instructions = [manifest.instructions ?? "", config.language ? `Speak to the user in ${config.language}.` : ""].filter(Boolean).join(" ");
-  const serverInfo = { name: "gpt-home", version: `${VERSION}+${fingerprint(JSON.stringify(tools) + instructions)}` };
+  const serverInfo = { name: "homie", version: `${VERSION}+${fingerprint(JSON.stringify(tools) + instructions)}` };
   return { tools, instructions, serverInfo };
 }
 

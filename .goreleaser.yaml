@@ -5,7 +5,7 @@
 # "v", 32-bit ARM spelled armv7, the binary `homed` at the archive root, and checksums.txt ("<sha256>  <name>").
 version: 2
 
-project_name: gpt-home
+project_name: homie
 
 before:
   hooks:
@@ -54,8 +54,8 @@ checksum:
   algorithm: sha256
   extra_files:
     # The ChatGPT Site bundle is built by the workflow (site/: npm ci, check, build, pack dist) into bin/ (gitignored).
-    - glob: ./bin/gpt-home-site.tar.gz
-      name_template: "gpt-home-site_{{ .Version }}.tar.gz"
+    - glob: ./bin/homie-site.tar.gz
+      name_template: "homie-site_{{ .Version }}.tar.gz"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-SNAPSHOT-{{ .ShortCommit }}"
@@ -73,23 +73,23 @@ changelog:
 release:
   github:
     owner: devXpro
-    name: gpt-home
+    name: homie
   # v0.2.0-rc1 and the like become GitHub pre-releases (and are skipped for the formula and the `latest` image tag).
   prerelease: auto
   extra_files:
-    - glob: ./bin/gpt-home-site.tar.gz
-      name_template: "gpt-home-site_{{ .Version }}.tar.gz"
+    - glob: ./bin/homie-site.tar.gz
+      name_template: "homie-site_{{ .Version }}.tar.gz"
   footer: |
     ## Install
 
     ```sh
     # macOS (Homebrew)
-    brew tap devxpro/gpt-home https://github.com/devXpro/gpt-home
-    brew install gpt-home
-    brew services start gpt-home
+    brew tap devxpro/homie https://github.com/devXpro/homie
+    brew install homie
+    brew services start homie
 
     # Docker (NAS, Linux): host networking, see the README
-    docker pull ghcr.io/devxpro/gpt-home:{{ .Version }}
+    docker pull ghcr.io/devxpro/homie:{{ .Version }}
     ```
 
     Raspberry Pi / Linux: `install/home.sh`. Checksums: `checksums.txt`.
@@ -99,17 +99,17 @@ release:
 # `brews` is deprecated since v2.10 in favour of homebrew_casks, but a cask cannot carry a `service` block, so
 # `brew services` (the LaunchAgent) needs the formula. Revisit when GoReleaser v3 drops it.
 brews:
-  - name: gpt-home
+  - name: homie
     ids:
       - homed
     goarm: "7"
     repository:
       owner: devXpro
-      name: gpt-home
+      name: homie
       branch: main
       token: "{{ .Env.GITHUB_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/devXpro/gpt-home
+    homepage: https://github.com/devXpro/homie
     description: "LLM-first home hub: ChatGPT controls your devices through a self-hosted relay"
     license: MIT
     skip_upload: auto
@@ -125,14 +125,14 @@ brews:
       run [opt_bin/"homed", "run"]
       keep_alive true
       restart_delay 10
-      log_path var/"log/gpt-home/homed.log"
-      error_log_path var/"log/gpt-home/homed.log"
+      log_path var/"log/homie/homed.log"
+      error_log_path var/"log/homie/homed.log"
     caveats: |
       Start the hub at login:
-        brew services start gpt-home
+        brew services start homie
       Then open the setup link it prints:
         homed admin setup-link
-      Logs: #{var}/log/gpt-home/homed.log
+      Logs: #{var}/log/homie/homed.log
     test: |
       assert_match "homed", shell_output("#{bin}/homed version")
 
@@ -144,7 +144,7 @@ dockers_v2:
       - homed
     dockerfile: Dockerfile
     images:
-      - ghcr.io/devxpro/gpt-home
+      - ghcr.io/devxpro/homie
     tags:
       - "{{ .Version }}"
       - "{{ if not .Prerelease }}latest{{ end }}"
@@ -153,9 +153,9 @@ dockers_v2:
       - linux/arm64
       - linux/arm/v7
     labels:
-      org.opencontainers.image.title: gpt-home
-      org.opencontainers.image.description: "GPT-Home hub (homed)"
-      org.opencontainers.image.source: https://github.com/devXpro/gpt-home
+      org.opencontainers.image.title: Homie
+      org.opencontainers.image.description: "Homie hub (homed)"
+      org.opencontainers.image.source: https://github.com/devXpro/homie
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.licenses: MIT

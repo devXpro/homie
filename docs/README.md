@@ -1,4 +1,4 @@
-# GPT-Home documentation
+# Homie documentation
 
 ## Start here
 
@@ -7,7 +7,7 @@
 | [Quick start](QUICKSTART.md) | server, home and ChatGPT in three five-minute blocks |
 | [Install the relay server](INSTALL-SERVER.md) | DNS, the one-line installer, standalone or behind Caddy / nginx / Traefik, the connect code, firewall, rotation, updates |
 | [Install the home hub](INSTALL-HOME.md) | where it runs (Mac, Raspberry Pi, Linux, NAS), installer, Homebrew, Docker, from source, first run with a passkey, service, updates |
-| [Using GPT-Home](USING.md) | the admin tour, setting up a TV, connecting ChatGPT with a Site, voice, family members |
+| [Using Homie](USING.md) | the admin tour, setting up a TV, connecting ChatGPT with a Site, voice, family members |
 | [Troubleshooting](TROUBLESHOOTING.md) | the offline page, certificates, passkeys, Local Network permission, TVs that do not wake, logs |
 | [FAQ](FAQ.md) | short answers: why a relay, what the server sees, which devices, which plans |
 
@@ -32,4 +32,4 @@
 |---|---|
 | [Plan](PLAN.md) | the implementation plan and the locked decisions |
 | [research/](research) | notes behind the decisions: [embedding frp](research/frp-embedding.md), [ChatGPT Sites tools](research/sites-tools.md) |
-| [gpt-tv](https://github.com/devXpro/gpt-tv) | the first plugin: LG webOS TVs |
+| [homie-tv](https://github.com/devXpro/homie-tv) | the first plugin: LG webOS TVs |

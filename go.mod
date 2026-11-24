@@ -1,4 +1,4 @@
-module github.com/devXpro/gpt-home
+module github.com/devXpro/homie
 
 go 1.26.0
 

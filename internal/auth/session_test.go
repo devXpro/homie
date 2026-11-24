@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 func TestStepUp(t *testing.T) {
@@ -256,7 +256,7 @@ func TestCSRF(t *testing.T) {
 		{"same origin", func(*browser) {}, http.StatusOK},
 		{"no Origin header", func(b *browser) { b.origin = "" }, http.StatusOK},
 		{"same-origin fetch", func(b *browser) { b.header.Set("Sec-Fetch-Site", "same-origin") }, http.StatusOK},
-		{"no X-GPT-Home", func(b *browser) { b.header.Set("X-GPT-Home", "0") }, http.StatusForbidden},
+		{"no X-Homie", func(b *browser) { b.header.Set("X-Homie", "0") }, http.StatusForbidden},
 		{"foreign Origin", func(b *browser) { b.origin = "https://evil.example.com" }, http.StatusForbidden},
 		{"http Origin", func(b *browser) { b.origin = "http://" + testDomain }, http.StatusForbidden},
 		{"cross-site fetch", func(b *browser) { b.header.Set("Sec-Fetch-Site", "cross-site") }, http.StatusForbidden},

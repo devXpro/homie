@@ -242,7 +242,7 @@ export function ActivityPage() {
               <Section key={g.key} header={g.label}>
                 <AnimatePresence initial={false}>
                   {g.items.map((a) => (
-                    <motion.div key={a.id} layout="position" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={spring.smooth} className="gh-sep [--row-inset:60px]">
+                    <motion.div key={a.id} layout="position" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={spring.smooth} className="homie-sep [--row-inset:60px]">
                       <ActivityRow item={a} tools={tools} to={`/admin/activity/${a.id}`} now={now} flash={flash.has(a.id)} />
                     </motion.div>
                   ))}

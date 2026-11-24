@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // newSession makes a session for a fresh sign-in, which counts as step-up. The token is the cookie value; only its

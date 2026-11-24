@@ -49,23 +49,23 @@ self-check: ok at 2026-11-15 18:42:07
 | `state: connecting`, `last error: … token …` | the token at home differs from the server's (it was rotated): on the server print the code again, at home `homed relay connect -` |
 | `last error: … x509 …` | the server's certificate is not valid for the domain (not issued yet, or a proxy re-signs TLS) |
 | `last error: … dial … / timeout` | the home box has no internet, or something blocks outbound 443 |
-| `self-check: FAILED … another gpt-home hub` | a second home box is connected to the same relay with the same token; stop one |
+| `self-check: FAILED … another Homie hub` | a second home box is connected to the same relay with the same token; stop one |
 | `self-check: FAILED` with anything else | the channel is up but `https://<domain>/healthz` does not reach this hub: check the proxy's site block for the domain |
 | `relay: … (configured)` and nothing else | homed is not running; the relay is only configured |
 
 On macOS with the installer, `homed` is not on your `PATH`; use the full path
-`~/Library/Application\ Support/gpt-home/bin/homed`. On Linux the `homed` command runs as the service user for you.
+`~/Library/Application\ Support/homie/bin/homed`. On Linux the `homed` command runs as the service user for you.
 
 ## Logs
 
 | Where homed runs | Status | Logs |
 |---|---|---|
-| macOS, `install/home.sh` | `launchctl print gui/$(id -u)/com.github.devxpro.gpt-home.homed \| grep -E 'state\|pid'` | `tail -f ~/Library/Logs/gpt-home/homed.log` |
-| macOS, Homebrew | `brew services info gpt-home` | `tail -f "$(brew --prefix)/var/log/gpt-home/homed.log"` |
-| Linux / Raspberry Pi | `systemctl status gpt-home` | `journalctl -u gpt-home -f` |
-| Docker | `docker ps --filter name=gpt-home` | `docker logs -f gpt-home` |
+| macOS, `install/home.sh` | `launchctl print gui/$(id -u)/com.github.devxpro.homie.homed \| grep -E 'state\|pid'` | `tail -f ~/Library/Logs/homie/homed.log` |
+| macOS, Homebrew | `brew services info homie` | `tail -f "$(brew --prefix)/var/log/homie/homed.log"` |
+| Linux / Raspberry Pi | `systemctl status homie` | `journalctl -u homie -f` |
+| Docker | `docker ps --filter name=homie` | `docker logs -f homie` |
 | A terminal | — | stderr; `HOMED_LOG_LEVEL=debug homed run` for more |
-| Relay server | `docker compose -f /opt/gpt-home-relay/docker-compose.yml ps` | `docker compose -f /opt/gpt-home-relay/docker-compose.yml logs -f frps` (and `caddy`) |
+| Relay server | `docker compose -f /opt/homie-relay/docker-compose.yml ps` | `docker compose -f /opt/homie-relay/docker-compose.yml logs -f frps` (and `caddy`) |
 
 A plugin's own log (its stderr) is in the admin under **Devices → the module → Module log**, and in
 `<data dir>/logs/<plugin id>.log` on the home box.
@@ -88,10 +88,10 @@ fine; the home box is not connected. In order of likelihood:
 | Symptom | Check |
 |---|---|
 | `server.sh` stops at the DNS check | the domain's A record must point at this server's public IP and be **DNS only** (on Cloudflare: the grey cloud). Fix it and run again. |
-| No certificate in standalone mode | DNS first; ports 80 and 443 open to the internet (cloud firewall and `ufw`); `docker compose -f /opt/gpt-home-relay/docker-compose.yml logs caddy`. Let's Encrypt needs port 80 or 443 reachable from outside. |
+| No certificate in standalone mode | DNS first; ports 80 and 443 open to the internet (cloud firewall and `ufw`); `docker compose -f /opt/homie-relay/docker-compose.yml logs caddy`. Let's Encrypt needs port 80 or 443 reachable from outside. |
 | `too many certificates` in the Caddy log | Let's Encrypt's rate limit after many reinstalls. Wait, and keep the `caddy_data` volume between reinstalls (`--uninstall` keeps it on purpose). |
 | `x509: certificate is valid for …, not home.example.com` | another site on the same proxy catches the domain, or a CDN in front re-signs TLS. DNS only, and check the site block order. |
-| `502 Bad Gateway` | frps is down or not on the proxy's network: `docker ps`, `docker network inspect <network>`; the container must be named `gpt-home-frps`. |
+| `502 Bad Gateway` | frps is down or not on the proxy's network: `docker ps`, `docker network inspect <network>`; the container must be named `homie-frps`. |
 | The channel drops on every proxy reload | the Caddy route lacks `stream_close_delay 30m`; nginx closes idle WebSockets: `proxy_read_timeout 1h`. |
 | The channel drops after about a minute of silence | a proxy or CDN in front has a short idle timeout (nginx `proxy_read_timeout`, Cloudflare's orange cloud). |
 | A long action (pairing) ends with `504` | the proxy gives up before the hub's 300 s tool timeout: raise its response timeout above 330 s. |
@@ -133,8 +133,8 @@ to the LAN. Click **Allow**.
 If you missed or denied it, every LAN call fails instantly and the TV shows as *offline*:
 
 1. System Settings → **Privacy & Security** → **Local Network** → turn **homed** on.
-2. Restart it: `launchctl kickstart -k gui/$(id -u)/com.github.devxpro.gpt-home.homed` (Homebrew:
-   `brew services restart gpt-home`).
+2. Restart it: `launchctl kickstart -k gui/$(id -u)/com.github.devxpro.homie.homed` (Homebrew:
+   `brew services restart homie`).
 
 A homed started from a terminal runs under the terminal's permission, so the prompt comes again the first time it runs
 as a service; a new binary (an update) may be asked again.
@@ -148,11 +148,11 @@ as a service; a new binary (an update) may be asked again.
 | The TV shows *offline* although it is in standby | in deep standby some TVs do not even answer ARP. *Turn TV on* may still wake it. |
 | **A pairing prompt appears on every command** | the TV forgot its key (a factory reset, a firmware update). Turn it on, run **Pair a TV** and press **OK**; the new key replaces the old one. |
 | *Not paired* | run **Pair a TV** with the TV on, and press **OK** on the remote within two minutes. |
-| Pairing never shows a prompt | newer webOS (roughly 2020+) closes the plain `ws://:3000` API that gpt-tv uses; not supported yet. |
+| Pairing never shows a prompt | newer webOS (roughly 2020+) closes the plain `ws://:3000` API that homie-tv uses; not supported yet. |
 | The TV moved to a new IP | remove it and add it again, then give it a DHCP reservation. |
 | Volume does nothing | sound goes to a soundbar or receiver; the command sets the TV's own speakers. |
 
-TV setup in full: [gpt-tv: LG webOS](https://github.com/devXpro/gpt-tv/blob/main/docs/families/lg-webos.md).
+TV setup in full: [homie-tv: LG webOS](https://github.com/devXpro/homie-tv/blob/main/docs/families/lg-webos.md).
 
 ## ChatGPT
 
@@ -171,10 +171,10 @@ TV setup in full: [gpt-tv: LG webOS](https://github.com/devXpro/gpt-tv/blob/main
 |---|---|
 | *The "…" module isn't responding* | the plugin keeps crashing (after 5 crashes in 5 minutes it is retried every 5 minutes). Open **Module log**; **Restart** after fixing the cause. |
 | *No build for this computer* | the release has no archive for this OS and CPU (e.g. 32-bit ARM). Ask the author, or build it yourself and add it with `homed plugin add`. |
-| *Needs a newer GPT-Home* | the plugin's `minHubVersion` is newer than your hub: Settings → About → Check for updates. |
+| *Needs a newer Homie* | the plugin's `minHubVersion` is newer than your hub: Settings → About → Check for updates. |
 | *The files are damaged or tampered with* | the archive's SHA-256 does not match `checksums.txt`. Try again later; if it repeats, do not install it. |
 | *The new version didn't start; the previous one is back* | the update was rolled back automatically; see the module log. |
-| *GitHub isn't answering* | GitHub is down or rate-limits anonymous requests (60 an hour per IP). Try later, or give homed a token in the environment: `GPT_HOME_GITHUB_TOKEN`. |
+| *GitHub isn't answering* | GitHub is down or rate-limits anonymous requests (60 an hour per IP). Try later, or give homed a token in the environment: `HOMIE_GITHUB_TOKEN`. |
 | *That's an older version* | the admin never downgrades. |
 
 Still stuck? Open an issue with the output of `homed version`, `homed relay status` and the relevant log lines — and

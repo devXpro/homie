@@ -52,7 +52,7 @@ func TestUnpackRefusesUnsafeArchives(t *testing.T) {
 		{"chained symlinks", []tarEntry{
 			{name: "a/b/c/", typ: tar.TypeDir},
 			{name: "a/b/c/up", typ: tar.TypeSymlink, target: "../../.."},
-			{name: "gpt-home-plugin.json", typ: tar.TypeSymlink, target: "a/b/c/up/../escaped"},
+			{name: "homie-plugin.json", typ: tar.TypeSymlink, target: "a/b/c/up/../escaped"},
 		}, Limits{}, ErrUnsafeArchive},
 		{"hard link", []tarEntry{{name: "h", typ: tar.TypeLink, target: "../outside"}}, Limits{}, ErrUnsafeArchive},
 		{"hard link inside", []tarEntry{{name: "a", body: "x"}, {name: "h", typ: tar.TypeLink, target: "a"}}, Limits{}, ErrUnsafeArchive},
@@ -132,7 +132,7 @@ func TestUnpackNormalizesModes(t *testing.T) {
 
 // The released manifest is written through os.Root and never through a name the archive left behind.
 func TestWriteManifest(t *testing.T) {
-	released := []byte(`{"id":"tv","binary":"gpt-tv"}`)
+	released := []byte(`{"id":"tv","binary":"homie-tv"}`)
 	dir := t.TempDir()
 	if err := writeManifest(dir, released); err != nil {
 		t.Fatal(err)

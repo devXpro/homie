@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devXpro/gpt-home/internal/hub"
-	"github.com/devXpro/gpt-home/internal/keys"
-	"github.com/devXpro/gpt-home/internal/plugins"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
+	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/keys"
+	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
 )
 
 // memStore is an in-memory store.Store with the methods the admin uses. The embedded nil interfaces make any other
@@ -396,7 +396,7 @@ func testTools() []hub.Tool {
 		},
 		{
 			PluginID: "tv", Name: "tv_pair", Title: "Pair a TV", Audience: hub.AudienceAdmin, Timeout: 180 * time.Second,
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"tv":{"type":"string","x-gpt-home-ref":"inventory"}},"required":["tv"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"tv":{"type":"string","x-homie-ref":"inventory"}},"required":["tv"]}`),
 			I18n:        map[string]hub.ToolText{"ru": {Title: "Подключить телевизор", Properties: map[string]string{"tv": "Телевизор"}}},
 		},
 		{
@@ -601,7 +601,7 @@ func (i *fakeInstaller) allowed() []bool {
 }
 
 func (i *fakeInstaller) Preview(_ context.Context, repo, _ string) (PluginPreview, error) {
-	if repo != "devXpro/gpt-tv" {
+	if repo != "devXpro/homie-tv" {
 		return PluginPreview{}, ErrNotFound
 	}
 	i.mu.Lock()
@@ -610,7 +610,7 @@ func (i *fakeInstaller) Preview(_ context.Context, repo, _ string) (PluginPrevie
 }
 
 func (i *fakeInstaller) Install(ctx context.Context, repo, version, id string, report Reporter) (string, error) {
-	report(JobReport{Step: "download", Done: 10, Total: 100, Message: "gpt-tv " + version})
+	report(JobReport{Step: "download", Done: 10, Total: 100, Message: "homie-tv " + version})
 	select {
 	case <-i.release:
 	case <-ctx.Done():

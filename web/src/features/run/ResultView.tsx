@@ -131,7 +131,7 @@ function ObjectRows({ o, ctx }: { o: Obj; ctx?: FollowUpContext }) {
       {scalars.length > 0 && (
         <Section className="mt-5">
           {scalars.map(([k, v]) => (
-            <div key={k} className="gh-row flex min-h-11 items-center gap-3 px-4 py-[11px]">
+            <div key={k} className="homie-row flex min-h-11 items-center gap-3 px-4 py-[11px]">
               <span className="type-body">{humanize(k)}</span>
               <span className="ml-auto min-w-0 truncate text-right type-body text-label-2">{scalarText(v, t('common.yes'), t('common.no'))}</span>
             </div>
@@ -163,7 +163,7 @@ function ListRows({ items, ctx }: { items: Obj[]; ctx?: FollowUpContext }) {
           .join(' · ')
         const offers = ctx ? offersFor(o, ctx) : []
         return (
-          <div key={i} className="gh-row px-4 py-2.5">
+          <div key={i} className="homie-row px-4 py-2.5">
             <div className="type-body">{title}</div>
             {sub && <div className="type-subheadline text-label-2">{sub}</div>}
             {ctx && <Offers offers={offers} onAction={ctx.onAction} />}
@@ -180,7 +180,7 @@ function DeviceRows({ items }: { items: InventoryItem[] }) {
   return (
     <Section className="mt-5">
       {items.map((it) => (
-        <div key={it.id} className="gh-row flex min-h-[60px] items-center gap-3 px-4 py-2.5">
+        <div key={it.id} className="homie-row flex min-h-[60px] items-center gap-3 px-4 py-2.5">
           <StatusDot tone={itemTone(it.state)} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate type-body">{it.name}</span>

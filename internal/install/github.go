@@ -33,7 +33,7 @@ type Client struct {
 	// HTTP is the underlying client. Default: a plain http.Client. Redirects are always limited to 5 hops and
 	// https, whatever CheckRedirect the client had.
 	HTTP *http.Client
-	// UserAgent is sent with every request. Default "gpt-home-installer".
+	// UserAgent is sent with every request. Default "homie-installer".
 	UserAgent string
 }
 
@@ -42,9 +42,9 @@ func NewClient(token string) *Client {
 	return &Client{APIBase: defaultAPIBase, Token: token}
 }
 
-// TokenFromEnv reads the optional GitHub token from GPT_HOME_GITHUB_TOKEN, then GITHUB_TOKEN.
+// TokenFromEnv reads the optional GitHub token from HOMIE_GITHUB_TOKEN, then GITHUB_TOKEN.
 func TokenFromEnv() string {
-	for _, k := range []string{"GPT_HOME_GITHUB_TOKEN", "GITHUB_TOKEN"} {
+	for _, k := range []string{"HOMIE_GITHUB_TOKEN", "GITHUB_TOKEN"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 			return v
 		}
@@ -54,7 +54,7 @@ func TokenFromEnv() string {
 
 // Release is one GitHub release, reduced to what the installer needs.
 type Release struct {
-	Repo        string    // "devXpro/gpt-tv"
+	Repo        string    // "devXpro/homie-tv"
 	Tag         string    // "v0.2.0"
 	Version     string    // "0.2.0" (the tag without the leading v)
 	Name        string    // the release title
@@ -191,7 +191,7 @@ func (c *Client) open(ctx context.Context, rawURL string, api bool) (*http.Respo
 	}
 	ua := c.UserAgent
 	if ua == "" {
-		ua = "gpt-home-installer"
+		ua = "homie-installer"
 	}
 	req.Header.Set("User-Agent", ua)
 	if api {
@@ -227,7 +227,7 @@ func (c *Client) open(ctx context.Context, rawURL string, api bool) (*http.Respo
 		return nil, fmt.Errorf("%w: %s answered 404", ErrNotFound, host)
 	case (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) &&
 		(resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != ""):
-		return nil, fmt.Errorf("%w: %w (set GPT_HOME_GITHUB_TOKEN to raise the limit)", ErrUpstream, ErrRateLimited)
+		return nil, fmt.Errorf("%w: %w (set HOMIE_GITHUB_TOKEN to raise the limit)", ErrUpstream, ErrRateLimited)
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, fmt.Errorf("%w: %s rejected the credentials (401)", ErrUpstream, host)
 	}

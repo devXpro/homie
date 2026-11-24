@@ -1,6 +1,6 @@
 {
-  "name": "GPT-Home",
-  "short_name": "GPT-Home",
+  "name": "Homie",
+  "short_name": "Homie",
   "start_url": "/admin/",
   "scope": "/admin/",
   "display": "standalone",

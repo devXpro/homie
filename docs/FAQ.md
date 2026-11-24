@@ -1,6 +1,6 @@
 # FAQ
 
-### What is GPT-Home, in one sentence?
+### What is Homie, in one sentence?
 
 A small self-hosted hub that lets ChatGPT — in chat and in voice — control the devices in your home, through a relay
 server you own.
@@ -8,7 +8,7 @@ server you own.
 ### How is this different from Home Assistant?
 
 Home Assistant is a home automation platform: dashboards, an entity database, automations, thousands of integrations.
-GPT-Home is deliberately the opposite: no dashboards, no state history, no automation engine. The interface is the
+Homie is deliberately the opposite: no dashboards, no state history, no automation engine. The interface is the
 assistant; the hub only connects ChatGPT to devices, safely. It is one Go binary that runs comfortably on a Raspberry
 Pi, and a device family is a small plugin. If you already run Home Assistant and love it, keep it; if you want "talk
 to my TV" without running a platform, this is for you.
@@ -38,7 +38,7 @@ the hub reconnects by itself.
 
 ### Which devices are supported?
 
-Today: **LG webOS TVs** through [gpt-tv](https://github.com/devXpro/gpt-tv) — power on and off, volume, inputs
+Today: **LG webOS TVs** through [homie-tv](https://github.com/devXpro/homie-tv) — power on and off, volume, inputs
 (tested on webOS 3.x; newer firmware that closes `ws://:3000` is not supported yet). Every other device family is a
 plugin: [write one](PLUGINS.md) in about 15 minutes, or install someone else's by its GitHub address.
 
@@ -75,14 +75,14 @@ link. ChatGPT keeps working: access keys are not touched.
 
 ### Where is my data?
 
-At home, in one directory: `~/Library/Application Support/gpt-home` on macOS, `/var/lib/gpt-home` for the Linux
-service, or the Docker volume. Nothing is stored on the relay server except its token, and there is no GPT-Home cloud
+At home, in one directory: `~/Library/Application Support/homie` on macOS, `/var/lib/homie` for the Linux
+service, or the Docker volume. Nothing is stored on the relay server except its token, and there is no Homie cloud
 account.
 
 ### Does it phone home?
 
 No telemetry. The hub talks to your relay, to GitHub when you check for updates or install a plugin, and to your
-devices. Plugins may talk to whatever their devices need (gpt-tv stays on the LAN).
+devices. Plugins may talk to whatever their devices need (homie-tv stays on the LAN).
 
 ### Are plugins sandboxed?
 

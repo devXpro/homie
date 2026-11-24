@@ -1,4 +1,4 @@
-// Command homed is the GPT-Home hub daemon and its CLI. See `homed help` and docs/DEV.md.
+// Command homed is the Homie hub daemon and its CLI. See `homed help` and docs/DEV.md.
 package main
 
 import (
@@ -9,7 +9,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/devXpro/gpt-home/internal/install"
+	"github.com/devXpro/homie/internal/install"
 )
 
 // version and commit are set at build time with -ldflags "-X main.version=… -X main.commit=…".
@@ -18,7 +18,7 @@ var (
 	commit  = ""
 )
 
-const usage = `homed — the GPT-Home hub
+const usage = `homed — the Homie hub
 
 Daemon:
   homed run [--listen 127.0.0.1:8080] [--setup-listen ADDR] [--dev-origin http://localhost:5173]
@@ -56,7 +56,7 @@ Tools (through the running homed; every tool, admin ones included):
 
 The CLI talks to the running homed over <data dir>/homed.sock. Without a running homed, the admin, relay connect,
 key and plugin commands work on the data dir directly. Every command takes --data-dir D. The data dir defaults to
-~/Library/Application Support/gpt-home (macOS) or $XDG_DATA_HOME/gpt-home (Linux); HOMED_DATA_DIR overrides it.
+~/Library/Application Support/homie (macOS) or $XDG_DATA_HOME/homie (Linux); HOMED_DATA_DIR overrides it.
 `
 
 // errToolFailed is returned when a tool ran and reported a failure; homed exits with status 1 for it.

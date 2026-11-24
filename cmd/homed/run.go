@@ -20,16 +20,16 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/devXpro/gpt-home/internal/admin"
-	"github.com/devXpro/gpt-home/internal/auth"
-	"github.com/devXpro/gpt-home/internal/auth/wire"
-	"github.com/devXpro/gpt-home/internal/config"
-	"github.com/devXpro/gpt-home/internal/firstrun"
-	"github.com/devXpro/gpt-home/internal/gateway"
-	"github.com/devXpro/gpt-home/internal/plugins"
-	"github.com/devXpro/gpt-home/internal/relay"
-	"github.com/devXpro/gpt-home/internal/store"
-	"github.com/devXpro/gpt-home/internal/web"
+	"github.com/devXpro/homie/internal/admin"
+	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/homie/internal/auth/wire"
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/firstrun"
+	"github.com/devXpro/homie/internal/gateway"
+	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/relay"
+	"github.com/devXpro/homie/internal/store"
+	"github.com/devXpro/homie/internal/web"
 )
 
 const shutdownTimeout = 5 * time.Second

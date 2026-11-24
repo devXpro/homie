@@ -10,7 +10,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/devXpro/gpt-home/internal/auth/wire"
+	"github.com/devXpro/homie/internal/auth/wire"
 )
 
 func TestSlug(t *testing.T) {

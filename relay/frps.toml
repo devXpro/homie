@@ -1,4 +1,4 @@
-# frps for GPT-Home: a dumb relay behind a TLS-terminating proxy (Caddy).
+# frps for Homie: a dumb relay behind a TLS-terminating proxy (Caddy).
 # Keys confirmed against frp v0.72.0 (pkg/config/v1/server.go).
 
 # One port for everything. frps looks at the first bytes of every connection:

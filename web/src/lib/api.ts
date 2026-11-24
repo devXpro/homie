@@ -161,7 +161,7 @@ export async function request<T>(method: Method, path: string, body?: unknown, o
   const headers: Record<string, string> = { Accept: 'application/json' }
   let payload: string | undefined
   if (method !== 'GET') {
-    headers['X-GPT-Home'] = '1'
+    headers['X-Homie'] = '1'
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json'
       payload = JSON.stringify(body)

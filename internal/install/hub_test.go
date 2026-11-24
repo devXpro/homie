@@ -31,7 +31,7 @@ func newHubUpdater(t *testing.T, f *fakeGitHub, running string) (*HubUpdater, st
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil { // macOS temp dirs live behind a symlink
 		exe = resolved
 	}
-	return &HubUpdater{Client: f.client(""), Repo: "devXpro/gpt-home", Version: running, ExePath: exe, GOOS: "linux", GOARCH: "arm64"}, exe
+	return &HubUpdater{Client: f.client(""), Repo: "devXpro/homie", Version: running, ExePath: exe, GOOS: "linux", GOARCH: "arm64"}, exe
 }
 
 func readFile(t *testing.T, p string) string {
@@ -46,7 +46,7 @@ func readFile(t *testing.T, p string) string {
 func TestHubUpdateReplacesBinaryAndKeepsBackup(t *testing.T) {
 	f := newFakeGitHub(t)
 	newBody := "#!/bin/sh\n# new homed 0.3.0\nexit 0\n"
-	f.add("devXpro/gpt-home", homedRelease(t, newBody))
+	f.add("devXpro/homie", homedRelease(t, newBody))
 	u, exe := newHubUpdater(t, f, "0.2.0")
 	var steps []string
 
@@ -90,7 +90,7 @@ func TestHubUpdateReplacesBinaryAndKeepsBackup(t *testing.T) {
 func TestHubUpdateRefusals(t *testing.T) {
 	t.Run("up to date", func(t *testing.T) {
 		f := newFakeGitHub(t)
-		f.add("devXpro/gpt-home", homedRelease(t, oldHub))
+		f.add("devXpro/homie", homedRelease(t, oldHub))
 		u, exe := newHubUpdater(t, f, "0.3.0")
 		_, newer, err := u.Latest(t.Context())
 		if err != nil || newer {
@@ -105,7 +105,7 @@ func TestHubUpdateRefusals(t *testing.T) {
 	})
 	t.Run("an older release is a downgrade", func(t *testing.T) {
 		f := newFakeGitHub(t)
-		f.add("devXpro/gpt-home", homedRelease(t, oldHub+"# 0.3.0\n"))
+		f.add("devXpro/homie", homedRelease(t, oldHub+"# 0.3.0\n"))
 		u, exe := newHubUpdater(t, f, "0.4.1")
 		for _, version := range []string{"", "latest", "0.3.0"} {
 			if _, err := u.Update(t.Context(), version, false, nil); !errors.Is(err, ErrDowngrade) || Code(err) != "downgrade" {
@@ -126,7 +126,7 @@ func TestHubUpdateRefusals(t *testing.T) {
 		f := newFakeGitHub(t)
 		r := homedRelease(t, "evil")
 		r.sums = map[string]string{ArchiveName("homed", "0.3.0", "linux", "arm64"): strings.Repeat("a", 64)}
-		f.add("devXpro/gpt-home", r)
+		f.add("devXpro/homie", r)
 		u, exe := newHubUpdater(t, f, "0.2.0")
 		if _, err := u.Update(t.Context(), "", false, nil); !errors.Is(err, ErrChecksumMismatch) {
 			t.Fatalf("err = %v", err)
@@ -137,7 +137,7 @@ func TestHubUpdateRefusals(t *testing.T) {
 	})
 	t.Run("no asset", func(t *testing.T) {
 		f := newFakeGitHub(t)
-		f.add("devXpro/gpt-home", homedRelease(t, oldHub))
+		f.add("devXpro/homie", homedRelease(t, oldHub))
 		u, _ := newHubUpdater(t, f, "0.2.0")
 		u.GOOS = "plan9"
 		if _, err := u.Update(t.Context(), "", false, nil); !errors.Is(err, ErrNoAsset) {
@@ -146,7 +146,7 @@ func TestHubUpdateRefusals(t *testing.T) {
 	})
 	t.Run("failing self-test", func(t *testing.T) {
 		f := newFakeGitHub(t)
-		f.add("devXpro/gpt-home", homedRelease(t, "#!/bin/sh\nexit 3\n"))
+		f.add("devXpro/homie", homedRelease(t, "#!/bin/sh\nexit 3\n"))
 		u, exe := newHubUpdater(t, f, "0.2.0")
 		if _, err := u.Update(t.Context(), "", false, nil); !errors.Is(err, ErrStartFailed) {
 			t.Fatalf("err = %v", err)
@@ -161,7 +161,7 @@ func TestHubUpdateRefusals(t *testing.T) {
 	})
 	t.Run("read-only directory", func(t *testing.T) {
 		f := newFakeGitHub(t)
-		f.add("devXpro/gpt-home", homedRelease(t, oldHub))
+		f.add("devXpro/homie", homedRelease(t, oldHub))
 		u, exe := newHubUpdater(t, f, "0.2.0")
 		dir := filepath.Dir(exe)
 		if err := os.Chmod(dir, 0o555); err != nil { //nolint:gosec // the point of the test
@@ -179,7 +179,7 @@ func TestHubUpdateRefusals(t *testing.T) {
 
 func TestHubUpdateFollowsSymlinkedExecutable(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.add("devXpro/gpt-home", homedRelease(t, oldHub+"# new\n"))
+	f.add("devXpro/homie", homedRelease(t, oldHub+"# new\n"))
 	u, target := newHubUpdater(t, f, "0.2.0")
 	link := filepath.Join(t.TempDir(), "homed-link")
 	if err := os.Symlink(target, link); err != nil {
@@ -199,7 +199,7 @@ func TestHubUpdateFollowsSymlinkedExecutable(t *testing.T) {
 
 func TestHubDevBuildIsAlwaysUpdatable(t *testing.T) {
 	f := newFakeGitHub(t)
-	f.add("devXpro/gpt-home", homedRelease(t, oldHub))
+	f.add("devXpro/homie", homedRelease(t, oldHub))
 	u, _ := newHubUpdater(t, f, "dev")
 	if _, newer, err := u.Latest(t.Context()); err != nil || !newer {
 		t.Fatalf("newer=%v err=%v", newer, err)
