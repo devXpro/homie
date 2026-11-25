@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@cfworker/json-schema": "4.1.6",
-    "@devxpro/mcp-gatekeeper-ui": "file:../../mcp-gatekeeper",
+    "@devxpro/mcp-gatekeeper-ui": "github:devXpro/mcp-gatekeeper#v0.2.0",
     "@simplewebauthn/browser": "14.0.0",
     "@tanstack/react-query": "5.107.1",
     "@tanstack/react-virtual": "3.14.26",
