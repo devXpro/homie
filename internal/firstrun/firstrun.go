@@ -1,4 +1,4 @@
-// Package firstrun serves the first-run page (homie-ops STEP2 §4.8): the local admin before the tunnel. The owner
+// Package firstrun serves the first-run page (docs/ADMIN-API.md §7): the local admin before the tunnel. The owner
 // enters a PIN homed shows on the home box, connects the home to the internet through Cloudflare (their own domain,
 // or a quick tunnel "for trying"), waits for the tunnel's self-check, and gets the one-time setup link
 // https://<host>/setup#t=<token> to open on the phone or the Mac, where the first passkey is made.

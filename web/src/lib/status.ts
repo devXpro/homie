@@ -1,5 +1,5 @@
 // One glossary for every screen: technical states → a colour (tone) and an i18n key for the words. The tones and
-// their classes are the package's; the tunnel replaces the relay (STEP2 §3.1).
+// their classes are the package's; the tunnel replaces the relay.
 
 import type { Tone } from '@devxpro/mcp-gatekeeper-ui'
 import type { Attention, ItemState, PluginState, TunnelStatus } from './types'

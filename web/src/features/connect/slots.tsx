@@ -6,8 +6,8 @@ import { useBootstrap } from '@/lib/bootstrap'
 import { useTunnel } from '@/lib/queries'
 import { tunnelLook, tunnelTone } from '@/lib/status'
 
-// Homie's parts of the package's connect page (/connect): the home is the one resource, at https://<host>/mcp
-// (STEP2 §2.1 #4). The card gets the connection's state, the trial-address note, and the steps for ChatGPT and Claude.
+// Homie's parts of the package's connect page (/connect): the home is the one resource, at https://<host>/mcp.
+// The card gets the connection's state, the trial-address note, and the steps for ChatGPT and Claude.
 
 /** TunnelBadge: is the home reachable now (owners), and «для пробы» behind a quick tunnel. */
 export function TunnelBadge({ owner }: CardSlotProps) {

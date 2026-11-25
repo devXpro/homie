@@ -5,7 +5,7 @@ import { useBootstrap } from '@/lib/bootstrap'
 import { useOwner, useSettings, useSystem, useTunnel } from '@/lib/queries'
 import { tunnelHost, tunnelLook, tunnelTone } from '@/lib/status'
 
-// Настройки (STEP2 §3.1): the home's name and language, how the home reaches the internet, the
+// Настройки: the home's name and language, how the home reaches the internet, the
 // assistants, and updates. The person's own things (passkeys, appearance, sign out) are under Люди, the package's
 // account page. A member sees the home's name and the language only.
 

@@ -40,7 +40,7 @@ import { moduleTitle } from '@/lib/tools'
 import type { HomeAccount, Job, PluginPreview, PluginSummary } from '@/lib/types'
 
 // Устройства: one row per module, failing ones first; "+" opens Add devices. A member sees
-// the devices the owner opened to them, read-only: GET /api/account lists them (HC-api §5).
+// the devices the owner opened to them, read-only: GET /api/account lists them (docs/ADMIN-API.md §5).
 
 const ORDER: Record<PluginSummary['state'], number> = { failing: 0, starting: 1, stopped: 2, disabled: 3, up: 4 }
 

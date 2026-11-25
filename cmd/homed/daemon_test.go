@@ -913,7 +913,7 @@ func TestQuickHostChange(t *testing.T) {
 	alice.register(newDevice(first), tokenOf(t, link["url"].(string)), "Alice", "Дом")
 	me := alice.json("GET", "/api/me", nil, 200)
 	aliceID := me["person"].(map[string]any)["id"]
-	// Quick mode is the owner's alone (STEP2 Q4): a guest's passkey would die with the next URL, so no invites.
+	// Quick mode is the owner's alone: its address changes on every restart, and every passkey with it, so no invites.
 	if inv := alice.json("POST", "/api/account/invites", map[string]any{"name": "Bella"}, http.StatusConflict); inv["error"] != "quick_mode" {
 		t.Fatalf("an invite in quick mode: %v", inv)
 	}

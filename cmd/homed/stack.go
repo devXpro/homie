@@ -35,7 +35,7 @@ var brand = core.Brand{
 // adminCLI is how the operator runs an admin command, as the gatekeeper's texts name it.
 const adminCLI = "homed admin"
 
-// MCP limits of the home (homie-ops STEP2 §4.3, review GK-4): every person has their own 8 calls in flight.
+// MCP limits of the home (review GK-4): every person has their own 8 calls in flight.
 const inFlightPerPerson = 8
 
 // stack is the part of homed that belongs to one public URL (a core.Site): sign-in, OAuth, people, the MCP access
@@ -244,8 +244,8 @@ func superadmins(ctx context.Context, st gkstore.Store) ([]core.Person, error) {
 // codeQuickMode refuses what a quick tunnel cannot keep: its URL changes on every restart, and every passkey with it.
 const codeQuickMode = "quick_mode"
 
-// inviter is *auth.Auth as the people service's AccessInviter. In quick mode it refuses every invite (STEP2 Q4: the
-// mode is the owner's alone; a guest's passkey would die with the next URL).
+// inviter is *auth.Auth as the people service's AccessInviter. In quick mode it refuses every invite: a quick tunnel is
+// the owner's alone, its address changes on every restart, and every passkey with it.
 type inviter struct {
 	a *auth.Auth
 	d *daemon
@@ -333,7 +333,7 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// homeFields are Homie's fields of GET /api/account (homie-ops HC-api.md §5): the home as the connect page's resource,
+// homeFields are Homie's fields of GET /api/account (docs/ADMIN-API.md §5): the home as the connect page's resource,
 // the devices the viewer may use, and the tunnel's mode.
 type homeFields struct {
 	d    *daemon

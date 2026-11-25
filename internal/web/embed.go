@@ -30,7 +30,7 @@ var cspFile string
 // CSP returns the Content-Security-Policy every answer carries.
 func CSP() string { return strings.TrimSpace(cspFile) }
 
-// Routes are the SPA's client routes on the public listener (homie-ops HC-api.md §8). A new top-level page of the
+// Routes are the SPA's client routes on the public listener (docs/ADMIN-API.md §8). A new top-level page of the
 // SPA needs its route here.
 var Routes = []string{
 	"/", "/home", "/login", "/setup", "/join", "/consent",

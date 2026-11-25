@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { hostnameOk } from '@/lib/hostname'
 
-// Quick mode (STEP2 §4.7, Q4, Q10): a Cloudflare quick tunnel is "for trying". Its address changes on every restart
+// Quick mode (docs/SECURITY.md, Quick mode): a Cloudflare quick tunnel is "for trying". Its address changes on every restart
 // of homed, so the admin says so wherever the address matters and offers the way to a domain of one's own.
 
 /** QuickBanner is the card that labels the address «для пробы» and opens the move to an own domain. */
@@ -30,7 +30,7 @@ export function QuickBanner({ className }: { className?: string }) {
 
 /**
  * DomainSheet is the move to an own domain. It happens on the home computer: the Cloudflare login and the new first
- * passkey both belong there (STEP2 §2.2), and a new address changes the passkeys' RP ID anyway. The sheet builds the
+ * passkey both belong there, and a new address changes the passkeys' RP ID anyway. The sheet builds the
  * command for the address the person types.
  */
 export function DomainSheet({ open, onClose }: { open: boolean; onClose: () => void }) {

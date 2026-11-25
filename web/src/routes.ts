@@ -14,7 +14,7 @@ import { SettingsPage } from '@/features/settings/SettingsPage'
 import { TunnelPage } from '@/features/settings/TunnelPage'
 import { Landing } from '@/features/shell/Landing'
 
-// Homie's tabs and routes inside the gatekeeper's shell (STEP2 §3.1 web row). The package owns /login, /setup,
+// Homie's tabs and routes inside the gatekeeper's shell. The package owns /login, /setup,
 // /join, /consent, /connect and /account/*; these are Homie's own.
 
 const page = (path: string, Component: ComponentType, handle: PageHandle): RouteObject => ({ path, Component, handle })

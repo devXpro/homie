@@ -6,7 +6,7 @@ import (
 	"regexp"
 )
 
-// sensitiveKey matches argument names whose values never reach the audit log (PLAN.md §5.4).
+// sensitiveKey matches argument names whose values never reach the activity log (docs/SECURITY.md).
 var sensitiveKey = regexp.MustCompile(`(?i)(token|key|secret|password|pin|code)`)
 
 const redacted = "[redacted]"

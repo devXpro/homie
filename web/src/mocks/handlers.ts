@@ -202,7 +202,7 @@ function me(v: MockPerson): Me {
 
 /**
  * account is GET /api/account: a member sees the term and devices of their own row only (K5). homed adds the home as
- * the one resource, the devices the viewer may use and the tunnel's mode (HC-api §5).
+ * the one resource, the devices the viewer may use and the tunnel's mode (docs/ADMIN-API.md §5).
  */
 function account(v: MockPerson): HomeAccount {
   const owner = v.role === 'owner'
@@ -294,7 +294,7 @@ function bootstrap(): Bootstrap {
   return { homeName: db.home.name, language: db.home.language, ownerReady: db.people.some((p) => p.role === 'owner'), tunnel: { mode: db.tunnel.mode } }
 }
 
-/** overview orders the attention by severity, as homed does (HC-api §3). */
+/** overview orders the attention by severity, as homed does (docs/ADMIN-API.md §3). */
 function overview(): Overview {
   const attention: Overview['attention'] = []
   if (db.attentionReset) attention.push({ kind: 'access_reset', at: iso(40 * 60_000), peer: '/usr/local/bin/homed (pid 4242)' })
@@ -595,7 +595,7 @@ async function runConnect(hostname: string, loggedIn = false, overwrite = false)
 /** Whether a connect may replace an existing DNS record (overwriteDns), by address. */
 const overwrites = new Map<string, boolean>()
 
-/** firstrunState follows homed (HC-api §7): a running connect → connecting; a ready tunnel → link; none → tunnel. */
+/** firstrunState follows homed (docs/ADMIN-API.md §7): a running connect → connecting; a ready tunnel → link; none → tunnel. */
 function firstrunState(): FirstRunState {
   if (!db.firstrun.unlocked) return { step: 'pin' }
   const t = db.tunnel
@@ -863,7 +863,7 @@ export const handlers = [
     const g = guard(request, { owner: true, stepUp: true })
     if (g) return g
     const v = viewer() as MockPerson
-    // Quick mode is the owner's alone (STEP2 Q4): every restart changes the address and kills the guests' passkeys.
+    // Quick mode is the owner's alone: every restart changes the address and kills the guests' passkeys.
     if (db.tunnel.mode === 'quick') return fail(409, 'quick_mode', 'invites are off on a quick tunnel')
     const b = await body<{ name?: string; permissions?: string[]; access_until?: string; role?: string }>(request)
     if (!b.name?.trim()) return fail(400, 'invalid', 'name is required')
@@ -967,7 +967,7 @@ export const handlers = [
     return HttpResponse.json(list)
   }),
 
-  // One home is one account: homed refuses to delete it (HC-api §5).
+  // One home is one account: homed refuses to delete it (docs/ADMIN-API.md §5).
   http.delete('/api/account', async ({ request }) => {
     await delay(ms(200))
     return guard(request, { owner: true, stepUp: true }) ?? fail(403, 'forbidden', 'the home account cannot be deleted')
@@ -1005,7 +1005,7 @@ export const handlers = [
     }
   }),
 
-  // The long-poll of quick mode (HC-api §6): what came after the cursor `after`, waiting up to 20 s (the mock: 10 s)
+  // The long-poll of quick mode (docs/ADMIN-API.md §6): what came after the cursor `after`, waiting up to 20 s (the mock: 10 s)
   // for something new; an empty answer keeps the cursor. Cursors are "<run>-<seq>", like the SSE ids.
   http.get(`${H}/events/poll`, async ({ request }) => {
     const g = guard(request)
@@ -1083,7 +1083,7 @@ export const handlers = [
     if (db.tunnel.mode === 'off') return fail(409, 'conflict', 'no tunnel to reconnect')
     audit('tunnel.reconnect')
     const mode = db.tunnel.mode
-    // A quick tunnel comes back with a new address; the passkeys of the old one stop working (HC-api §4).
+    // A quick tunnel comes back with a new address; the passkeys of the old one stop working (docs/ADMIN-API.md §4).
     void bringUp(mode, mode === 'quick' ? QUICK_URL_NEXT : db.tunnel.url)
     return HttpResponse.json({ mode, state: 'starting', ...(mode === 'named' ? { url: db.tunnel.url, hostname: db.tunnel.hostname } : {}) }, { status: 202 })
   }),
@@ -1130,7 +1130,7 @@ export const handlers = [
     return HttpResponse.json({ items: db.plugins.map(summary) })
   }),
 
-  // Owners only: a member's devices come with GET /api/account (HC-api §4, §5).
+  // Owners only: a member's devices come with GET /api/account (docs/ADMIN-API.md §4, §5).
   http.get(`${H}/plugins`, async ({ request }) => {
     await delay(ms(200))
     return guard(request, { owner: true }) ?? HttpResponse.json({ items: db.plugins.map(summary) })
@@ -1350,7 +1350,7 @@ export const handlers = [
     return a ? HttpResponse.json(a) : fail(404, 'not_found', 'no such entry')
   }),
 
-  // ------------------------------------------------ the LAN first-run page (STEP2 §4.8)
+  // ------------------------------------------------ the LAN first-run page (docs/ADMIN-API.md §7)
   http.all(`${F}/*`, ({ request }) => {
     if (request.method !== 'GET' && request.headers.get('X-Homie') !== '1') return fail(403, 'forbidden', 'missing X-Homie header')
     if (db.firstrun.done) return fail(410, 'setup_done', 'the home has an owner')
@@ -1397,7 +1397,7 @@ export const handlers = [
     await delay(ms(300))
     if (!db.firstrun.unlocked) return fail(401, 'pin_required', 'enter the PIN first')
     if (db.tunnel.state !== 'connected' || !db.tunnel.url) return fail(409, 'tunnel_not_ready', 'the tunnel is not connected yet')
-    // The link is for the public address: that is the passkey's relying party (STEP2 §4.8).
+    // The link is for the public address: that is the passkey's relying party (docs/SECURITY.md, Setup links).
     return HttpResponse.json({ url: `${db.tunnel.url}/setup#t=${rand(24)}`, expiresAt: isoIn(3 * 60_000) })
   }),
 ]

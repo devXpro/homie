@@ -33,7 +33,7 @@ import { hostnameOk } from '@/lib/hostname'
 import { tunnelHost, tunnelLook } from '@/lib/status'
 import type { ConnectStatus, ConnectStepName, FirstRunState, SetupLink, TunnelStatus } from '@/lib/types'
 
-// The LAN first-run page (STEP2 §4.8), served by homed's setup listener on http://<lan ip>:8090 while
+// The LAN first-run page (docs/ADMIN-API.md §7), served by homed's setup listener on http://<lan ip>:8090 while
 // no tunnel is configured (then on 127.0.0.1:8090 only) and until an owner has a passkey of the current address:
 // PIN → "my domain" (the Cloudflare login link, then the connect's progress) or "try without a domain" (a quick
 // tunnel) → the probe → the one-time setup link. Behind a quick tunnel the address changes on every restart; the page
@@ -407,7 +407,7 @@ function connectSteps(c: ConnectStatus, t: TFunction): StepItem[] {
 
 /**
  * ConnectFailed is a connect of "my domain" that stopped: the step it stopped at and why. An existing DNS record can
- * be replaced, after a confirmation (STEP2 §3.4 asks before --overwrite-dns); any other failure goes back to the form.
+ * be replaced, after a confirmation (overwriteDns, docs/ADMIN-API.md §7); any other failure goes back to the form.
  */
 function ConnectFailed({ connect: c, onDone }: { connect: ConnectStatus; onDone: () => void }) {
   const { t } = useTranslation()

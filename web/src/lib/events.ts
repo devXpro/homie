@@ -1,7 +1,7 @@
 // The admin's live stream feeds the TanStack Query cache (ADMIN-API §4): every event carries a whole object, so the
 // cache simply replaces what it holds. It arrives as server-sent events (GET /api/home/events), or,
 // behind a Cloudflare quick tunnel, by long-polling the same ring of events (GET /api/home/events/poll?after=<seq>,
-// STEP2 §4.7). GatekeeperApp's `live` option says which.
+// docs/ADMIN-API.md §6). GatekeeperApp's `live` option says which.
 
 import { api, isApiError, qk, type Account, type Me } from '@devxpro/mcp-gatekeeper-ui'
 import type { QueryClient } from '@tanstack/react-query'
@@ -147,7 +147,7 @@ export function applyEvent(qc: QueryClient, type: string, data: unknown) {
       break
     }
     case 'settings': {
-      // Owners get the whole Settings, members only {"homeName"}. The home's name is the account's (STEP2 §2.4).
+      // Owners get the whole Settings, members only {"homeName"}. The home's name is the account's (docs/ADMIN-API.md §3, Settings).
       const s = data as Partial<Settings>
       qc.setQueryData<Settings>(hq.settings, (old) => old && { ...old, ...s })
       if (s.homeName) {

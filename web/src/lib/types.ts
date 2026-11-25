@@ -14,7 +14,7 @@ export interface FieldError {
   message: string
 }
 
-// ---------------------------------------------------------------- the tunnel (STEP2 §4.5, §4.7)
+// ---------------------------------------------------------------- the tunnel (docs/ADMIN-API.md §3)
 
 export type TunnelMode = 'named' | 'quick' | 'off'
 
@@ -233,7 +233,7 @@ export interface SystemInfo {
   update?: { latest: string; notesUrl: string; checkedAt: ISOTime }
 }
 
-/** What needs the owner, by severity (HC-api §3). */
+/** What needs the owner, by severity (docs/ADMIN-API.md §3). */
 export type Attention =
   /** someone ran `homed admin reset-access` on the home box lately; `peer` is the program that asked (GK-5) */
   | { kind: 'access_reset'; at?: ISOTime; peer?: string }
@@ -275,7 +275,7 @@ export interface AccountDevice {
   permission: string
 }
 
-/** GET /api/account with Homie's fields (people.AccountFields, HC-api §5). */
+/** GET /api/account with Homie's fields (people.AccountFields, docs/ADMIN-API.md §5). */
 export interface HomeAccount extends Account {
   /** the home, the one MCP resource: feeds the connect page */
   resources?: Resource[]
@@ -296,12 +296,12 @@ export interface PollAnswer {
   cursor: string
 }
 
-// ---------------------------------------------------------------- the LAN first-run page (STEP2 §4.8)
+// ---------------------------------------------------------------- the LAN first-run page (docs/ADMIN-API.md §7)
 
 /** The Cloudflare connect of "my domain": login link → tunnel → DNS → config (gatekeeper Connector.Start). */
 export type ConnectStepName = 'login' | 'tunnel' | 'dns' | 'config'
 
-/** The connect job of "my domain" (HC-api §7 ConnectJob). */
+/** The connect job of "my domain" (docs/ADMIN-API.md §7, ConnectJob). */
 export interface ConnectStatus {
   hostname: string
   state: 'running' | 'ok' | 'failed'

@@ -33,7 +33,7 @@ import { hq, useTunnel } from '@/lib/queries'
 import { tunnelHost, tunnelLook, tunnelTone } from '@/lib/status'
 import type { Overview, TunnelStatus } from '@/lib/types'
 
-// Связь (STEP2 §3.1, §4.5): how the home reaches the internet through Cloudflare — the state, the address, the outside
+// Связь: how the home reaches the internet through Cloudflare — the state, the address, the outside
 // check — and «Переподключить», which restarts cloudflared. A quick tunnel gets a new address when it restarts, so
 // there the button asks first, the page says the address is for trying, and after the restart it sends the owner to
 // the home computer's first-run page.
@@ -74,7 +74,7 @@ function TunnelScreen() {
       if (!next) return
       apply(next)
       // A quick tunnel comes back at a new address, where this sign-in does not count: the owner continues on the
-      // home computer's first-run page, which reopens for it (HC-api §4).
+      // home computer's first-run page, which reopens for it (docs/ADMIN-API.md §4).
       if (next.mode === 'quick') setMoved(true)
       else toast(t('tunnel.reconnect.done'), 'info')
     },

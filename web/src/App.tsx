@@ -11,13 +11,13 @@ import { hq } from '@/lib/queries'
 import type { HomeAccount } from '@/lib/types'
 import { indexRoute, publicRoutes, routes, tabs } from '@/routes'
 
-// Homie on the gatekeeper's UI package (STEP2 §3.1 web row): the package owns sign-in, setup and join, consent, the
+// Homie on the gatekeeper's UI package (@devxpro/mcp-gatekeeper-ui, see its README): the package owns sign-in, setup and join, consent, the
 // connect page, people and passkeys, and the shell; Homie adds its tabs and pages (routes.ts), the LAN first-run
 // page, its parts of the connect page, the device catalog of the access pickers, and how it follows changes.
 
 /**
- * resources: the home is the one MCP resource (STEP2 §2.1 #4), at https://<host>/mcp, always on. homed lists it on
- * GET /api/account (HC-api §5); the description is the admin's own words in the UI language.
+ * resources: the home is the one MCP resource, at https://<host>/mcp, always on. homed lists it on
+ * GET /api/account (docs/ADMIN-API.md §5); the description is the admin's own words in the UI language.
  */
 function resources(a: HomeAccount): Resource[] {
   const description = i18n.t('connect.home.description')
@@ -47,7 +47,7 @@ function usePluginCatalog(): PermissionInfo[] | undefined {
 }
 
 /**
- * useQuickInvitesOff: a quick tunnel is for trying, the owner's alone (STEP2 Q4): its address changes on every
+ * useQuickInvitesOff: a quick tunnel is for trying, the owner's alone: its address changes on every
  * restart, and every guest's passkey with it. The people list says so where «Пригласить» was.
  */
 function useQuickInvitesOff(): string | undefined {

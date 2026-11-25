@@ -13,7 +13,7 @@ import { needsOwner } from '@/lib/status'
 import { moduleTitle, toolTitle } from '@/lib/tools'
 import type { Call, Job, PluginDetail, PluginSummary } from '@/lib/types'
 
-// Homie inside the gatekeeper's shell (STEP2 §3.1 web row). The package's AppShell owns the frame, the tabs, the
+// Homie inside the gatekeeper's shell. The package's AppShell owns the frame, the tabs, the
 // sign-in redirect and step-up; Homie adds:
 // - useHomieShell, its useBadges hook: the shell calls it on every render while someone is signed in, so it also
 //   keeps the live events running (SSE or polling) and puts the red dots on Дом and Устройства;

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 
 /**
  * OwnerOnly keeps the owners' pages (a module, its log, the home's settings) from members; the API refuses them too.
- * Owners are the superadmin and the co-owners (STEP2 §2.4). A member is pointed at the connect page instead.
+ * Owners are the superadmin and the co-owners (docs/SECURITY.md, Guests, terms and co-owners). A member is pointed at the connect page instead.
  */
 export function OwnerOnly({ title, children }: { title: string; children: ReactNode }) {
   const { t } = useTranslation()

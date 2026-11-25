@@ -16,7 +16,7 @@ linters:
     presets:
       - std-error-handling
     rules:
-      # internal/hub/hub.go is frozen verbatim from PLAN.md section 5.3 and has uncommented exported members.
+      # internal/hub/hub.go holds the hub's shared types; some exported members are self-explanatory and uncommented.
       - path: internal/hub/hub\.go
         linters:
           - revive

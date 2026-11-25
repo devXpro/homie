@@ -7,7 +7,7 @@ import ru from './i18n/ru.json'
  * setupHomie configures the gatekeeper's UI package for Homie before the first render (main.tsx, and the tests):
  * - the brand: core.Brand.CSRFHeader of homed ("X-Homie"), the localStorage prefix ("homie.theme", "homie.lang", as
  *   public/theme.js reads them) and the app icon's glyph;
- * - the people options of homed (STEP2 §2.4): one account, which is the home, and co-owners;
+ * - the people options of homed (docs/SECURITY.md, Guests, terms and co-owners): one account, which is the home, and co-owners;
  * - no «Удалить всё»: homed refuses DELETE /api/account, the home goes with homed's uninstall on the home computer;
  * - Homie's strings on top of the package's.
  */

@@ -27,8 +27,8 @@ function keepGitkeep(): Plugin {
 export default defineConfig(({ mode }) => {
   const mock = mode === 'mock'
   return {
-    // The SPA lives at the root of homed (STEP2 §2.4: the gatekeeper's links are /setup#t=… and /join#t=…; homed
-    // answers /admin* with 308 to /); Vite's SPA fallback serves index.html for its routes, /firstrun included.
+    // The SPA lives at the root of homed (the gatekeeper's links are /setup#t=… and /join#t=…; homed
+    // answers /admin* with 308 to /, see docs/ADMIN-API.md §8); Vite's SPA fallback serves index.html for its routes, /firstrun included.
     base: '/',
     resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
     plugins: [react(), tailwindcss(), mock && msw({ mode: 'worker-only' }), !mock && keepGitkeep()],

@@ -1,6 +1,6 @@
 package admin
 
-// table lists every endpoint of /api/home (homie-ops progress/HC-api.md §4), relative to basePath.
+// table lists every endpoint of /api/home (docs/ADMIN-API.md §4), relative to basePath.
 func (s *Server) table() []route {
 	return []route{
 		{"GET /bootstrap", levelPublic, s.getBootstrap},

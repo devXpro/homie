@@ -1,5 +1,5 @@
 // The mock home behind `npm run dev:mock`, the Playwright tests and the screenshots: one in-memory state per page
-// load, seeded by a scenario (?mock=<name>). Everything in it is a neutral fixture (STEP2 §5.12): the people Alice,
+// load, seeded by a scenario (?mock=<name>). Everything in it is a neutral fixture, no real data: the people Alice,
 // Bella, Bob and Carol, the home «Дом», the hosts home.example.com and example.trycloudflare.com, the LAN 192.0.2.0/24
 // and a locally administered MAC address.
 
@@ -370,7 +370,7 @@ function auditSeed(): AuditEntry[] {
   ]
 }
 
-/** tunnelAt is a connected tunnel at a public origin, as homed reports it (HC-api §3 TunnelStatus). */
+/** tunnelAt is a connected tunnel at a public origin, as homed reports it (docs/ADMIN-API.md §3, TunnelStatus). */
 export function tunnelAt(mode: 'named' | 'quick', url: string, msAgo: number): TunnelStatus {
   return { mode, state: 'connected', url, mcpUrl: `${url}/mcp`, hostname: new URL(url).host, since: iso(msAgo) }
 }
@@ -421,7 +421,7 @@ export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
 
   switch (scenario) {
     case 'quick':
-      // Trying Homie out: the owner alone (quick mode takes no invites, STEP2 Q4).
+      // Trying Homie out: the owner alone (a quick tunnel takes no invites: docs/SECURITY.md, Quick mode).
       state.tunnel = quickTunnel()
       state.invites = []
       state.people = all.slice(0, 1)

@@ -1,6 +1,6 @@
 // The bootstrap (GET /api/home/bootstrap, public) is read once, before the router: the home's name and language and
 // the tunnel's mode. The mode decides how the admin follows changes, `live` of GatekeeperApp: server-sent events, or
-// long-polling behind a Cloudflare quick tunnel, which carries no SSE (STEP2 §4.7). Live tunnel events keep it current.
+// long-polling behind a Cloudflare quick tunnel, which carries no SSE (docs/SECURITY.md, Quick mode). Live tunnel events keep it current.
 
 import { i18n, storageKey } from '@devxpro/mcp-gatekeeper-ui'
 import { useSyncExternalStore } from 'react'

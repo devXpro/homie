@@ -1,5 +1,5 @@
 // Homie's own APIs on the package's client: /api/home/* (the admin) and /api/firstrun/* (the LAN first-run page).
-// They answer in the gatekeeper's error form {"error":"<code>","message":"…"} (STEP2 §2.4), so errors are the
+// They answer in the gatekeeper's error form {"error":"<code>","message":"…"} (docs/ADMIN-API.md §2), so errors are the
 // package's ApiError and every screen words them the same way. Homie's answers may carry a little more, which
 // ApiError.details keeps: the invalid fields of a tool's form, and the running call or job that a 409 points at.
 
