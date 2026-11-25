@@ -22,120 +22,76 @@ const usage = `homed — the Homie hub
 
 Daemon:
   homed run [--listen 127.0.0.1:8080] [--setup-listen ADDR] [--dev-origin http://localhost:5173]
-                                               serve the hub, the admin (/admin), the plugins, the relay and the
-                                               local socket; until the home has an owner, also the first-run page
-                                               (30 min; on 0.0.0.0:8090 without a relay, 127.0.0.1:8090 with one)
+        serve the hub: the admin, the MCP endpoint /mcp for ChatGPT and Claude, the plugins, the Cloudflare
+        tunnel (cloudflared as a child) and the admin socket; until the owner can sign in, also the first-run
+        page (30 min; on 0.0.0.0:8090 while no tunnel is configured, 127.0.0.1:8090 with one)
+
+The internet, through Cloudflare:
+  homed cloudflare connect <host> [--overwrite-dns]
+        connect your domain (its zone on your Cloudflare account): prints the Cloudflare login link, opens
+        it on a Mac, and waits. Works while homed is stopped too.
+  homed cloudflare quick         a temporary trycloudflare.com link, for trying (it changes at every restart)
+  homed cloudflare status        the tunnel: mode, state, public and MCP addresses
+  homed cloudflare disconnect    stop the tunnel
 
 First run and access (the home box only):
-  homed admin firstrun                         open the first-run page again and print its address and PIN
-  homed admin setup-link                       print a one-time link that adds a passkey for the owner (15 min)
-  homed admin reset-access                     delete every passkey and session, print a new setup link
+  homed admin firstrun           open the first-run page and print its address and PIN
+  homed admin setup-link         print a one-time link that registers the owner's passkey (15 min)
+  homed admin reset-access       wipe the owner's passkeys, sessions and connectors, print a new setup link
 
-Relay:
-  homed relay connect -                        store a connect code read from stdin (never from the command
-                                               line: it would show in shell history and the process list)
-  homed relay status                           connection and self-check of the running homed
-
-Person keys (for ChatGPT Sites; the key itself is shown once):
-  homed key new [--person ID] [--label TEXT] [--keychain SERVICE]
-                                               print a new key, or save it to the macOS Keychain
-  homed key list
-  homed key revoke <key id>
-
-Plugins:
-  homed plugin add --id ID -- <command> [args…] add a plugin from this machine (a running homed starts it)
+Plugins and tools:
+  homed plugin add --id ID -- <command> [args…]    add a plugin from this machine
   homed plugin list
   homed plugin remove [--delete-data] <id>
+  homed tool list                                  every tool, admin ones included
+  homed tool call <name> ['<json arguments>' | -]  "-" reads the arguments from stdin (keep a PIN out of
+                                                   history)
 
-Tools (through the running homed; every tool, admin ones included):
-  homed tool list
-  homed tool call <name> ['<json arguments>' | -]
-                                               "-" reads the arguments from stdin (keep a PIN out of history)
-
+  homed update [--version V] [--allow-downgrade]   update homed to a release; it restarts
   homed version
 
-The CLI talks to the running homed over <data dir>/homed.sock. Without a running homed, the admin, relay connect,
-key and plugin commands work on the data dir directly. Every command takes --data-dir D. The data dir defaults to
-~/Library/Application Support/homie (macOS) or $XDG_DATA_HOME/homie (Linux); HOMED_DATA_DIR overrides it.
+Every command but run, version and cloudflare connect talks to the running homed over <data dir>/homed.sock.
+Every command takes --data-dir D. The data dir defaults to ~/Library/Application Support/homie (macOS) or
+$XDG_DATA_HOME/homie (Linux); HOMED_DATA_DIR overrides it.
 `
 
-// errToolFailed is returned when a tool ran and reported a failure; homed exits with status 1 for it.
-var errToolFailed = errors.New("the tool reported a failure")
-
 func main() {
-	err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
-	switch {
-	case err == nil:
-	case errors.Is(err, errRestart):
-		// After a hub update: the service manager (launchd KeepAlive, systemd Restart=) starts the new binary.
-		os.Exit(install.ExitCodeRestart)
-	case errors.Is(err, errToolFailed):
-		os.Exit(1)
-	case errors.Is(err, flag.ErrHelp):
-		os.Exit(2)
-	default:
-		fmt.Fprintln(os.Stderr, "homed:", err)
-		os.Exit(2)
-	}
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+// Exit codes besides adminsock's 0, 1 and 2.
+const exitUsage = 2
+
+// run runs one command and returns the exit code: 0, 1 (a failure, a tool that failed), 2 (wrong usage or homed could
+// not start), or install.ExitCodeRestart after a hub update.
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
-		return flag.ErrHelp
+		return exitUsage
 	}
-	cmd, rest := args[0], args[1:]
-	sub := ""
-	if len(rest) > 0 {
-		sub = rest[0]
-	}
-	switch {
-	case cmd == "run":
-		return cmdRun(rest, stderr)
-	case cmd == "admin" && sub == "firstrun":
-		return cmdAdminFirstRun(rest[1:], stdout, stderr)
-	case cmd == "admin" && sub == "setup-link":
-		return cmdAdminSetupLink(rest[1:], stdout, stderr)
-	case cmd == "admin" && sub == "reset-access":
-		return cmdAdminResetAccess(rest[1:], stdout, stderr)
-	case cmd == "relay" && sub == "connect":
-		return cmdRelayConnect(rest[1:], stdin, stdout, stderr)
-	case cmd == "relay" && sub == "status":
-		return cmdRelayStatus(rest[1:], stdout, stderr)
-	case cmd == "key" && sub == "new":
-		return cmdKeyNew(rest[1:], stdout, stderr)
-	case cmd == "key" && sub == "list":
-		return cmdKeyList(rest[1:], stdout, stderr)
-	case cmd == "key" && sub == "revoke":
-		return cmdKeyRevoke(rest[1:], stdout, stderr)
-	case cmd == "plugin" && sub == "add":
-		return cmdPluginAdd(rest[1:], stdout, stderr)
-	case cmd == "plugin" && sub == "list":
-		return cmdPluginList(rest[1:], stdout, stderr)
-	case cmd == "plugin" && sub == "remove":
-		return cmdPluginRemove(rest[1:], stdout, stderr)
-	case cmd == "tool" && sub == "list":
-		return cmdToolList(rest[1:], stdout, stderr)
-	case cmd == "tool" && sub == "call":
-		return cmdToolCall(rest[1:], stdin, stdout, stderr)
-	case cmd == "version" || cmd == "--version" || cmd == "-v":
+	switch args[0] {
+	case "run":
+		err := cmdRun(args[1:], stderr)
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, errRestart):
+			// After a hub update: the service manager (launchd KeepAlive, systemd Restart=) starts the new binary.
+			return install.ExitCodeRestart
+		case errors.Is(err, flag.ErrHelp):
+			return exitUsage
+		default:
+			fmt.Fprintln(stderr, "homed:", err)
+			return exitUsage
+		}
+	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "homed", version)
-		return nil
-	case cmd == "help" || cmd == "-h" || cmd == "--help":
+		return 0
+	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
-		return nil
-	default:
-		fmt.Fprint(stderr, usage)
-		return fmt.Errorf("unknown command %q", joinCmd(cmd, sub))
+		return 0
 	}
-}
-
-func joinCmd(cmd, sub string) string {
-	switch cmd {
-	case "admin", "relay", "key", "plugin", "tool":
-		return cmd + " " + sub
-	}
-	return cmd
+	return runCLI(args, stdin, stdout, stderr)
 }
 
 // buildCommit is the -ldflags commit, else the VCS revision Go stamped into the binary (short), else "".
@@ -161,34 +117,13 @@ func newFlags(name string, stderr io.Writer) (*flag.FlagSet, *string) {
 	return fl, dataDir
 }
 
-// parseFlags parses fl over args and allows flags after positional arguments, as people type them
-// (homed relay connect - --data-dir D). Everything after "--" is positional. It returns the positionals.
-func parseFlags(fl *flag.FlagSet, args []string) ([]string, error) {
-	var pos []string
-	for {
-		if err := fl.Parse(args); err != nil {
-			return nil, err
-		}
-		rest := fl.Args()
-		if consumed := len(args) - len(rest); consumed > 0 && args[consumed-1] == "--" {
-			return append(pos, rest...), nil
-		}
-		if len(rest) == 0 {
-			return pos, nil
-		}
-		pos = append(pos, rest[0])
-		args = rest[1:]
-	}
-}
-
 // noArgs parses flags for a command that takes no positional arguments.
 func noArgs(fl *flag.FlagSet, args []string) error {
-	pos, err := parseFlags(fl, args)
-	if err != nil {
+	if err := fl.Parse(args); err != nil {
 		return err
 	}
-	if len(pos) > 0 {
-		return fmt.Errorf("unexpected arguments: %v", pos)
+	if fl.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %v", fl.Args())
 	}
 	return nil
 }

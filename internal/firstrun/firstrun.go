@@ -1,24 +1,28 @@
-// Package firstrun serves the first-run page on the home network (docs/ADMIN-API.md §5, DESIGN.md §8.3): the owner
-// enters a PIN homed shows on the home box, pastes the server's connect code if homed has no relay yet, waits for the
-// relay, and gets the one-time setup link https://<domain>/admin/setup#t=<token> to open on the phone or the Mac.
+// Package firstrun serves the first-run page (homie-ops STEP2 §4.8): the local admin before the tunnel. The owner
+// enters a PIN homed shows on the home box, connects the home to the internet through Cloudflare (their own domain,
+// or a quick tunnel "for trying"), waits for the tunnel's self-check, and gets the one-time setup link
+// https://<host>/setup#t=<token> to open on the phone or the Mac, where the first passkey is made.
 //
-// The listener (setup_listen: 0.0.0.0:8090 while homed has no relay, 127.0.0.1:8090 once it has one) speaks plain
-// HTTP, so the page is built to be short-lived and hard to guess (docs/SECURITY.md):
+// The listener (setup_listen: 0.0.0.0:8090 while no tunnel is configured, 127.0.0.1:8090 once one is) speaks plain
+// HTTP, so the page is built to be short-lived and hard to guess:
 //   - it closes 30 minutes after it opened, and for good after 20 wrong PINs; `homed admin firstrun` on the home box
 //     (or a restart) opens it again with a new PIN, and `homed admin setup-link` never needs it;
 //   - the PIN has 8 digits and changes every 10 minutes and after every issued link. It is printed only to a terminal
 //     (Options.Terminal); under launchd or systemd the log says how to get it instead;
 //   - one client gets 5 wrong PINs per 10 minutes and then waits, without locking out the other devices;
 //   - the homie_firstrun cookie (HttpOnly, SameSite=Strict, 30 minutes) is random and kept only as a hash, in memory;
-//   - links issued here live 3 minutes (the CLI's live 15); every link and relay change is logged and audited with the
-//     client's address, and a relay that is already configured is never replaced from here;
+//   - links issued here live 3 minutes (the admin socket's live 15); every link and tunnel change is logged and
+//     audited with the client's address, and a connected domain is never replaced from here;
 //   - only Host names a LAN can have pass (IP literals, localhost, single-label and .local-style names), which stops
 //     DNS rebinding; mutating requests need X-Homie: 1 and a same-origin Origin and Sec-Fetch-Site;
-//   - once an owner has a passkey of the current relying party every path answers 410 setup_done.
+//   - once the owner has a passkey of the current public URL every path answers 410 setup_done.
 //
-// cmd/homed wires it: while Needed reports true, New(Options{…}) and Serve(ctx, ln); for every reopening a new Server.
-// Relay is homed's relay client (the same adapter that serves internal/admin, plus SelfCheckResult); UI is the SPA
-// bundle that has the /firstrun route (internal/web).
+// In quick mode the public URL changes whenever cloudflared restarts, and the owner's passkeys of the old URL no
+// longer count: homed opens the page again by itself, and its link step becomes "Reconnect", a new setup link for the
+// same owner.
+//
+// cmd/homed wires it: New(Options{…}) and Serve(ctx, ln); a Server may be served again on another listener (the page
+// moves from the home network to loopback once a tunnel is configured) and keeps its PIN, cookies and limits.
 package firstrun
 
 import (
@@ -41,25 +45,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devXpro/homie/internal/auth"
-	"github.com/devXpro/homie/internal/auth/wire"
-	"github.com/devXpro/homie/internal/relay"
-	"github.com/devXpro/homie/internal/store"
+	"github.com/devXpro/mcp-gatekeeper/core"
+
+	"github.com/devXpro/homie/internal/tunnel"
+	"github.com/devXpro/homie/internal/wire"
 )
 
 // setup_listen defaults (DefaultListen).
 const (
-	// ListenLAN is the default while homed has no relay: the page takes the connect code, perhaps from another device
-	// on the home network (a Raspberry Pi has no browser of its own).
+	// ListenLAN is the default while no tunnel is configured: the page connects one, perhaps from another device on
+	// the home network (a Raspberry Pi has no browser of its own).
 	ListenLAN = "0.0.0.0:8090"
-	// ListenLocal is the default once homed has a relay: the page only issues the link, which the home box itself
+	// ListenLocal is the default once a tunnel is configured: the page only issues the link, which the home box itself
 	// opens or shows as a QR code.
 	ListenLocal = "127.0.0.1:8090"
 )
 
 // DefaultListen is setup_listen when neither the command line nor homed.yaml sets it.
-func DefaultListen(hasRelay bool) string {
-	if hasRelay {
+func DefaultListen(tunnelConfigured bool) string {
+	if tunnelConfigured {
 		return ListenLocal
 	}
 	return ListenLAN
@@ -71,8 +75,8 @@ const CookieName = "homie_firstrun"
 const (
 	// OpenFor is how long the page stays open; then it closes until `homed admin firstrun` or a restart.
 	OpenFor = 30 * time.Minute
-	// LinkTTL is the life of a setup link issued here, shorter than the CLI's (auth.SetupLinkTTL): the page and the
-	// link travel over plain http on the home network.
+	// LinkTTL is the life of a setup link issued here, shorter than the admin socket's (auth.SetupLinkTTL): the page
+	// and the link travel over plain http on the home network.
 	LinkTTL = 3 * time.Minute
 	// PINEvery is how often the PIN changes; it changes after every issued link too.
 	PINEvery = 10 * time.Minute
@@ -85,50 +89,57 @@ const (
 	maxWrongTotal  = 20               // wrong PINs from everybody, then the page closes for good
 )
 
-// Relay is homed's relay as the first-run page needs it. The adapter T2.6 gives internal/admin (admin.Relay) has
-// Domain, Status and Connect already; SelfCheckResult is the one method more.
-type Relay interface {
-	// Domain is the configured relay domain; empty when homed has no relay yet.
-	Domain() string
-	// Status reports the relay client.
-	Status() relay.Status
-	// SelfCheckResult returns the latest self-check: when it ran (zero: never) and why it failed ("" if it passed).
-	SelfCheckResult() (checkedAt time.Time, failure string)
-	// Connect stores the code the way `homed relay connect` does and (re)connects. It should run a self-check as
-	// soon as the relay connects, so the page does not wait for the 30-second check loop.
-	Connect(ctx context.Context, code relay.Code) error
+// Tunnel is homed's tunnel as the page needs it (internal/tunnel.Manager).
+type Tunnel interface {
+	// Status reports the tunnel.
+	Status() tunnel.Status
+	// Job returns the running or last connect.
+	Job() (tunnel.ConnectJob, bool)
+	// Connect starts connecting the owner's domain.
+	Connect(hostname string, overwriteDNS bool) (tunnel.ConnectJob, error)
+	// Quick starts a quick tunnel on a hub that has none.
+	Quick() error
 }
 
-// Options configures the first-run server. Store and Relay are required.
+// Home is the rest of homed the page needs; cmd/homed implements it over the current gatekeeper stack.
+type Home interface {
+	// OwnerReady reports whether the superadmin has a passkey of the current public URL: then the page is done. False
+	// while there is no public URL.
+	OwnerReady(ctx context.Context) (bool, error)
+	// OwnerExists reports whether the home has its owner at all (a quick tunnel's new URL: the link reconnects them).
+	OwnerExists(ctx context.Context) (bool, error)
+	// SetupLink makes a setup link of the current public URL that lives at most ttl (auth.IssueSetupLink of the
+	// current stack); an error wrapping core.ErrConflict means the owner can sign in already.
+	SetupLink(ctx context.Context, ttl time.Duration) (url string, err error)
+	// HomeName is the home's name, or the one that pre-fills the setup; "" when there is none.
+	HomeName(ctx context.Context) string
+	// Audit appends an entry to the admin audit (the gatekeeper's).
+	Audit(ctx context.Context, e core.AuditEntry)
+}
+
+// Options configures the first-run server. Tunnel and Home are required.
 type Options struct {
-	Store store.Store
-	Relay Relay
-	// Audit receives the setup.link and relay.change records; nil appends them to Store.Audit directly.
-	Audit auth.AuditRecorder
+	Tunnel Tunnel
+	Home   Home
 	// UI serves every path outside /api/: the SPA bundle with its /firstrun route and assets. Nil answers 404.
 	UI http.Handler
 	// Terminal is where the PIN is printed: the terminal homed runs in. Nil means homed has none (launchd, systemd,
 	// a log file): the PIN is never printed, and the log says to use `homed admin firstrun` or `homed admin setup-link`.
 	Terminal io.Writer
-	// RPID returns the passkeys' relying party ID now: the relay domain, or "localhost" in development. The page closes
-	// once an owner has a passkey of it. Nil means Relay.Domain().
-	RPID func() string
-	// OpenFor is how long Serve keeps the page open; 0 means OpenFor (30 minutes).
+	// OpenFor is how long the page stays open; 0 means OpenFor (30 minutes).
 	OpenFor time.Duration
-	// Log receives the page's events; the PIN and tokens never reach it.
+	// Log receives the page's events; the PIN, the cookies and the links never reach it.
 	Log *slog.Logger
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
 
-// Server is one opening of the first-run page. Create it with New; a reopening is a new Server.
+// Server is one opening of the first-run page. Create it with New; a reopening after it closed is a new Server.
 type Server struct {
-	st      store.Store
-	relay   Relay
-	audit   auth.AuditRecorder
+	tun     Tunnel
+	home    Home
 	ui      http.Handler
 	term    io.Writer
-	rpID    func() string
 	openFor time.Duration
 	log     *slog.Logger
 	now     func() time.Time
@@ -137,7 +148,7 @@ type Server struct {
 
 	closed    chan struct{} // closed when too many wrong PINs closed the page
 	closeOnce sync.Once
-	connectMu sync.Mutex // one relay code at a time, so "no relay yet" holds until the code is stored
+	tunnelMu  sync.Mutex // one tunnel change at a time, so "no domain yet" holds until the connect started
 
 	mu         sync.Mutex
 	pin        string
@@ -150,11 +161,8 @@ type Server struct {
 
 // New returns the server with a fresh PIN; Serve announces it.
 func New(o Options) (*Server, error) {
-	if o.Store == nil || o.Relay == nil {
-		return nil, errors.New("firstrun: Store and Relay are required")
-	}
-	if o.RPID == nil {
-		o.RPID = o.Relay.Domain
+	if o.Tunnel == nil || o.Home == nil {
+		return nil, errors.New("firstrun: Tunnel and Home are required")
 	}
 	if o.OpenFor <= 0 {
 		o.OpenFor = OpenFor
@@ -167,19 +175,11 @@ func New(o Options) (*Server, error) {
 	}
 	now := o.Now()
 	return &Server{
-		st: o.Store, relay: o.Relay, audit: o.Audit, ui: o.UI, term: o.Terminal, rpID: o.RPID, openFor: o.OpenFor,
-		log: o.Log, now: o.Now,
+		tun: o.Tunnel, home: o.Home, ui: o.UI, term: o.Terminal, openFor: o.OpenFor, log: o.Log, now: o.Now,
 		pollEvery: time.Second, pingEvery: 20 * time.Second, pinEvery: PINEvery,
 		closed: make(chan struct{}), pin: newPIN(), pinUntil: now.Add(PINEvery), closesAt: now.Add(o.OpenFor),
 		wrong: map[string][]time.Time{}, cookies: map[string]time.Time{},
 	}, nil
-}
-
-// Needed reports whether the first-run page is still needed: no owner has a passkey of the relying party rpID (the
-// relay domain, "localhost" in development; "" while there is none).
-func Needed(ctx context.Context, st store.Store, rpID string) (bool, error) {
-	ready, err := auth.OwnerReady(ctx, st, rpID)
-	return !ready, err
 }
 
 // newPIN returns pinDigits random digits.
@@ -199,22 +199,23 @@ func FormatPIN(pin string) string {
 	return pin[:4] + " " + pin[4:]
 }
 
-// PIN returns the current PIN and when it changes next, for `homed admin firstrun` over the local socket.
+// PIN returns the current PIN and when it changes next, for `homed admin firstrun` over the admin socket.
 func (s *Server) PIN() (pin string, until time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.pin, s.pinUntil
 }
 
-// ClosesAt returns when the page closes by itself (New plus OpenFor; Serve starts right after New).
+// ClosesAt returns when the page closes by itself.
 func (s *Server) ClosesAt() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closesAt
 }
 
-// Serve announces the page (the PIN on the terminal, or a hint in the log) and serves ln until ctx is done, OpenFor
-// has passed or too many wrong PINs closed it. It changes the PIN every PINEvery. It closes ln.
+// Serve announces the page (the PIN on the terminal, or a hint in the log) and serves ln until ctx is done, the page's
+// time is over or too many wrong PINs closed it. It changes the PIN every PINEvery and closes ln. It may be called
+// again with another listener once it returned (the page moves to loopback): the PIN, the cookies and the time stay.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.mu.Lock()
 	pin, closesAt := s.pin, s.closesAt
@@ -239,9 +240,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	go func() { errc <- srv.Serve(ln) }()
 	rotate := time.NewTicker(s.pinEvery)
 	defer rotate.Stop()
-	closeAt := time.NewTimer(s.openFor)
+	closeAt := time.NewTimer(max(0, closesAt.Sub(s.now())))
 	defer closeAt.Stop()
-	why := "" // why the page closed by itself; "" when homed stops
+	why := "" // why the page closed by itself; "" when homed stops it
 serving:
 	for {
 		select {
@@ -266,6 +267,7 @@ serving:
 	}
 	<-errc
 	if why != "" {
+		s.closeForGood()
 		const again = "open it again with `homed admin firstrun`, or get a setup link with `homed admin setup-link`"
 		s.log.Warn("the first-run page closed: "+why+"; "+again, "urls", urls)
 		if s.term != nil {
@@ -274,6 +276,10 @@ serving:
 	}
 	return nil
 }
+
+// Closed reports whether the page closed by itself (its time, or too many wrong PINs); a closed page is not served
+// again.
+func (s *Server) Closed() bool { return s.isClosed() }
 
 // rotatePIN makes a new PIN and shows it on the terminal, if there is one.
 func (s *Server) rotatePIN(why string) {
@@ -288,7 +294,7 @@ func (s *Server) rotatePIN(why string) {
 	s.log.Info("first-run PIN changed", "why", why)
 }
 
-// closeForGood closes the page after too many wrong PINs; Serve shuts the listener.
+// closeForGood closes the page; Serve shuts the listener.
 func (s *Server) closeForGood() { s.closeOnce.Do(func() { close(s.closed) }) }
 
 func (s *Server) isClosed() bool {
@@ -332,7 +338,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/firstrun/state", s.endpoint(http.MethodGet, false, s.state))
 	mux.Handle("/api/firstrun/pin", s.endpoint(http.MethodPost, false, s.enterPIN))
-	mux.Handle("/api/firstrun/relay", s.endpoint(http.MethodPost, true, s.connect))
+	mux.Handle("/api/firstrun/tunnel", s.endpoint(http.MethodPost, true, s.connect))
 	mux.Handle("/api/firstrun/events", s.endpoint(http.MethodGet, true, s.events))
 	mux.Handle("/api/firstrun/link", s.endpoint(http.MethodPost, true, s.link))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
@@ -352,18 +358,17 @@ func (s *Server) Handler() http.Handler {
 	return s.guard(mux)
 }
 
-// errClosed answers every request once too many wrong PINs closed the page.
+// errClosed answers every request once the page closed.
 var errClosed = wire.Errorf(http.StatusGone, "setup_closed",
 	"the setup page is closed; open it again with `homed admin firstrun` on the home box, or get a setup link with "+
 		"`homed admin setup-link`")
 
-// guard refuses foreign Host names and closes everything once the page closed or the home has an owner with a
-// passkey.
+// guard refuses foreign Host names and closes everything once the page closed or the owner can sign in.
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !lanHost(r.Host) {
 			wire.Headers(w)
-			wire.WriteError(w, wire.Errorf(http.StatusMisdirectedRequest, "forbidden",
+			wire.WriteError(w, wire.Errorf(http.StatusMisdirectedRequest, "misdirected",
 				"open the setup page by the address homed printed"))
 			return
 		}
@@ -372,7 +377,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 				`<p lang="en">The setup page is closed. Open it again with <code>homed admin firstrun</code> on the home box.</p>`)
 			return
 		}
-		ready, err := auth.OwnerReady(r.Context(), s.st, s.rpID())
+		ready, err := s.home.OwnerReady(r.Context())
 		if err != nil {
 			s.log.Error("firstrun: cannot read the owner", "err", err)
 			wire.Headers(w)
@@ -426,8 +431,8 @@ func lanHost(hostport string) bool {
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request) error
 
-// endpoint wraps an API endpoint: the common headers, the method, the CSRF rule for POST and, when signedIn is
-// set, the first-run cookie.
+// endpoint wraps an API endpoint: the common headers, the method, the CSRF rule for POST and, when cookie is set,
+// the first-run cookie.
 func (s *Server) endpoint(method string, cookie bool, h handlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wire.Headers(w)
@@ -437,9 +442,9 @@ func (s *Server) endpoint(method string, cookie bool, h handlerFunc) http.Handle
 			w.Header().Set("Allow", method)
 			err = wire.Errorf(http.StatusMethodNotAllowed, "method_not_allowed", r.Method+" is not allowed here")
 		case method == http.MethodPost && !sameOrigin(r):
-			err = wire.Errorf(http.StatusForbidden, "csrf_failed", "cross-site request refused")
+			err = wire.Errorf(http.StatusForbidden, "forbidden", "cross-site request refused")
 		case cookie && !s.signedIn(r):
-			err = wire.Errorf(http.StatusUnauthorized, "unauthenticated", "enter the PIN first")
+			err = wire.Errorf(http.StatusUnauthorized, "pin_required", "enter the PIN first")
 		default:
 			err = h(w, r)
 		}
@@ -452,7 +457,7 @@ func (s *Server) endpoint(method string, cookie bool, h handlerFunc) http.Handle
 	})
 }
 
-// sameOrigin is ADMIN-API §1.4 for a page whose origin is whatever LAN address the browser used.
+// sameOrigin is the CSRF rule for a page whose origin is whatever LAN address the browser used.
 func sameOrigin(r *http.Request) bool {
 	if r.Header.Get("X-Homie") != "1" {
 		return false
@@ -549,7 +554,7 @@ func (s *Server) enterPIN(w http.ResponseWriter, r *http.Request) error {
 	token := wire.Random(32)
 	s.cookies[hashCookie(token)] = now.Add(cookieTTL)
 	s.log.Info("firstrun: PIN accepted", "client", client)
-	//nolint:gosec // G124: plain http on the LAN by design (ADMIN-API §5); a Secure cookie would never come back.
+	//nolint:gosec // G124: plain http on the LAN by design; a Secure cookie would never come back.
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: token, Path: "/", MaxAge: int(cookieTTL / time.Second),
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,

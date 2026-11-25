@@ -1,15 +1,18 @@
 package audit
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"os"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+
 	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/store"
 )
 
 func TestRedact(t *testing.T) {
@@ -39,118 +42,119 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-func readLines(t *testing.T, path string) []map[string]any {
+func openStore(t *testing.T) *store.Store {
 	t.Helper()
-	f, err := os.Open(path) //nolint:gosec // test file in t.TempDir
+	st, err := store.Open(context.Background(), store.Options{Path: filepath.Join(t.TempDir(), "homie.db")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	var out []map[string]any
-	s := bufio.NewScanner(f)
-	for s.Scan() {
-		var m map[string]any
-		if err := json.Unmarshal(s.Bytes(), &m); err != nil {
-			t.Fatalf("bad line %q: %v", s.Text(), err)
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+// Records are stored with the caller's id and surface, the plugin from the tool's name and the arguments redacted
+// again, and OnStored hears every batch with its ids.
+func TestWriterStoresAndPublishes(t *testing.T) {
+	st := openStore(t)
+	w := NewWriter(st.Activity(), nil)
+	var (
+		mu     sync.Mutex
+		stored []store.ActivityRecord
+	)
+	w.OnStored(func(recs []store.ActivityRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		stored = append(stored, recs...)
+	})
+	at := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	w.Record(context.Background(), hub.AuditEntry{
+		At: at, Caller: hub.Caller{Person: "Alice", PersonID: "per_alice", Via: "claude"}, Tool: "tv_power_on",
+		Args: json.RawMessage(`{"tv":"tv","pin":"1234"}`), OK: true, Duration: 2 * time.Millisecond,
+	})
+	w.Record(context.Background(), hub.AuditEntry{Caller: hub.Caller{Person: "local", Via: "cli"}, Tool: "tv_pair",
+		Error: "timeout"})
+	w.Close()
+	if w.Dropped() != 0 {
+		t.Fatalf("dropped %d", w.Dropped())
+	}
+	recs, err := st.Activity().Query(context.Background(), store.ActivityFilter{})
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+	first := recs[1]
+	if first.PersonID != "per_alice" || first.Person != "Alice" || first.Via != "claude" || first.PluginID != "tv" ||
+		string(first.Args) != `{"pin":"[redacted]","tv":"tv"}` || !first.At.Equal(at) || !first.OK {
+		t.Errorf("first = %+v", first)
+	}
+	if recs[0].At.IsZero() || recs[0].OK || recs[0].Error != "timeout" {
+		t.Errorf("second = %+v", recs[0])
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(stored) != 2 || stored[0].ID == 0 || stored[1].ID != stored[0].ID+1 {
+		t.Errorf("OnStored = %+v", stored)
+	}
+}
+
+// blocking is an Activity whose Append says it was entered and waits for a release, to fill the writer's queue.
+type blocking struct {
+	store.Activity
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b blocking) Append(ctx context.Context, recs []store.ActivityRecord) ([]store.ActivityRecord, error) {
+	select {
+	case b.entered <- struct{}{}:
+	default:
+	}
+	<-b.release
+	return b.Activity.Append(ctx, recs)
+}
+
+// Record never blocks: with the queue full it drops and counts; a closed writer drops too.
+func TestWriterDropsWhenFull(t *testing.T) {
+	st := openStore(t)
+	b := blocking{Activity: st.Activity(), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	w := newWriter(b, 2, nil)
+	w.Record(context.Background(), hub.AuditEntry{Tool: "tv_power_on"})
+	<-b.entered // the writer holds the first record and waits in Append
+	for range 10 {
+		w.Record(context.Background(), hub.AuditEntry{Tool: "tv_power_on"})
+	}
+	if w.Dropped() != 8 { // two fit the queue
+		t.Errorf("dropped %d, want 8", w.Dropped())
+	}
+	close(b.release)
+	w.Close()
+	if recs, _ := st.Activity().Query(context.Background(), store.ActivityFilter{}); len(recs) != 3 {
+		t.Errorf("stored %d, want 3", len(recs))
+	}
+	w.Record(context.Background(), hub.AuditEntry{Tool: "tv_power_on"})
+	if w.Dropped() != 9 {
+		t.Error("a record after Close was not counted as dropped")
+	}
+}
+
+// ErrorText is what every surface writes to the activity log for a call.
+func TestErrorText(t *testing.T) {
+	rpc := &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: `pin "1234" is too short`}
+	tests := []struct {
+		name string
+		res  hub.Result
+		err  error
+		want string
+	}{
+		{"ok", hub.Result{Text: "done"}, nil, ""},
+		{"tool failure keeps its text", hub.Result{Text: "TV is off.", IsError: true}, nil, "TV is off."},
+		{"typed handler validation", hub.Result{Text: `validating "arguments": "1234" too short`, IsError: true}, nil, errInvalidArgs},
+		{"JSON-RPC invalid params", hub.Result{}, fmt.Errorf("tv_pair: %w", rpc), errInvalidArgs},
+		{"other JSON-RPC error", hub.Result{}, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "boom"}, "boom"},
+		{"plugin down", hub.Result{}, hub.ErrPluginDown, "plugin is not running"},
+	}
+	for _, tt := range tests {
+		if got := ErrorText(tt.res, tt.err); got != tt.want {
+			t.Errorf("%s: ErrorText = %q, want %q", tt.name, got, tt.want)
 		}
-		out = append(out, m)
 	}
-	return out
-}
-
-func TestLogWritesMonthlyFiles(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "audit")
-	l, err := Open(dir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oct := time.Date(2026, 10, 31, 23, 59, 0, 0, time.UTC)
-	nov := time.Date(2026, 11, 15, 12, 0, 0, 0, time.FixedZone("CET", 3600))
-	l.Record(context.Background(), hub.AuditEntry{
-		At: oct, Caller: hub.Caller{Person: "Roman", Via: "site"}, Tool: "tv_power_on",
-		Args: json.RawMessage(`{"tv":"living"}`), OK: true, Duration: 1500 * time.Millisecond,
-	})
-	l.Record(context.Background(), hub.AuditEntry{
-		At: nov, Caller: hub.Caller{Person: "Tanya", Via: "mcp"}, Tool: "tv_pair",
-		Args: json.RawMessage(`{"pin":"123456"}`), Error: "plugin is not running",
-	})
-	l.Record(context.Background(), hub.AuditEntry{At: nov, Caller: hub.Caller{Person: "Roman", Via: "cli"}, Tool: "tv_list", OK: true})
-	if err := l.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := l.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
-	}
-	l.Record(context.Background(), hub.AuditEntry{At: nov, Tool: "after_close"})
-	if l.Dropped() != 1 {
-		t.Fatalf("Dropped = %d after a Record on a closed log", l.Dropped())
-	}
-
-	info, err := os.Stat(filepath.Join(dir, "audit-2026-10.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("file mode %v", info.Mode().Perm())
-	}
-	octLines := readLines(t, filepath.Join(dir, "audit-2026-10.jsonl"))
-	if len(octLines) != 1 {
-		t.Fatalf("october: %d lines", len(octLines))
-	}
-	want := map[string]any{
-		"at": "2026-10-31T23:59:00Z", "person": "Roman", "via": "site", "tool": "tv_power_on",
-		"args": map[string]any{"tv": "living"}, "ok": true, "duration_ms": float64(1500),
-	}
-	if got, _ := json.Marshal(octLines[0]); string(got) != string(must(json.Marshal(want))) {
-		t.Fatalf("october line = %s", got)
-	}
-
-	novLines := readLines(t, filepath.Join(dir, "audit-2026-11.jsonl"))
-	if len(novLines) != 2 {
-		t.Fatalf("november: %d lines", len(novLines))
-	}
-	if novLines[0]["at"] != "2026-11-15T11:00:00Z" {
-		t.Fatalf("time not stored in UTC: %v", novLines[0]["at"])
-	}
-	if args := novLines[0]["args"].(map[string]any); args["pin"] != "[redacted]" {
-		t.Fatalf("pin not redacted on disk: %v", args)
-	}
-	if novLines[0]["ok"] != false || novLines[0]["error"] != "plugin is not running" {
-		t.Fatalf("failure fields: %v", novLines[0])
-	}
-	if _, ok := novLines[1]["args"]; ok {
-		t.Fatalf("empty args written: %v", novLines[1])
-	}
-	if _, ok := novLines[1]["error"]; ok {
-		t.Fatalf("empty error written: %v", novLines[1])
-	}
-}
-
-func TestRecordDropsWhenFull(t *testing.T) {
-	// The writer is not started, so the buffer fills up and stays full.
-	l, err := newLog(t.TempDir(), 2, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	at := time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC)
-	for range 5 {
-		l.Record(context.Background(), hub.AuditEntry{At: at, Tool: "tv_power_on", OK: true})
-	}
-	if l.Dropped() != 3 {
-		t.Fatalf("Dropped = %d, want 3", l.Dropped())
-	}
-	go l.run()
-	if err := l.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(readLines(t, filepath.Join(l.dir, "audit-2026-11.jsonl"))); n != 2 {
-		t.Fatalf("%d lines written, want the 2 queued", n)
-	}
-}
-
-func must(b []byte, err error) []byte {
-	if err != nil {
-		panic(err)
-	}
-	return b
 }

@@ -557,13 +557,13 @@ func TestExampleUnderHost(t *testing.T) {
 	if !toolByName(tools, "echo_list").Inventory {
 		t.Error("echo_list is not the inventory tool")
 	}
-	res, err := h.Call(t.Context(), hub.Caller{Person: "Tanya", Via: "site"}, "echo_say", json.RawMessage(`{"text":"hello"}`))
+	res, err := h.Call(t.Context(), hub.Caller{Person: "Bella", Via: "chatgpt"}, "echo_say", json.RawMessage(`{"text":"hello"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out map[string]string
 	_ = json.Unmarshal(res.Structured, &out)
-	if res.Text != "hello" || out["caller"] != "Tanya" {
+	if res.Text != "hello" || out["caller"] != "Bella" {
 		t.Errorf("echo_say = %+v", res)
 	}
 	res, err = h.Call(t.Context(), roman, "echo_list", nil)

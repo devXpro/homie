@@ -6,8 +6,6 @@ bin
 /homed
 /data
 docs
-site
-relay
 install
 Formula
 **/node_modules
@@ -17,6 +15,5 @@ internal/web/dist
 **/*.db
 .env*
 *.token
-relay-token
 coverage.out
 .DS_Store

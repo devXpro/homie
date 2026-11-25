@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/devXpro/homie/internal/wire"
 )
 
 // Jobs: long hub operations that are not tool calls (ADMIN-API §2, Job). The admin runs the installer's function
@@ -43,11 +45,12 @@ type jobJSON struct {
 	Error     *callErrorJSON   `json:"error,omitempty"`
 }
 
-// jobEntry is one job; j is guarded by Server.mu.
+// jobEntry is one job; j is guarded by Server.mu. done is closed when it ended.
 type jobEntry struct {
 	j       jobJSON
 	started time.Time
 	ended   time.Time
+	done    chan struct{}
 }
 
 // jobFunc does the work and returns the plugin id it acted on (install learns it from the release).
@@ -55,17 +58,15 @@ type jobFunc func(ctx context.Context, report Reporter) (target string, err erro
 
 // startJob starts a job unless one of the same kind and target runs, or any plugin job (install, update, remove) of
 // the same plugin (409 job_running). The installer also locks per plugin id, for an install whose id comes from the
-// release.
-func (s *Server) startJob(q *request, kind, target string, fn jobFunc) (jobJSON, error) {
+// release. The job, its audit entry and its caller outlive q.
+func (s *Server) startJob(q *request, kind, target string, fn jobFunc) (*jobEntry, error) {
 	s.mu.Lock()
 	for _, e := range s.jobs {
 		samePlugin := strings.HasPrefix(e.j.Kind, "plugin.") && strings.HasPrefix(kind, "plugin.")
 		if e.j.State == "running" && e.j.Target == target && (e.j.Kind == kind || samePlugin) {
 			s.mu.Unlock()
-			return jobJSON{}, &apiError{
-				status: http.StatusConflict, code: "job_running", message: "this is already in progress",
-				extra: map[string]string{"jobId": e.j.ID},
-			}
+			return nil, &wire.Error{Status: http.StatusConflict, Code: "job_running", Message: "this is already in progress",
+				Extra: map[string]string{"jobId": e.j.ID}}
 		}
 	}
 	start := s.now()
@@ -76,6 +77,7 @@ func (s *Server) startJob(q *request, kind, target string, fn jobFunc) (jobJSON,
 			StartedAt: ts(start),
 		},
 		started: start,
+		done:    make(chan struct{}),
 	}
 	if len(steps) > 0 {
 		e.j.Step = steps[0]
@@ -86,28 +88,31 @@ func (s *Server) startJob(q *request, kind, target string, fn jobFunc) (jobJSON,
 	s.mu.Unlock()
 	s.events.publish("job", snapshot)
 
-	// The audit record and its principal outlive the request.
-	rec := &request{r: q.r.WithContext(context.WithoutCancel(q.r.Context())), p: q.p, local: q.local, id: q.id}
+	rec := &request{ctx: context.WithoutCancel(q.ctx), v: q.v, local: q.local, ip: q.ip}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		gotTarget, err := fn(s.ctx, func(r JobReport) { s.jobReport(e, r) })
 		s.finishJob(e, gotTarget, err)
-		action := kind
+		s.mu.Lock()
 		auditTarget := e.j.Target
 		if kind == "hub.update" {
 			auditTarget = e.j.Message
 		}
-		pluginID := ""
-		if kind != "hub.update" && pluginIDRe.MatchString(auditTarget) {
-			pluginID = auditTarget
-		}
-		s.recordAdmin(rec, action, auditTarget, pluginID, nil, err)
+		s.mu.Unlock()
+		s.recordAdmin(rec, kind, auditTarget, nil, err)
 		if err == nil && kind == "plugin.remove" {
 			s.events.publish("plugin.removed", map[string]string{"id": target})
 		}
 	}()
-	return snapshot, nil
+	return e, nil
+}
+
+// jobSnapshot returns a job as it is now.
+func (s *Server) jobSnapshot(e *jobEntry) jobJSON {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return e.j
 }
 
 func (s *Server) jobReport(e *jobEntry, r JobReport) {
@@ -153,6 +158,7 @@ func (s *Server) finishJob(e *jobEntry, target string, err error) {
 	}
 	snapshot := e.j
 	s.mu.Unlock()
+	close(e.done)
 	s.events.publish("job", snapshot)
 }
 

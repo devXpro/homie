@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devXpro/mcp-gatekeeper/core"
+
 	"github.com/devXpro/homie/internal/admin"
 	"github.com/devXpro/homie/internal/config"
 	"github.com/devXpro/homie/internal/hub"
@@ -174,7 +176,7 @@ func jobCode(err error) string {
 func TestInstallerAdapter(t *testing.T) {
 	dir := t.TempDir()
 	ctx := t.Context()
-	st, err := store.Open(ctx, filepath.Join(dir, config.DBFile))
+	st, err := store.Open(ctx, store.Options{Path: filepath.Join(dir, config.DBFile)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +322,7 @@ func TestInstallerAdapter(t *testing.T) {
 	if steps, _ := rep.take(); !slices.Equal(steps, []string{"stop", "remove"}) {
 		t.Fatalf("remove steps: %v", steps)
 	}
-	if _, err := st.Plugins().Get(ctx, "fake"); !errors.Is(err, store.ErrNotFound) || len(host.Status()) != 0 {
+	if _, err := st.Plugins().Get(ctx, "fake"); !errors.Is(err, core.ErrNotFound) || len(host.Status()) != 0 {
 		t.Fatalf("after remove: %v, %+v", err, host.Status())
 	}
 	if _, err := os.Stat(filepath.Join(dir, "plugins", "fake")); !os.IsNotExist(err) {

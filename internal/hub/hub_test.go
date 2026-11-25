@@ -6,7 +6,7 @@ import (
 )
 
 func TestErrorsAreDistinct(t *testing.T) {
-	errs := []error{ErrUnknownTool, ErrPluginDown, ErrUnknownKey}
+	errs := []error{ErrUnknownTool, ErrPluginDown}
 	for i, a := range errs {
 		for j, b := range errs {
 			if (i == j) != errors.Is(a, b) {

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devXpro/mcp-gatekeeper/core"
+
 	"github.com/devXpro/homie/internal/hub"
 	"github.com/devXpro/homie/internal/store"
 )
@@ -22,12 +24,6 @@ var (
 	pluginIDRe = regexp.MustCompile(`^[a-z][a-z0-9]{1,15}$`)
 	repoRe     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$`)
 )
-
-type updateInfo struct {
-	latest    string
-	notesURL  string
-	checkedAt time.Time
-}
 
 type inventoryCache struct {
 	items     []inventoryItemJSON
@@ -142,7 +138,7 @@ func (s *Server) pluginSummaries(ctx context.Context) ([]pluginSummaryJSON, erro
 }
 
 func (s *Server) listPlugins(q *request) error {
-	items, err := s.pluginSummaries(q.r.Context())
+	items, err := s.pluginSummaries(q.ctx)
 	if err != nil {
 		return err
 	}
@@ -150,7 +146,7 @@ func (s *Server) listPlugins(q *request) error {
 }
 
 func (s *Server) getPlugin(q *request) error {
-	v, err := s.pluginView(q.r.Context(), q.r.PathValue("id"))
+	v, err := s.pluginView(q.ctx, q.r.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -180,10 +176,10 @@ func (s *Server) patchPlugin(q *request) error {
 	if body.Enabled == nil {
 		return invalidField("/enabled", "required", "is required")
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	id := q.r.PathValue("id")
 	row, err := s.st.Plugins().Get(ctx, id)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, core.ErrNotFound) {
 		return notFound("plugin")
 	}
 	if err != nil {
@@ -202,7 +198,7 @@ func (s *Server) patchPlugin(q *request) error {
 		if row.Enabled {
 			action = "plugin.enable"
 		}
-		s.recordAdmin(q, action, id, id, nil, applyErr)
+		s.recordAdmin(q, action, id, nil, applyErr)
 		if applyErr != nil {
 			return applyErr
 		}
@@ -218,7 +214,7 @@ func (s *Server) restartPlugin(q *request) error {
 	if err := decode(q, &struct{}{}); err != nil {
 		return err
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	id := q.r.PathValue("id")
 	v, err := s.pluginView(ctx, id)
 	if err != nil {
@@ -228,7 +224,7 @@ func (s *Server) restartPlugin(q *request) error {
 		return notReady("plugin restart")
 	}
 	err = s.opts.Runtime.Restart(ctx, id)
-	s.recordAdmin(q, "plugin.restart", id, id, nil, err)
+	s.recordAdmin(q, "plugin.restart", id, nil, err)
 	if err != nil {
 		return err
 	}
@@ -240,7 +236,7 @@ func (s *Server) restartPlugin(q *request) error {
 }
 
 func (s *Server) pluginLogs(q *request) error {
-	if _, err := s.pluginView(q.r.Context(), q.r.PathValue("id")); err != nil {
+	if _, err := s.pluginView(q.ctx, q.r.PathValue("id")); err != nil {
 		return err
 	}
 	tail := 200
@@ -297,7 +293,7 @@ func (s *Server) inventoryTool(ctx context.Context, id string) (hub.Tool, error)
 var inventoryStates = []string{"on", "off", "offline", "unknown", "paired", "unpaired"}
 
 func (s *Server) getInventory(q *request) error {
-	ctx := q.r.Context()
+	ctx := q.ctx
 	id := q.r.PathValue("id")
 	tool, err := s.inventoryTool(ctx, id)
 	if err != nil {
@@ -309,7 +305,7 @@ func (s *Server) getInventory(q *request) error {
 	if ok && s.now().Sub(cached.fetchedAt) < s.inventoryTTL {
 		return s.writeJSON(q, http.StatusOK, map[string]any{"items": cached.items, "fetchedAt": ts(cached.fetchedAt)})
 	}
-	res, err := s.invoke(ctx, hub.Caller{Person: q.p.Person.Name, Via: q.via()}, tool, json.RawMessage(`{}`))
+	res, err := s.invoke(ctx, s.caller(q), tool, json.RawMessage(`{}`))
 	switch {
 	case errors.Is(err, hub.ErrPluginDown):
 		return errorf(http.StatusServiceUnavailable, "plugin_unavailable", "the plugin is not running")
@@ -381,7 +377,7 @@ func (s *Server) previewPlugin(q *request) error {
 	if version == "" {
 		version = "latest"
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	pv, err := s.opts.Installer.Preview(ctx, repo, version)
 	if errors.Is(err, ErrNotFound) {
 		return notFound("repository or release")
@@ -408,13 +404,6 @@ func safeHomepage(raw string) string {
 	return u.String()
 }
 
-func upstream(err error) error {
-	if je, ok := errors.AsType[*JobError](err); ok && je.Code != "upstream" {
-		return err
-	}
-	return &apiError{status: http.StatusBadGateway, code: "upstream", message: "GitHub did not answer as expected: " + err.Error()}
-}
-
 func (s *Server) checkUpdates(q *request) error {
 	if err := decode(q, &struct{}{}); err != nil {
 		return err
@@ -422,7 +411,7 @@ func (s *Server) checkUpdates(q *request) error {
 	if s.opts.Installer == nil {
 		return notReady("the plugin installer")
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	rows, err := s.st.Plugins().List(ctx)
 	if err != nil {
 		return err
@@ -452,29 +441,23 @@ func (s *Server) checkUpdates(q *request) error {
 	}
 	for _, it := range items {
 		data, _ := marshal(it)
-		s.events.publishRaw("plugin", data, nil)
+		s.events.publishRaw("plugin", data, nil, "")
 	}
 	return s.writeJSON(q, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) installPlugin(q *request) error {
 	var body struct {
-		Source  string   `json:"source"`
-		Repo    string   `json:"repo"`
-		Version string   `json:"version"`
-		ID      string   `json:"id"`
-		Command []string `json:"command"`
+		Source  string `json:"source"`
+		Repo    string `json:"repo"`
+		Version string `json:"version"`
+		ID      string `json:"id"`
 	}
 	if err := decode(q, &body); err != nil {
 		return err
 	}
-	if body.Source == "local" {
-		if !q.local {
-			return invalidField("/source", "enum", "the web installs from GitHub only")
-		}
-		return s.addLocalPlugin(q, body.ID, body.Command)
-	}
 	if body.Source != "" && body.Source != "github" {
+		// A plugin from this machine is added on the home box: homed plugin add.
 		return invalidField("/source", "enum", `must be "github"`)
 	}
 	if !repoRe.MatchString(body.Repo) {
@@ -486,11 +469,11 @@ func (s *Server) installPlugin(q *request) error {
 	if s.opts.Installer == nil {
 		return notReady("the plugin installer")
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	if body.ID != "" {
 		if _, err := s.st.Plugins().Get(ctx, body.ID); err == nil {
 			return errorf(http.StatusConflict, "conflict", "a plugin with this id is installed")
-		} else if !errors.Is(err, store.ErrNotFound) {
+		} else if !errors.Is(err, core.ErrNotFound) {
 			return err
 		}
 	}
@@ -506,38 +489,40 @@ func (s *Server) installPlugin(q *request) error {
 	if err != nil {
 		return err
 	}
-	return s.writeJSON(q, http.StatusAccepted, job)
+	return s.writeJSON(q, http.StatusAccepted, s.jobSnapshot(job))
 }
 
-func (s *Server) addLocalPlugin(q *request, id string, command []string) error {
+// addLocal adds a plugin from this machine (the admin socket's `plugin add`): command is its executable, an absolute
+// path, and its arguments. A running homed starts it at once.
+func (s *Server) addLocal(q *request, id string, command []string) (pluginSummaryJSON, error) {
 	if !pluginIDRe.MatchString(id) {
-		return invalidField("/id", "pattern", "must be 2 to 16 lowercase letters and digits, starting with a letter")
+		return pluginSummaryJSON{}, invalidField("/id", "pattern", "must be 2 to 16 lowercase letters and digits, starting with a letter")
 	}
 	if len(command) == 0 || !strings.HasPrefix(command[0], "/") {
-		return invalidField("/command", "format", "must start with an absolute path")
+		return pluginSummaryJSON{}, invalidField("/command", "format", "must start with an absolute path")
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	row := store.Plugin{ID: id, Source: store.PluginLocal, Command: command, Enabled: true, InstalledAt: s.now()}
 	err := s.st.Plugins().Create(ctx, row)
-	if errors.Is(err, store.ErrConflict) {
-		return errorf(http.StatusConflict, "conflict", "a plugin with this id is installed")
+	if errors.Is(err, core.ErrConflict) {
+		return pluginSummaryJSON{}, errorf(http.StatusConflict, "conflict", "a plugin with this id is installed")
 	}
 	if err != nil {
-		return err
+		return pluginSummaryJSON{}, err
 	}
 	var applyErr error
 	if s.opts.Runtime != nil {
 		applyErr = s.opts.Runtime.Apply(ctx)
 	}
-	s.recordAdmin(q, "plugin.install", id, id, map[string]any{"source": "local"}, applyErr)
+	s.recordAdmin(q, "plugin.install", id, map[string]string{"source": "local"}, applyErr)
 	if applyErr != nil {
-		return applyErr
+		return pluginSummaryJSON{}, applyErr
 	}
 	v, err := s.pluginView(ctx, id)
 	if err != nil {
-		return err
+		return pluginSummaryJSON{}, err
 	}
-	return s.writeJSON(q, http.StatusCreated, s.summary(v, s.host.Tools(hub.AudienceAdmin)))
+	return s.summary(v, s.host.Tools(hub.AudienceAdmin)), nil
 }
 
 // releaseRe matches a release version (as opposed to a development build such as "dev").
@@ -565,10 +550,10 @@ func (s *Server) updatePlugin(q *request) error {
 	if err := decode(q, &body); err != nil {
 		return err
 	}
-	ctx := q.r.Context()
+	ctx := q.ctx
 	id := q.r.PathValue("id")
 	row, err := s.st.Plugins().Get(ctx, id)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, core.ErrNotFound) {
 		return notFound("plugin")
 	}
 	if err != nil {
@@ -590,11 +575,11 @@ func (s *Server) updatePlugin(q *request) error {
 	if err != nil {
 		return err
 	}
-	return s.writeJSON(q, http.StatusAccepted, job)
+	return s.writeJSON(q, http.StatusAccepted, s.jobSnapshot(job))
 }
 
 func (s *Server) removePlugin(q *request) error {
-	ctx := q.r.Context()
+	ctx := q.ctx
 	id := q.r.PathValue("id")
 	if _, err := s.pluginView(ctx, id); err != nil {
 		return err
@@ -617,5 +602,5 @@ func (s *Server) removePlugin(q *request) error {
 	if err != nil {
 		return err
 	}
-	return s.writeJSON(q, http.StatusAccepted, job)
+	return s.writeJSON(q, http.StatusAccepted, s.jobSnapshot(job))
 }

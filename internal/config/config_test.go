@@ -2,33 +2,27 @@ package config
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
-const hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-const hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-
 const sample = `# my home
-home_name: "Мой шалаш"
+listen: 127.0.0.1:8080 # loopback only
+setup_listen: 0.0.0.0:8090
+tunnel:
+  # my domain
+  mode: named
+  hostname: home.example.com
+`
+
+// v01 is a v0.1 homed.yaml: a relay section and nothing else.
+const v01 = `# my home
 listen: 127.0.0.1:8080 # loopback only
 relay:
-  domain: homie.test
-plugins:
-  # the TV
-  - id: tv
-    command: ["/bin/homie-tv", "serve"]
-people:
-  - id: roman
-    name: Roman
-    plugins: ["*"]
-    keys:
-      - sha256: "` + hashA + `"
-        label: "ChatGPT Site"
-        created: 2026-11-15T12:00:00Z
+  domain: relay.example.com
 `
 
 func writeSample(t *testing.T, content string) string {
@@ -54,77 +48,9 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.HomeName != "Мой шалаш" || c.ListenAddr() != "127.0.0.1:8080" || c.Relay.Domain != "homie.test" {
+	if c.ListenAddr() != "127.0.0.1:8080" || c.SetupListen != "0.0.0.0:8090" || c.Tunnel.Mode != TunnelNamed ||
+		c.Tunnel.Hostname != "home.example.com" || !c.Tunnel.Configured() || c.HasRelay() {
 		t.Fatalf("config = %+v", c)
-	}
-	if p := c.Plugin("tv"); p == nil || p.Command[0] != "/bin/homie-tv" {
-		t.Fatalf("plugin tv = %+v", p)
-	}
-	r := c.Person("roman")
-	if r == nil || len(r.Keys) != 1 || r.Keys[0].Label != "ChatGPT Site" || r.Keys[0].SHA256 != hashA ||
-		!r.Keys[0].Created.Equal(time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)) || r.Plugins[0] != "*" {
-		t.Fatalf("person = %+v", r)
-	}
-	if !c.HasPhase1() {
-		t.Fatal("HasPhase1 = false for a phase 1 file")
-	}
-	if c, err := Load(writeSample(t, "listen: 127.0.0.1:8080\nsetup_listen: 192.168.68.63:8090\nrelay:\n  domain: homie.test\n")); err != nil ||
-		c.HasPhase1() || c.SetupListen != "192.168.68.63:8090" {
-		t.Fatalf("phase 2 file: %+v, %v", c, err)
-	}
-}
-
-// After the import, the phase 1 sections leave homed.yaml for homed.yaml.phase1; listen, relay and comments stay,
-// and a second archive never overwrites the first backup.
-func TestArchivePhase1(t *testing.T) {
-	dir := writeSample(t, sample)
-	backup, err := ArchivePhase1(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if backup != filepath.Join(dir, Phase1Backup) {
-		t.Fatalf("backup = %q", backup)
-	}
-	if got := readFile(t, backup); got != sample {
-		t.Fatalf("backup content:\n%s", got)
-	}
-	if st, err := os.Stat(backup); err != nil || st.Mode().Perm() != 0o600 {
-		t.Fatalf("backup mode: %v, %v", st, err)
-	}
-	out := readFile(t, filepath.Join(dir, FileName))
-	for _, gone := range []string{"home_name", "plugins:", "people:", hashA, "homie-tv"} {
-		if strings.Contains(out, gone) {
-			t.Errorf("homed.yaml still has %q:\n%s", gone, out)
-		}
-	}
-	// "# my home" sits right above home_name, so YAML gives it to that key and it leaves with it (the backup has it).
-	for _, keep := range []string{"listen: 127.0.0.1:8080 # loopback only", "domain: homie.test"} {
-		if !strings.Contains(out, keep) {
-			t.Errorf("homed.yaml lost %q:\n%s", keep, out)
-		}
-	}
-	c, err := Load(dir)
-	if err != nil || c.HasPhase1() || c.Relay.Domain != "homie.test" {
-		t.Fatalf("after archive: %+v, %v", c, err)
-	}
-
-	// Nothing left to move: no new backup.
-	if again, err := ArchivePhase1(dir); err != nil || again != "" {
-		t.Fatalf("second archive = %q, %v", again, err)
-	}
-	// A hand edit that brings a section back is archived next to the first backup.
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(out+"home_name: Дача\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	third, err := ArchivePhase1(dir)
-	if err != nil || third == "" || third == backup || !strings.HasPrefix(third, backup+".") {
-		t.Fatalf("archive after a hand edit = %q, %v", third, err)
-	}
-	if readFile(t, backup) != sample || !strings.Contains(readFile(t, third), "Дача") {
-		t.Fatal("the first backup was overwritten")
-	}
-	if missing, err := ArchivePhase1(t.TempDir()); err != nil || missing != "" {
-		t.Fatalf("no homed.yaml: %q, %v", missing, err)
 	}
 }
 
@@ -133,7 +59,18 @@ func TestLoadMissingIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ListenAddr() != DefaultListen || c.Relay.Domain != "" || len(c.Plugins) != 0 {
+	if c.ListenAddr() != DefaultListen || c.Tunnel.ModeOrOff() != TunnelOff || c.Tunnel.Configured() {
+		t.Fatalf("config = %+v", c)
+	}
+}
+
+// v0.1's relay section still loads (homed ignores it, with a warning, until MigrateV01 removes it).
+func TestLoadIgnoresTheOldRelay(t *testing.T) {
+	c, err := Load(writeSample(t, v01))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.HasRelay() || c.Tunnel.Configured() {
 		t.Fatalf("config = %+v", c)
 	}
 }
@@ -142,20 +79,18 @@ func TestValidate(t *testing.T) {
 	tests := []struct {
 		name, yaml, want string
 	}{
-		{"unknown key", "home_nam: x\n", "field home_nam not found"},
+		{"unknown key", "listn: x\n", "field listn not found"},
+		{"phase 1 section", "people: []\n", "field people not found"},
 		{"public listen", "listen: 0.0.0.0:8080\n", "loopback only"},
 		{"setup_listen without port", "setup_listen: 0.0.0.0\n", "missing port"},
 		{"setup_listen bad port", "setup_listen: 0.0.0.0:http\n", "bad port"},
-		{"bad domain", "relay:\n  domain: https://x.test\n", "invalid relay domain"},
-		{"bad plugin id", "plugins:\n  - id: TV\n    command: [x]\n", "must match"},
-		{"duplicate plugin", "plugins:\n  - id: tv\n    command: [x]\n  - id: tv\n    command: [y]\n", "twice"},
-		{"empty command", "plugins:\n  - id: tv\n    command: []\n", "command is empty"},
-		{"bad person id", "people:\n  - id: Roman\n    name: R\n", "must match"},
-		{"no name", "people:\n  - id: roman\n    name: \"\"\n", "name is empty"},
-		{"bad scope", "people:\n  - id: roman\n    name: R\n    plugins: [\"TV!\"]\n", "neither"},
-		{"bad hash", "people:\n  - id: roman\n    name: R\n    keys:\n      - sha256: abc\n", "64 lowercase hex"},
-		{"duplicate hash", "people:\n  - id: a\n    name: A\n    keys:\n      - sha256: " + hashA +
-			"\n  - id: b\n    name: B\n    keys:\n      - sha256: " + hashA + "\n", "twice"},
+		{"unknown tunnel mode", "tunnel:\n  mode: relay\n", `mode "relay" is not named, quick or off`},
+		{"named without host", "tunnel:\n  mode: named\n", "needs a hostname"},
+		{"bad hostname", "tunnel:\n  mode: named\n  hostname: https://home.example.com\n", "not a full host name"},
+		{"upper-case hostname", "tunnel:\n  mode: named\n  hostname: Home.Example.com\n", "not a full host name"},
+		{"single label", "tunnel:\n  mode: named\n  hostname: home\n", "not a full host name"},
+		{"relative cloudflared", "tunnel:\n  cloudflared: bin/cloudflared\n", "absolute path or a name"},
+		{"unknown tunnel key", "tunnel:\n  token: x\n", "field token not found"},
 		{"not a mapping", "- a\n- b\n", "cannot unmarshal"},
 	}
 	for _, tt := range tests {
@@ -166,29 +101,36 @@ func TestValidate(t *testing.T) {
 			}
 		})
 	}
+	for _, ok := range []string{
+		"tunnel:\n  mode: quick\n",
+		"tunnel:\n  mode: off\n  hostname: home.example.com\n",
+		"tunnel:\n  cloudflared: cloudflared\n",
+		"tunnel:\n  cloudflared: /usr/local/bin/cloudflared\n",
+	} {
+		if _, err := Load(writeSample(t, ok)); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
 }
 
 func TestUpdateKeepsUntouchedSections(t *testing.T) {
 	dir := writeSample(t, sample)
 	err := Update(dir, func(c *Config) error {
-		c.Person("roman").Keys = append(c.Person("roman").Keys, Key{SHA256: hashB, Label: "second"})
+		c.Tunnel = Tunnel{Mode: TunnelQuick}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := readFile(t, filepath.Join(dir, FileName))
-	for _, keep := range []string{"# my home", "# loopback only", "# the TV", `command: ["/bin/homie-tv", "serve"]`} {
+	for _, keep := range []string{"# my home", "# loopback only", "setup_listen: 0.0.0.0:8090"} {
 		if !strings.Contains(out, keep) {
 			t.Errorf("lost %q:\n%s", keep, out)
 		}
 	}
 	c, err := Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(c.Person("roman").Keys); n != 2 {
-		t.Fatalf("keys = %d:\n%s", n, out)
+	if err != nil || c.Tunnel.Mode != TunnelQuick || c.Tunnel.Hostname != "" {
+		t.Fatalf("config = %+v, %v\n%s", c, err, out)
 	}
 	st, err := os.Stat(filepath.Join(dir, FileName))
 	if err != nil || st.Mode().Perm() != 0o600 {
@@ -198,25 +140,29 @@ func TestUpdateKeepsUntouchedSections(t *testing.T) {
 
 func TestUpdateRemovesEmptySection(t *testing.T) {
 	dir := writeSample(t, sample)
-	if err := Update(dir, func(c *Config) error { c.Plugins = nil; return nil }); err != nil {
+	if err := Update(dir, func(c *Config) error { c.Tunnel = Tunnel{}; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	out := readFile(t, filepath.Join(dir, FileName))
-	if strings.Contains(out, "plugins:\n  #") || strings.Contains(out, "homie-tv") {
-		t.Fatalf("plugins still there:\n%s", out)
+	if strings.Contains(out, "tunnel") || strings.Contains(out, "home.example.com") {
+		t.Fatalf("tunnel still there:\n%s", out)
 	}
-	if !strings.Contains(out, "people:") {
-		t.Fatalf("people lost:\n%s", out)
+	if !strings.Contains(out, "listen: 127.0.0.1:8080") {
+		t.Fatalf("listen lost:\n%s", out)
 	}
 }
 
 func TestUpdateNewFileAndErrors(t *testing.T) {
 	dir := t.TempDir()
-	if err := Update(dir, func(c *Config) error { c.Relay.Domain = "homie.test"; return nil }); err != nil {
+	err := Update(dir, func(c *Config) error {
+		c.Tunnel = Tunnel{Mode: TunnelNamed, Hostname: "home.example.com"}
+		return nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	c, err := Load(dir)
-	if err != nil || c.Relay.Domain != "homie.test" {
+	if err != nil || c.Tunnel.Hostname != "home.example.com" {
 		t.Fatalf("config = %+v, %v", c, err)
 	}
 
@@ -225,7 +171,7 @@ func TestUpdateNewFileAndErrors(t *testing.T) {
 	if err := Update(dir, func(*Config) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)
 	}
-	if err := Update(dir, func(c *Config) error { c.Listen = "0.0.0.0:1"; return nil }); err == nil {
+	if err := Update(dir, func(c *Config) error { c.Tunnel.Mode = "relay"; return nil }); err == nil {
 		t.Fatal("an invalid change was accepted")
 	}
 	if after := readFile(t, filepath.Join(dir, FileName)); after != before {
@@ -233,19 +179,92 @@ func TestUpdateNewFileAndErrors(t *testing.T) {
 	}
 }
 
-func TestRelayToken(t *testing.T) {
+func TestMigrateV01(t *testing.T) {
+	dir := writeSample(t, v01)
+	token := filepath.Join(dir, relayTokenFile)
+	if err := os.WriteFile(token, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MigrateV01(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(dir, V01Backup)
+	if res != (MigrateResult{Backup: backup, RelayRemoved: true, TokenDeleted: true}) {
+		t.Errorf("result = %+v", res)
+	}
+	if got := readFile(t, backup); got != v01 {
+		t.Errorf("backup = %q", got)
+	}
+	if fi, err := os.Stat(backup); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("backup mode = %v, %v", fi, err)
+	}
+	if _, err := os.Stat(token); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("relay-token still there: %v", err)
+	}
+	out := readFile(t, filepath.Join(dir, FileName))
+	if strings.Contains(out, "relay") || !strings.Contains(out, "# loopback only") {
+		t.Errorf("homed.yaml =\n%s", out)
+	}
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The home had a relay, so its first-run page does not move onto the home network.
+	if c.HasRelay() || c.Tunnel.ModeOrOff() != TunnelOff || c.Tunnel.Mode != TunnelOff || c.SetupListen != "127.0.0.1:8090" {
+		t.Errorf("config = %+v", c)
+	}
+	// Idempotent.
+	before := readFile(t, filepath.Join(dir, FileName))
+	if res, err := MigrateV01(dir); err != nil || res != (MigrateResult{}) {
+		t.Errorf("second run = %+v, %v", res, err)
+	}
+	if after := readFile(t, filepath.Join(dir, FileName)); after != before {
+		t.Errorf("a second run changed homed.yaml:\n%s", after)
+	}
+}
+
+// A setup_listen of the owner's own stays as it was.
+func TestMigrateV01KeepsSetupListen(t *testing.T) {
+	dir := writeSample(t, "setup_listen: 0.0.0.0:9090\nrelay:\n  domain: relay.example.com\n")
+	if _, err := MigrateV01(dir); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Load(dir); err != nil || c.SetupListen != "0.0.0.0:9090" {
+		t.Errorf("config = %+v, %v", c, err)
+	}
+}
+
+// A crash after the backup and before the rewrite: the next run rewrites and keeps the first backup.
+func TestMigrateV01AfterACrash(t *testing.T) {
+	dir := writeSample(t, v01)
+	backup := filepath.Join(dir, V01Backup)
+	if err := os.WriteFile(backup, []byte(v01), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MigrateV01(dir)
+	if err != nil || res.Backup != "" || !res.RelayRemoved {
+		t.Fatalf("= %+v, %v", res, err)
+	}
+	if c, err := Load(dir); err != nil || c.HasRelay() {
+		t.Errorf("config = %+v, %v", c, err)
+	}
+	// A crash after the rewrite and before the token was deleted: only the token goes.
+	if err := os.WriteFile(filepath.Join(dir, relayTokenFile), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := MigrateV01(dir); err != nil || res != (MigrateResult{TokenDeleted: true}) {
+		t.Errorf("= %+v, %v", res, err)
+	}
+}
+
+func TestMigrateV01FreshDataDir(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteRelayToken(dir, "tok"); err != nil {
-		t.Fatal(err)
+	if res, err := MigrateV01(dir); err != nil || res != (MigrateResult{}) {
+		t.Errorf("= %+v, %v", res, err)
 	}
-	if tok, err := ReadRelayToken(dir); err != nil || tok != "tok" {
-		t.Fatalf("token = %q, %v", tok, err)
-	}
-	if err := os.Chmod(filepath.Join(dir, RelayTokenFile), 0o644); err != nil { //nolint:gosec // deliberately loose
-		t.Fatal(err)
-	}
-	if _, err := ReadRelayToken(dir); err == nil || !strings.Contains(err.Error(), "chmod 600") {
-		t.Fatalf("err = %v", err)
+	if _, err := os.Stat(filepath.Join(dir, FileName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a fresh dir got a homed.yaml: %v", err)
 	}
 }
 
@@ -261,6 +280,9 @@ func TestInstanceIDIsStable(t *testing.T) {
 	}
 	if a != b || len(a) != 32 {
 		t.Fatalf("ids %q and %q", a, b)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, InstanceIDFile)); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, %v", fi, err)
 	}
 }
 
@@ -359,12 +381,12 @@ func TestLoopbackPort(t *testing.T) {
 	}{
 		{"127.0.0.1:8080", 8080, false},
 		{"localhost:8081", 8081, false},
-		// The relay forwards to 127.0.0.1 only, so other loopback addresses would be unreachable through it.
+		// cloudflared forwards to 127.0.0.1 only, so other loopback addresses would be unreachable through it.
 		{"[::1]:9000", 0, true},
 		{"127.0.0.2:8080", 0, true},
 		{"127.1:8080", 0, true},
 		{"0.0.0.0:8080", 0, true},
-		{"192.168.68.63:8080", 0, true},
+		{"192.0.2.10:8080", 0, true},
 		{"127.0.0.1", 0, true},
 		{"127.0.0.1:0", 0, true},
 		{"127.0.0.1:http", 0, true},
@@ -373,6 +395,20 @@ func TestLoopbackPort(t *testing.T) {
 		port, err := LoopbackPort(tt.addr)
 		if (err != nil) != tt.wantErr || port != tt.port {
 			t.Errorf("LoopbackPort(%q) = %d, %v", tt.addr, port, err)
+		}
+	}
+}
+
+func TestCheckHostname(t *testing.T) {
+	for _, ok := range []string{"home.example.com", "a.b", "x-1.example.com"} {
+		if err := CheckHostname(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "home", "Home.example.com", "-a.example.com", "a..example.com", "a.example.com.",
+		"https://a.example.com", "a.example.com/x", "a_b.example.com"} {
+		if err := CheckHostname(bad); err == nil {
+			t.Errorf("%q accepted", bad)
 		}
 	}
 }

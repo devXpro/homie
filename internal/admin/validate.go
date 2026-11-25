@@ -10,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/devXpro/homie/internal/hub"
+	"github.com/devXpro/homie/internal/wire"
 )
 
 // Argument validation for admin tool calls with github.com/google/jsonschema-go (ADMIN-API §3.5). The library stops
@@ -44,13 +45,13 @@ func (s *Server) resolvedSchema(t hub.Tool) *schemaCache {
 
 // validateArgs checks args against the tool's input schema and returns the failures; nil means valid. A schema the
 // library cannot use lets the call through: the plugin validates again.
-func (s *Server) validateArgs(t hub.Tool, args json.RawMessage) []fieldError {
+func (s *Server) validateArgs(t hub.Tool, args json.RawMessage) []wire.Field {
 	var instance any
 	if err := json.Unmarshal(args, &instance); err != nil {
-		return []fieldError{{Path: "/args", Code: "type", Message: "must be a JSON object"}}
+		return []wire.Field{{Path: "/args", Code: "type", Message: "must be a JSON object"}}
 	}
 	if _, ok := instance.(map[string]any); !ok {
-		return []fieldError{{Path: "/args", Code: "type", Message: "must be a JSON object"}}
+		return []wire.Field{{Path: "/args", Code: "type", Message: "must be a JSON object"}}
 	}
 	c := s.resolvedSchema(t)
 	if c.resolved == nil {
@@ -72,7 +73,7 @@ var (
 )
 
 // describe turns the library's error text into fields.
-func describe(root *jsonschema.Schema, msg string) []fieldError {
+func describe(root *jsonschema.Schema, msg string) []wire.Field {
 	// The deepest "validating <path>" names the failing schema; the text after it is "<keyword>: <detail>".
 	schemaPath := ""
 	rest := msg
@@ -90,23 +91,23 @@ func describe(root *jsonschema.Schema, msg string) []fieldError {
 
 	switch {
 	case keyword == "required":
-		var out []fieldError
+		var out []wire.Field
 		for _, m := range quotedRe.FindAllStringSubmatch(detail, -1) {
-			out = append(out, fieldError{Path: instPath + "/" + escapePointer(m[1]), Code: "required", Message: "is required"})
+			out = append(out, wire.Field{Path: instPath + "/" + escapePointer(m[1]), Code: "required", Message: "is required"})
 		}
 		if len(out) > 0 {
 			return out
 		}
 	case strings.HasPrefix(rest, "unexpected additional properties"):
-		var out []fieldError
+		var out []wire.Field
 		for _, m := range quotedRe.FindAllStringSubmatch(rest, -1) {
-			out = append(out, fieldError{Path: instPath + "/" + escapePointer(m[1]), Code: "additionalProperties", Message: "is not expected"})
+			out = append(out, wire.Field{Path: instPath + "/" + escapePointer(m[1]), Code: "additionalProperties", Message: "is not expected"})
 		}
 		if len(out) > 0 {
 			return out
 		}
 	}
-	return []fieldError{{Path: pathOrArgs(instPath), Code: codeOf(keyword), Message: message(sub, keyword, rest)}}
+	return []wire.Field{{Path: pathOrArgs(instPath), Code: codeOf(keyword), Message: message(sub, keyword, rest)}}
 }
 
 func pathOrArgs(p string) string {

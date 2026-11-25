@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/devXpro/homie/internal/audit"
-	"github.com/devXpro/homie/internal/gateway"
 	"github.com/devXpro/homie/internal/hub"
 	"github.com/devXpro/homie/internal/plugins"
+	"github.com/devXpro/homie/internal/wire"
 )
 
 // Admin tool calls (ADMIN-API §3.5, "Tool call rules"): validated against the input schema, detached from the HTTP
@@ -75,43 +75,56 @@ type callEntry struct {
 }
 
 func (s *Server) startCall(q *request) error {
-	name := q.r.PathValue("name")
 	var body struct {
 		Args json.RawMessage `json:"args"`
 	}
 	if err := decode(q, &body); err != nil {
 		return err
 	}
-	args := body.Args
+	e, err := s.beginCall(q, q.r.PathValue("name"), body.Args)
+	if err != nil {
+		return err
+	}
+	if q.r.URL.Query().Get("wait") != "1" {
+		return s.writeJSON(q, http.StatusAccepted, s.callSnapshot(e))
+	}
+	select {
+	case <-e.done:
+		return s.writeJSON(q, http.StatusOK, s.callSnapshot(e))
+	case <-q.ctx.Done():
+		return nil
+	}
+}
+
+// beginCall starts a call of tool name with args (nil is {}) for the caller of q, detached from q: the checks, then
+// the call on its own goroutine. The admin socket's `tool call` waits for it like ?wait=1.
+func (s *Server) beginCall(q *request, name string, args json.RawMessage) (*callEntry, error) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage(`{}`)
 	}
 	if len(args) > maxArgsBytes {
-		return errorf(http.StatusRequestEntityTooLarge, "too_large", "the tool arguments are too large")
+		return nil, errorf(http.StatusRequestEntityTooLarge, "too_large", "the tool arguments are too large")
 	}
 	tool, ok := s.findTool(name)
 	if !ok {
-		return errorf(http.StatusNotFound, "unknown_tool", "no such tool")
+		return nil, errorf(http.StatusNotFound, "unknown_tool", "no such tool")
 	}
 	if fields := s.validateArgs(tool, args); len(fields) > 0 {
-		return &apiError{
-			status: http.StatusBadRequest, code: "invalid_args",
-			message: strings.TrimPrefix(fields[0].Path, "/") + ": " + fields[0].Message, fields: fields,
+		return nil, &wire.Error{
+			Status: http.StatusBadRequest, Code: "invalid_args",
+			Message: strings.TrimPrefix(fields[0].Path, "/") + ": " + fields[0].Message, Fields: fields,
 		}
 	}
 	if !s.pluginUp(tool.PluginID) {
-		return errorf(http.StatusServiceUnavailable, "plugin_unavailable", "the plugin is not running")
+		return nil, errorf(http.StatusServiceUnavailable, "plugin_unavailable", "the plugin is not running")
 	}
-	wait := q.r.URL.Query().Get("wait") == "1"
-	caller := hub.Caller{Person: q.p.Person.Name, Via: q.via()}
+	caller := s.caller(q)
 
 	s.mu.Lock()
 	if id, busy := s.running[name]; busy {
 		s.mu.Unlock()
-		return &apiError{
-			status: http.StatusConflict, code: "call_running", message: "this tool is already running",
-			extra: map[string]string{"callId": id},
-		}
+		return nil, &wire.Error{Status: http.StatusConflict, Code: "call_running", Message: "this tool is already running",
+			Extra: map[string]string{"callId": id}}
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	start := s.now()
@@ -142,16 +155,7 @@ func (s *Server) startCall(q *request) error {
 		res, err := s.invoke(ctx, caller, tool, args)
 		s.finishCall(e, res, err)
 	}()
-
-	if !wait {
-		return s.writeJSON(q, http.StatusAccepted, snapshot)
-	}
-	select {
-	case <-e.done:
-		return s.writeJSON(q, http.StatusOK, s.callSnapshot(e))
-	case <-q.r.Context().Done():
-		return nil
-	}
+	return e, nil
 }
 
 func (s *Server) findTool(name string) (hub.Tool, bool) {
@@ -185,7 +189,7 @@ func (s *Server) invoke(ctx context.Context, caller hub.Caller, tool hub.Tool, a
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
 		err = errors.Join(err, context.DeadlineExceeded)
 	}
-	if s.opts.Audit != nil {
+	if s.opts.Activity != nil {
 		e := hub.AuditEntry{
 			At: start, Caller: caller, Tool: tool.Name, Args: audit.Redact(args),
 			OK: err == nil && !res.IsError, Duration: s.now().Sub(start),
@@ -198,9 +202,9 @@ func (s *Server) invoke(ctx context.Context, caller hub.Caller, tool hub.Tool, a
 		case err == nil && res.IsError && res.Text == "":
 			e.Error = failureText(res)
 		default:
-			e.Error = gateway.AuditError(res, err)
+			e.Error = audit.ErrorText(res, err)
 		}
-		s.opts.Audit.Record(context.WithoutCancel(ctx), e)
+		s.opts.Activity.Record(context.WithoutCancel(ctx), e)
 	}
 	return res, err
 }

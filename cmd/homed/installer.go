@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devXpro/mcp-gatekeeper/core"
+
 	"github.com/devXpro/homie/internal/admin"
 	"github.com/devXpro/homie/internal/install"
 	"github.com/devXpro/homie/internal/plugins"
@@ -22,7 +24,7 @@ const restartDelay = time.Second
 // installer adapts internal/install to the admin (admin.Installer): the job steps, the store row and the running
 // plugin kept in step with the files, and installer errors mapped to the job error codes.
 type installer struct {
-	st      store.Store
+	st      *store.Store
 	runtime *pluginRuntime
 	host    *plugins.Host
 	inst    *install.Installer
@@ -62,7 +64,7 @@ func (l *pluginLocks) lock(id string) (unlock func(), err error) {
 
 var _ admin.Installer = (*installer)(nil)
 
-func newInstaller(dir string, st store.Store, rt *pluginRuntime, host *plugins.Host, restart func()) *installer {
+func newInstaller(dir string, st *store.Store, rt *pluginRuntime, host *plugins.Host, restart func()) *installer {
 	cl := install.NewClient(install.TokenFromEnv())
 	return &installer{
 		st: st, runtime: rt, host: host, restart: restart,
@@ -131,7 +133,7 @@ func (i *installer) Install(ctx context.Context, repo, version, id string, repor
 	defer unlock()
 	if _, err := i.st.Plugins().Get(ctx, id); err == nil {
 		return "", &admin.JobError{Code: "conflict", Message: fmt.Sprintf("a plugin with the id %q is installed", id)}
-	} else if !errors.Is(err, store.ErrNotFound) {
+	} else if !errors.Is(err, core.ErrNotFound) {
 		return "", err
 	}
 	h := hooks(report)
@@ -215,7 +217,7 @@ func (i *installer) Remove(ctx context.Context, id string, keepData bool, report
 	}
 	defer unlock()
 	report(admin.JobReport{Step: "stop"})
-	if err := i.st.Plugins().Delete(ctx, id); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err := i.st.Plugins().Delete(ctx, id); err != nil && !errors.Is(err, core.ErrNotFound) {
 		return err
 	}
 	if err := i.runtime.Apply(ctx); err != nil {

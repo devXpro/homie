@@ -11,14 +11,15 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 
+	"github.com/devXpro/mcp-gatekeeper/core"
+	"github.com/devXpro/mcp-gatekeeper/mcpguard"
+
 	"github.com/devXpro/homie/internal/hub"
-	"github.com/devXpro/homie/internal/keys"
 )
 
 // fakeHost is a hub.ToolHost with a fixed tool set that tests can swap. Calls are steered by the "mode" argument.
@@ -165,62 +166,106 @@ func baseTools() []hub.Tool {
 	}
 }
 
-type env struct {
-	host   *fakeHost
-	audit  *recorder
-	gw     *gateway
-	srv    *httptest.Server
-	roman  string // plugins: *
-	tanya  string // plugins: tv
-	guest  string // plugins: none
-	romanB string // Roman's second key
+// fakeTokens is the OAuth server as the guard sees it: a token stands for one access.
+type fakeTokens map[string]core.AccessInfo
+
+func (f fakeTokens) ValidateAccess(_ context.Context, token string, r core.ResourceID) (core.AccessInfo, error) {
+	info, ok := f[token]
+	if !ok || info.ResourceID != r {
+		return core.AccessInfo{}, core.ErrInvalidToken
+	}
+	return info, nil
 }
+
+// fakePeople is the person store as the guard sees it.
+type fakePeople struct {
+	mu sync.Mutex
+	m  map[core.PersonID]core.Person
+}
+
+func (f *fakePeople) Get(_ context.Context, id core.PersonID) (core.Person, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.m[id]
+	if !ok {
+		return core.Person{}, core.ErrNotFound
+	}
+	return p, nil
+}
+
+const account = core.AccountID("acc_home")
+
+// The people of the test home and their tokens: Alice owns it (Claude), Carol may use the TV (ChatGPT), Dora has no
+// permission, Erin has "all"; "other" is a token for another resource.
+type env struct {
+	host  *fakeHost
+	audit *recorder
+	gw    *Gateway
+	srv   *httptest.Server
+	now   time.Time
+}
+
+const (
+	tokAlice = "tok-alice"
+	tokCarol = "tok-carol"
+	tokDora  = "tok-dora"
+	tokErin  = "tok-erin"
+	tokOther = "tok-other"
+)
 
 func newEnv(t *testing.T, opts Options) *env {
 	t.Helper()
-	e := &env{host: newFakeHost(baseTools()), audit: &recorder{}}
-	var sums [4]string
-	e.roman, sums[0] = keys.Generate()
-	e.romanB, sums[1] = keys.Generate()
-	e.tanya, sums[2] = keys.Generate()
-	e.guest, sums[3] = keys.Generate()
-	roman := hub.Person{ID: "roman", Name: "Roman", Plugins: []string{"*"}}
-	resolver, err := keys.New([]keys.Entry{
-		{Person: roman, SHA256: sums[0]},
-		{Person: roman, SHA256: sums[1]},
-		{Person: hub.Person{ID: "tanya", Name: "Tanya", Plugins: []string{"tv", "tv"}}, SHA256: sums[2]},
-		{Person: hub.Person{ID: "guest", Name: "Guest"}, SHA256: sums[3]},
+	e := &env{host: newFakeHost(baseTools()), audit: &recorder{}, now: time.Now()}
+	people := &fakePeople{m: map[core.PersonID]core.Person{}}
+	tokens := fakeTokens{}
+	add := func(tok string, p core.Person, assistant core.Assistant, resource core.ResourceID) {
+		p.AccountID = account
+		people.m[p.ID] = p
+		tokens[tok] = core.AccessInfo{GrantID: core.GrantID("grt_" + strings.TrimPrefix(tok, "tok-")), PersonID: p.ID,
+			AccountID: account, ResourceID: resource, Assistant: assistant, ExpiresAt: e.now.Add(time.Hour)}
+	}
+	add(tokAlice, core.Person{ID: "per_alice", Name: "Alice", Role: core.RoleOwner}, core.AssistantClaude, ResourceID)
+	add(tokCarol, core.Person{ID: "per_carol", Name: "Carol", Role: core.RoleMember, Permissions: []string{"plugin:tv"}},
+		core.AssistantChatGPT, ResourceID)
+	add(tokDora, core.Person{ID: "per_dora", Name: "Dora", Role: core.RoleMember}, core.AssistantChatGPT, ResourceID)
+	add(tokErin, core.Person{ID: "per_erin", Name: "Erin", Role: core.RoleMember, Permissions: []string{core.PermissionAll}},
+		core.AssistantChatGPT, ResourceID)
+	add(tokOther, core.Person{ID: "per_olga", Name: "Olga", Role: core.RoleOwner}, core.AssistantClaude, "other")
+	if opts.HomeName == "" {
+		opts.HomeName = "Дом"
+	}
+	if opts.Version == "" {
+		opts.Version = "0.2.0"
+	}
+	e.gw = New(e.host, e.audit, opts)
+	guard, err := mcpguard.New(mcpguard.Options{
+		Site:  core.Site{PublicURL: "https://home.example.com", RPID: "home.example.com", ClientIP: core.ClientIPRemote},
+		Paths: Paths, Tokens: tokens, People: people, Resources: e.gw.Catalog(),
+		Brand: core.Brand{ResourceNoun: "home"}, InFlightPerResource: 8, InFlightKey: mcpguard.PerPerson,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.HomeName == "" {
-		opts.HomeName = "Мой шалаш"
-	}
-	if opts.InstanceID == "" {
-		opts.InstanceID = "inst-123"
-	}
-	if opts.Version == "" {
-		opts.Version = "0.1.0"
-	}
-	e.gw = New(e.host, resolver, e.audit, opts).(*gateway)
-	e.srv = httptest.NewServer(e.gw)
+	mux := http.NewServeMux()
+	e.gw.Routes(guard).RegisterRoutes(mux)
+	e.srv = httptest.NewServer(mux)
 	t.Cleanup(e.srv.Close)
 	return e
 }
 
 // do sends a request and returns the status, headers and body.
-func (e *env) do(t *testing.T, method, path, key, body string) (int, http.Header, string) {
+func (e *env) do(t *testing.T, method, path, token, body string) (int, http.Header, string) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), method, e.srv.URL+path, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
 	}
 	resp, err := e.srv.Client().Do(req)
 	if err != nil {
@@ -233,15 +278,3 @@ func (e *env) do(t *testing.T, method, path, key, body string) (int, http.Header
 	}
 	return resp.StatusCode, resp.Header, string(b)
 }
-
-// clock is a settable time source that is safe to read from the server's goroutines.
-type clock struct{ ns atomic.Int64 }
-
-func newClock(at time.Time) *clock {
-	c := &clock{}
-	c.ns.Store(at.UnixNano())
-	return c
-}
-
-func (c *clock) now() time.Time      { return time.Unix(0, c.ns.Load()) }
-func (c *clock) add(d time.Duration) { c.ns.Add(int64(d)) }

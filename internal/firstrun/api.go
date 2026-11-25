@@ -7,160 +7,187 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/devXpro/homie/internal/auth"
-	"github.com/devXpro/homie/internal/auth/wire"
-	"github.com/devXpro/homie/internal/relay"
-	"github.com/devXpro/homie/internal/store"
+	"github.com/devXpro/mcp-gatekeeper/core"
+	"github.com/devXpro/mcp-gatekeeper/tunnel/cloudflare"
+
+	"github.com/devXpro/homie/internal/config"
+	"github.com/devXpro/homie/internal/tunnel"
+	"github.com/devXpro/homie/internal/wire"
 )
 
-// connectingGrace: a disconnected relay counts as connecting this long after its last change (ADMIN-API §2).
-const connectingGrace = 30 * time.Second
-
-// relayJSON is RelayStatus (ADMIN-API §2), built the way internal/admin builds it.
-type relayJSON struct {
-	Configured bool           `json:"configured"`
-	Domain     string         `json:"domain,omitempty"`
-	PublicURL  string         `json:"publicUrl,omitempty"`
-	State      string         `json:"state"`
-	Since      string         `json:"since,omitempty"`
-	LastError  string         `json:"lastError,omitempty"`
-	SelfCheck  *selfCheckJSON `json:"selfCheck,omitempty"`
-}
-
-type selfCheckJSON struct {
-	OK        bool   `json:"ok"`
-	CheckedAt string `json:"checkedAt"`
-	Error     string `json:"error,omitempty"`
-}
-
-// relayStatus returns RelayStatus and whether the setup link can be made: connected, and the last self-check proved
-// that https://<domain> reaches this hub.
-func (s *Server) relayStatus() (out relayJSON, ready bool) {
-	domain := s.relay.Domain()
-	if domain == "" {
-		return relayJSON{State: "not_configured"}, false
-	}
-	st := s.relay.Status()
-	out = relayJSON{
-		Configured: true, Domain: domain, PublicURL: "https://" + domain, Since: wire.OptTime(st.Since),
-		LastError: st.LastError,
-	}
-	switch {
-	case st.Connected:
-		out.State = "connected"
-	case st.LastError == "" || !st.Since.IsZero() && s.now().Sub(st.Since) < connectingGrace:
-		out.State = "connecting"
-	default:
-		out.State = "offline"
-	}
-	checkedAt, failure := s.relay.SelfCheckResult()
-	if !checkedAt.IsZero() {
-		out.SelfCheck = &selfCheckJSON{OK: failure == "", CheckedAt: wire.Time(checkedAt), Error: failure}
-	}
-	return out, st.Connected && out.SelfCheck != nil && out.SelfCheck.OK
-}
+// The steps of the page (GET /api/firstrun/state).
+const (
+	stepPIN        = "pin"        // no cookie yet
+	stepTunnel     = "tunnel"     // nothing connects the home to the internet: pick "my domain" or "try without one"
+	stepConnecting = "connecting" // a connect runs, or the tunnel is starting or its self-check does not pass yet
+	stepLink       = "link"       // the tunnel is up: issue the setup link
+)
 
 type stateJSON struct {
-	Step     string     `json:"step"`
-	HomeName string     `json:"homeName,omitempty"`
-	Relay    *relayJSON `json:"relay,omitempty"`
+	Step        string              `json:"step"`
+	HomeName    string              `json:"homeName,omitempty"`
+	OwnerExists *bool               `json:"ownerExists,omitempty"`
+	Tunnel      *tunnel.StatusJSON  `json:"tunnel,omitempty"`
+	Connect     *tunnel.ConnectJSON `json:"connect,omitempty"`
 }
 
-// state is GET /api/firstrun/state: "pin" without the cookie, else relay → connecting → link.
+// tunnelReady reports whether the setup link can be made: a tunnel is up and its self-check passed.
+func tunnelReady(st tunnel.Status) bool {
+	return st.Mode != tunnel.ModeOff && st.URL != "" && st.State == string(cloudflare.StateConnected)
+}
+
+// step is where the page stands, from the tunnel and the last connect.
+func step(st tunnel.Status, job *tunnel.ConnectJob) string {
+	switch {
+	case job != nil && job.State == tunnel.JobRunning:
+		return stepConnecting
+	case tunnelReady(st):
+		return stepLink
+	case st.Mode == tunnel.ModeOff:
+		return stepTunnel
+	}
+	return stepConnecting
+}
+
+// snapshot is the tunnel and the last connect as the page shows them.
+func (s *Server) snapshot() (tunnel.Status, *tunnel.ConnectJob) {
+	st := s.tun.Status()
+	if job, ok := s.tun.Job(); ok {
+		return st, &job
+	}
+	return st, nil
+}
+
+// state is GET /api/firstrun/state: "pin" without the cookie, else tunnel → connecting → link.
 func (s *Server) state(w http.ResponseWriter, r *http.Request) error {
 	if !s.signedIn(r) {
-		wire.WriteJSON(w, http.StatusOK, stateJSON{Step: "pin"})
+		wire.WriteJSON(w, http.StatusOK, stateJSON{Step: stepPIN})
 		return nil
 	}
-	hs, err := s.st.Settings().Get(r.Context())
+	ctx := r.Context()
+	exists, err := s.home.OwnerExists(ctx)
 	if err != nil {
 		return err
 	}
-	out := stateJSON{HomeName: hs.HomeName}
-	rs, ready := s.relayStatus()
-	switch {
-	case !rs.Configured:
-		out.Step = "relay"
-	case ready:
-		out.Step, out.Relay = "link", &rs
-	default:
-		out.Step, out.Relay = "connecting", &rs
+	st, job := s.snapshot()
+	ts := st.JSON()
+	out := stateJSON{Step: step(st, job), HomeName: s.home.HomeName(ctx), OwnerExists: &exists, Tunnel: &ts}
+	if job != nil {
+		cj := job.JSON()
+		out.Connect = &cj
 	}
 	wire.WriteJSON(w, http.StatusOK, out)
 	return nil
 }
 
-var errRelayConfigured = wire.Errorf(http.StatusConflict, "conflict",
-	"homed already has a relay; change it on the home box with `homed relay connect -`")
+type tunnelAnswer struct {
+	Tunnel  tunnel.StatusJSON   `json:"tunnel"`
+	Connect *tunnel.ConnectJSON `json:"connect,omitempty"`
+}
 
-// connect is POST /api/firstrun/relay: the relay code of a home that has none yet. A configured relay is never
-// replaced from this plain-http page (409 conflict); that is `homed relay connect -` on the home box, or a step-up in
-// the admin. Any domain is fine for the first one: nobody has a passkey yet that a new relying party could lock out.
+// connect is POST /api/firstrun/tunnel: {"mode":"named","hostname":…,"overwriteDns"?} connects the owner's domain on a
+// hub with no tunnel or a quick one; {"mode":"quick"} starts a quick tunnel on a hub with none. A connected domain is
+// never replaced from this plain-http page (409 conflict): that is `homed cloudflare connect` on the home box.
 func (s *Server) connect(w http.ResponseWriter, r *http.Request) error {
 	var body struct {
-		Code string `json:"code"`
+		Mode         string `json:"mode"`
+		Hostname     string `json:"hostname"`
+		OverwriteDNS bool   `json:"overwriteDns"`
 	}
 	if err := wire.Decode(w, r, &body); err != nil {
 		return err
 	}
-	code, err := relay.ParseCode(body.Code)
-	if err != nil {
-		return wire.Invalid("/code", "invalid", err.Error()) // ParseCode errors never contain the token
-	}
 	ctx := r.Context()
 	client := clientOf(r)
-	s.connectMu.Lock()
-	defer s.connectMu.Unlock()
-	if s.relay.Domain() != "" {
-		s.log.Warn("firstrun: a relay code was refused, homed has a relay", "client", client)
-		return errRelayConfigured
+	s.tunnelMu.Lock()
+	defer s.tunnelMu.Unlock()
+	st := s.tun.Status()
+	var answer tunnelAnswer
+	switch body.Mode {
+	case tunnel.ModeNamed:
+		host := strings.ToLower(strings.TrimSpace(body.Hostname))
+		if err := config.CheckHostname(host); err != nil {
+			return wire.Invalid("/hostname", "format", err.Error())
+		}
+		if st.Mode == tunnel.ModeNamed {
+			s.log.Warn("firstrun: a domain change was refused, a domain is connected", "client", client)
+			return errDomainConnected
+		}
+		job, err := s.tun.Connect(host, body.OverwriteDNS)
+		switch {
+		case errors.Is(err, cloudflare.ErrHostname):
+			return wire.Invalid("/hostname", "format", err.Error())
+		case errors.Is(err, core.ErrConflict):
+			return wire.Errorf(http.StatusConflict, "conflict", "a connect is running already")
+		case err != nil:
+			return err
+		}
+		s.home.Audit(ctx, core.AuditEntry{At: s.now(), Action: "tunnel.connect", Target: host,
+			Detail: map[string]string{"via": "firstrun", "client": client}, IP: client})
+		s.log.Info("firstrun: connecting a domain", "hostname", host, "client", client)
+		cj := job.JSON()
+		answer.Connect = &cj
+	case tunnel.ModeQuick:
+		if st.Mode != tunnel.ModeOff {
+			return wire.Errorf(http.StatusConflict, "conflict", "the home has a tunnel already")
+		}
+		if err := s.tun.Quick(); err != nil {
+			if errors.Is(err, core.ErrConflict) {
+				return wire.Errorf(http.StatusConflict, "conflict", err.Error())
+			}
+			return err
+		}
+		s.home.Audit(ctx, core.AuditEntry{At: s.now(), Action: "tunnel.quick",
+			Detail: map[string]string{"via": "firstrun", "client": client}, IP: client})
+		s.log.Info("firstrun: quick tunnel started", "client", client)
+	default:
+		return wire.Invalid("/mode", "enum", `must be "named" or "quick"`)
 	}
-	if err := s.relay.Connect(context.WithoutCancel(ctx), code); err != nil {
-		return fmt.Errorf("firstrun: connect the relay: %w", err)
-	}
-	s.record(ctx, store.AuditRecord{At: s.now(), Via: "admin", Action: "relay.change", Target: code.Domain, OK: true,
-		Args: clientDetails(client)})
-	s.log.Info("firstrun: relay code applied", "domain", code.Domain, "client", client)
-	rs, _ := s.relayStatus()
-	wire.WriteJSON(w, http.StatusAccepted, rs)
+	answer.Tunnel = s.tun.Status().JSON()
+	wire.WriteJSON(w, http.StatusAccepted, answer)
 	return nil
 }
 
-var errRelayNotReady = wire.Errorf(http.StatusConflict, "relay_not_ready",
-	"the relay is not connected yet, or https://<domain> does not reach this hub")
+var errDomainConnected = wire.Errorf(http.StatusConflict, "conflict",
+	"the home's domain is connected; change it on the home box with `homed cloudflare connect <host>`")
 
-// link is POST /api/firstrun/link: a new setup link for the relay domain, valid LinkTTL (3 minutes). Every call
-// revokes the older links and changes the PIN.
+var errTunnelNotReady = wire.Errorf(http.StatusConflict, "tunnel_not_ready",
+	"the tunnel is not up yet, or https://<host> does not reach this hub")
+
+// link is POST /api/firstrun/link: a new setup link for the current public URL, valid LinkTTL (3 minutes). Every call
+// revokes the older links and changes the PIN. After a quick tunnel's URL changed, it is the link that reconnects the
+// owner, whose passkeys of the old URL no longer count.
 func (s *Server) link(w http.ResponseWriter, r *http.Request) error {
 	if err := wire.Decode(w, r, &struct{}{}); err != nil {
 		return err
 	}
-	rs, ready := s.relayStatus()
-	if !ready {
-		return errRelayNotReady
+	if !tunnelReady(s.tun.Status()) {
+		return errTunnelNotReady
 	}
+	ctx := r.Context()
 	client := clientOf(r)
-	l, err := auth.NewSetupLink(r.Context(), s.st, s.audit,
-		auth.LinkRequest{Origin: auth.ForDomain(rs.Domain).Origin, Via: "admin", Client: client, TTL: LinkTTL}, s.now())
+	url, err := s.home.SetupLink(ctx, LinkTTL)
+	if errors.Is(err, core.ErrConflict) {
+		return wire.Errorf(http.StatusGone, "setup_done", "the owner can sign in already; this page is closed")
+	}
 	if err != nil {
 		return err
 	}
-	s.log.Info("firstrun: setup link issued", "client", client, "expires", l.ExpiresAt)
+	expires := s.now().Add(LinkTTL)
+	s.home.Audit(ctx, core.AuditEntry{At: s.now(), Action: "firstrun.link",
+		Detail: map[string]string{"client": client, "expires_at": wire.Time(expires)}, IP: client})
+	s.log.Info("firstrun: setup link issued", "client", client, "expires", expires)
 	s.rotatePIN("a setup link was issued")
-	wire.WriteJSON(w, http.StatusOK, map[string]string{"url": l.URL, "expiresAt": wire.Time(l.ExpiresAt)})
+	wire.WriteJSON(w, http.StatusOK, map[string]string{"url": url, "expiresAt": wire.Time(expires)})
 	return nil
 }
 
-// clientDetails names the client in an audit record.
-func clientDetails(client string) []byte {
-	b, _ := wire.Marshal(map[string]string{"client": client})
-	return b
-}
-
-// events is GET /api/firstrun/events: server-sent "relay" events with the full RelayStatus whenever it changes. It
-// ends when the client goes, the cookie expires or the home gets its owner.
+// events is GET /api/firstrun/events: server-sent "tunnel" (TunnelStatus) and "connect" (ConnectJob) events whenever
+// one changes, each once at the start. It ends when the client goes, the cookie expires, the page closes or the owner
+// can sign in.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) error {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -173,20 +200,33 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) error {
 		return nil //nolint:nilerr // the client is gone; nothing to answer
 	}
 	var (
-		seq  int
-		last []byte
+		seq                 int
+		lastTun, lastConn   []byte
+		sendTunnel, sendJob = true, true
 	)
-	send := func() error {
-		rs, _ := s.relayStatus()
-		b, err := wire.Marshal(rs)
-		if err != nil || bytes.Equal(b, last) {
-			return err
-		}
-		last, seq = b, seq+1
-		if _, err := fmt.Fprintf(w, "id: %d\nevent: relay\ndata: %s\n\n", seq, b); err != nil {
+	frame := func(typ string, b []byte) error {
+		seq++
+		if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", seq, typ, b); err != nil {
 			return err
 		}
 		flusher.Flush()
+		return nil
+	}
+	send := func() error {
+		st, job := s.snapshot()
+		if b, err := wire.Marshal(st.JSON()); err == nil && (sendTunnel || !bytes.Equal(b, lastTun)) {
+			lastTun, sendTunnel = b, false
+			if err := frame("tunnel", b); err != nil {
+				return err
+			}
+		}
+		if job == nil {
+			return nil
+		}
+		if b, err := wire.Marshal(job.JSON()); err == nil && (sendJob || !bytes.Equal(b, lastConn)) {
+			lastConn, sendJob = b, false
+			return frame("connect", b)
+		}
 		return nil
 	}
 	if send() != nil {
@@ -201,11 +241,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) error {
 		case <-ctx.Done():
 			return nil
 		case <-poll.C:
-			if !s.signedIn(r) || send() != nil {
+			if !s.signedIn(r) || s.isClosed() || send() != nil {
 				return nil
 			}
 		case <-ping.C:
-			if ready, err := auth.OwnerReady(ctx, s.st, s.rpID()); err != nil || ready || s.isClosed() {
+			if done(ctx, s.home) {
 				return nil
 			}
 			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
@@ -216,15 +256,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) error {
 	}
 }
 
-// record writes an admin audit record; it outlives the request.
-func (s *Server) record(ctx context.Context, rec store.AuditRecord) {
-	rec.Kind = store.AuditAdmin
-	ctx = context.WithoutCancel(ctx)
-	if s.audit != nil {
-		s.audit.RecordAdmin(ctx, rec)
-		return
-	}
-	if _, err := s.st.Audit().Append(ctx, []store.AuditRecord{rec}); err != nil {
-		s.log.Error("firstrun: cannot store an audit record", "action", rec.Action, "err", err)
-	}
+// done reports whether the owner can sign in now (or it cannot be told): the stream has nothing left to say.
+func done(ctx context.Context, home Home) bool {
+	ready, err := home.OwnerReady(ctx)
+	return err != nil || ready
 }

@@ -47,10 +47,11 @@ type Result struct {
 	IsError    bool            // the tool ran and reported a failure
 }
 
-// Caller says who asked; it goes to the audit log and to the plugin as request _meta.
+// Caller says who asked; it goes to the activity log and to the plugin as request _meta (the name and Via only).
 type Caller struct {
-	Person string // display name, e.g. "Roman"
-	Via    string // "site", "mcp", "admin" or "cli"
+	Person   string // display name, e.g. "Alice"
+	PersonID string // the gatekeeper person id; empty for the CLI
+	Via      string // "chatgpt", "claude" (the MCP endpoint, by the assistant), "admin" or "cli"
 }
 
 // PluginState is the life state of one plugin process.
@@ -87,18 +88,6 @@ type ToolHost interface {
 	Status() []PluginStatus
 }
 
-// Person may use assistant tools through their own keys.
-type Person struct {
-	ID      string   // stable, e.g. "roman"
-	Name    string   // display name, e.g. "Roman"
-	Plugins []string // plugin ids this person may use; ["*"] means all
-}
-
-// KeyResolver maps a bearer key to its person.
-type KeyResolver interface {
-	ResolveKey(ctx context.Context, key string) (Person, error) // ErrUnknownKey when nothing matches
-}
-
 // AuditEntry is one tool call, as stored.
 type AuditEntry struct {
 	At       time.Time
@@ -118,5 +107,4 @@ type Auditor interface {
 var (
 	ErrUnknownTool = errors.New("unknown tool")
 	ErrPluginDown  = errors.New("plugin is not running")
-	ErrUnknownKey  = errors.New("unknown key")
 )

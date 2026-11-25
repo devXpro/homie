@@ -1,13 +1,21 @@
-// Package config reads and writes the hub's data dir (PLAN.md §5.6): homed.yaml, the relay token, the instance id
-// and the paths of the other files homed keeps there.
+// Package config reads and writes the hub's data dir: homed.yaml, the instance id, the instance lock and the paths of
+// the other files homed keeps there.
 //
-// From phase 2 on homed.yaml holds only what homed needs before its database opens: listen, setup_listen and the relay
-// domain. People, their key hashes, plugins and the home name live in homed.db. A phase 1 homed.yaml still has those
-// sections; homed imports them into the database once (store.ImportPhase1) and then ArchivePhase1 moves them out of
-// homed.yaml into homed.yaml.phase1, so an edit there can never look like it took effect.
+// homed.yaml holds only what homed needs before its database opens: listen, setup_listen and the tunnel (how homed
+// reaches the internet through Cloudflare). Plugins, people, the home name and the language live in homie.db.
+//
+//	listen: 127.0.0.1:8080        # loopback only; cloudflared, run by homed, forwards to it
+//	setup_listen: 0.0.0.0:8090    # the first-run page; default: the home network while no tunnel is configured
+//	tunnel:
+//	  mode: named                 # named (your domain), quick (a trycloudflare.com link, for trying) or off
+//	  hostname: home.example.com  # named only; written by `homed cloudflare connect`
+//	  cloudflared: /usr/local/bin/cloudflared   # optional; default: PATH, then next to homed
 //
 // homed.yaml is edited in place: Update rewrites only the top-level sections that changed, so comments and the order
-// of untouched sections survive a `homed relay connect`.
+// of untouched sections survive a `homed cloudflare connect`.
+//
+// MigrateV01 turns a v0.1 data dir into this one: v0.1's relay section goes (its homed.yaml is kept as
+// homed.yaml.v0.1), the relay token file is deleted and a tunnel section is added.
 package config
 
 import (
@@ -27,78 +35,92 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"go.yaml.in/yaml/v3"
-
-	"github.com/devXpro/homie/internal/relay"
 )
 
 // Files in the data dir.
 const (
 	FileName       = "homed.yaml"
-	RelayTokenFile = "relay-token"
 	InstanceIDFile = "instance-id"
-	SocketFile     = "homed.sock"
-	// DBFile is the SQLite database (phase 2): people, passkeys, sessions, keys, plugins, audit and settings.
-	DBFile = "homed.db"
-	// Phase1Backup receives the phase 1 sections of homed.yaml once they are imported (ArchivePhase1).
-	Phase1Backup = FileName + ".phase1"
-	// AuditDir held the phase 1 audit log (JSON lines); phase 2 writes the audit to DBFile.
-	AuditDir = "audit"
+	// SocketFile is the admin socket (the gatekeeper's adminsock): the homed CLI's way into the running hub.
+	SocketFile = "homed.sock"
+	// DBFile is the database: the gatekeeper's tables and the hub's (plugins, settings, activity).
+	DBFile = "homie.db"
+	// OldDBFile is v0.1's database; homed imports it once and renames it to OldDBFile + ".v0.1".
+	OldDBFile = "homed.db"
+	// TunnelDir holds the Cloudflare tunnel: config.yml, credentials.json and tunnel.json of a named tunnel, and the
+	// private HOME of the cloudflared child.
+	TunnelDir = "tunnel"
+	// LogsDir holds the plugins' logs and cloudflared.log.
+	LogsDir = "logs"
 	// InstanceLockFile is flocked by the running homed for its whole life (LockInstance).
 	InstanceLockFile = ".homed.lock"
-	lockFile         = ".homed.yaml.lock"
+	// V01Backup receives v0.1's homed.yaml as it was before MigrateV01 rewrote it.
+	V01Backup = FileName + ".v0.1"
+	// relayTokenFile was v0.1's relay secret; MigrateV01 deletes it.
+	relayTokenFile = "relay-token"
+	lockFile       = ".homed.yaml.lock"
 )
 
 // DefaultListen is the hub's address when homed.yaml sets none.
 const DefaultListen = "127.0.0.1:8080"
 
+// Tunnel modes.
+const (
+	// TunnelOff: no tunnel; the hub is not reachable from the internet (the first-run page connects one).
+	TunnelOff = "off"
+	// TunnelNamed: the owner's own domain through a named Cloudflare Tunnel (`homed cloudflare connect <host>`).
+	TunnelNamed = "named"
+	// TunnelQuick: a Cloudflare quick tunnel, a random trycloudflare.com link that changes at every restart; for trying.
+	TunnelQuick = "quick"
+)
+
 // Config is homed.yaml.
 type Config struct {
 	Listen string `yaml:"listen,omitempty"`
-	// SetupListen is the first-run page's address; empty means firstrun.DefaultListen (0.0.0.0:8090 while there is
-	// no relay, 127.0.0.1:8090 with one). The page runs only until the home has an owner with a passkey.
+	// SetupListen is the first-run page's address; empty means firstrun.DefaultListen (0.0.0.0:8090 while no tunnel
+	// is configured, 127.0.0.1:8090 with one).
 	SetupListen string `yaml:"setup_listen,omitempty"`
-	Relay       Relay  `yaml:"relay,omitempty"`
-
-	// The phase 1 sections: read once by the import into homed.db, then moved out by ArchivePhase1.
-	HomeName string   `yaml:"home_name,omitempty"`
-	Plugins  []Plugin `yaml:"plugins,omitempty"`
-	People   []Person `yaml:"people,omitempty"`
+	Tunnel      Tunnel `yaml:"tunnel,omitempty"`
+	// Relay is v0.1's relay section, read only so that an old file still loads: homed ignores it (with a warning,
+	// HasRelay) and MigrateV01 removes it.
+	Relay any `yaml:"relay,omitempty"`
 }
 
-// Relay is the relay the hub connects to; the token lives in the relay-token file.
-type Relay struct {
-	Domain string `yaml:"domain,omitempty"`
+// Tunnel is how homed reaches the internet: cloudflared, run by homed as a child process.
+type Tunnel struct {
+	// Mode is TunnelNamed, TunnelQuick or TunnelOff; empty is off.
+	Mode string `yaml:"mode,omitempty"`
+	// Hostname is the named tunnel's public host, e.g. home.example.com: the passkeys' relying party and the OAuth
+	// issuer. Required in named mode.
+	Hostname string `yaml:"hostname,omitempty"`
+	// Cloudflared is the cloudflared binary: an absolute path or a name looked up in PATH. Empty: "cloudflared" in
+	// PATH, then next to the homed binary.
+	Cloudflared string `yaml:"cloudflared,omitempty"`
 }
 
-// Plugin is one plugin executable.
-type Plugin struct {
-	ID      string   `yaml:"id"`
-	Command []string `yaml:"command,flow"`
+// ModeOrOff is Mode, with empty read as TunnelOff.
+func (t Tunnel) ModeOrOff() string {
+	if t.Mode == "" {
+		return TunnelOff
+	}
+	return t.Mode
 }
 
-// Person may call assistant tools with their keys.
-type Person struct {
-	ID      string   `yaml:"id"`
-	Name    string   `yaml:"name"`
-	Plugins []string `yaml:"plugins,flow"` // plugin ids, or ["*"] for all
-	Keys    []Key    `yaml:"keys,omitempty"`
-}
+// Configured reports whether a tunnel is set up (named or quick). While it is not, the first-run page may listen on
+// the home network.
+func (t Tunnel) Configured() bool { return t.ModeOrOff() != TunnelOff }
 
-// Key is one person key, stored as its hash.
-type Key struct {
-	SHA256  string    `yaml:"sha256"`
-	Label   string    `yaml:"label,omitempty"`
-	Created time.Time `yaml:"created,omitempty"`
-}
+var hostnameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
-var (
-	pluginIDRe = regexp.MustCompile(`^[a-z][a-z0-9]{1,15}$`)
-	personIDRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
-	sha256Re   = regexp.MustCompile(`^[0-9a-f]{64}$`)
-)
+// CheckHostname reports whether host is a full lower-case host name, e.g. home.example.com.
+func CheckHostname(host string) error {
+	if len(host) > 253 || !hostnameRe.MatchString(host) {
+		return fmt.Errorf("%q is not a full host name in lower case, e.g. home.example.com", host)
+	}
+	return nil
+}
 
 // ListenAddr returns Listen or DefaultListen.
 func (c *Config) ListenAddr() string {
@@ -108,30 +130,8 @@ func (c *Config) ListenAddr() string {
 	return DefaultListen
 }
 
-// Person returns the person with the id, or nil.
-func (c *Config) Person(id string) *Person {
-	for i := range c.People {
-		if c.People[i].ID == id {
-			return &c.People[i]
-		}
-	}
-	return nil
-}
-
-// Plugin returns the plugin with the id, or nil.
-func (c *Config) Plugin(id string) *Plugin {
-	for i := range c.Plugins {
-		if c.Plugins[i].ID == id {
-			return &c.Plugins[i]
-		}
-	}
-	return nil
-}
-
-// HasPhase1 reports whether homed.yaml still has a phase 1 section: home_name, plugins or people.
-func (c *Config) HasPhase1() bool {
-	return c.HomeName != "" || len(c.Plugins) > 0 || len(c.People) > 0
-}
+// HasRelay reports whether homed.yaml still has v0.1's relay section, which homed ignores.
+func (c *Config) HasRelay() bool { return c.Relay != nil }
 
 // Validate checks the whole config.
 func (c *Config) Validate() error {
@@ -145,58 +145,30 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
-	if c.Relay.Domain != "" {
-		if err := relay.ValidateDomain(c.Relay.Domain); err != nil {
-			return fmt.Errorf("relay: %w", err)
+	t := c.Tunnel
+	switch t.Mode {
+	case "", TunnelOff, TunnelQuick:
+	case TunnelNamed:
+		if t.Hostname == "" {
+			return errors.New("tunnel: mode named needs a hostname; connect one with: homed cloudflare connect <host>")
+		}
+	default:
+		return fmt.Errorf("tunnel: mode %q is not %s, %s or %s", t.Mode, TunnelNamed, TunnelQuick, TunnelOff)
+	}
+	if t.Hostname != "" {
+		if err := CheckHostname(t.Hostname); err != nil {
+			return fmt.Errorf("tunnel: hostname: %w", err)
 		}
 	}
-	seen := map[string]bool{}
-	for i, p := range c.Plugins {
-		if !pluginIDRe.MatchString(p.ID) {
-			return fmt.Errorf("plugins[%d]: id %q must match %s", i, p.ID, pluginIDRe)
-		}
-		if seen[p.ID] {
-			return fmt.Errorf("plugins: id %q is listed twice", p.ID)
-		}
-		seen[p.ID] = true
-		if len(p.Command) == 0 || p.Command[0] == "" {
-			return fmt.Errorf("plugin %q: command is empty", p.ID)
-		}
-	}
-	people := map[string]bool{}
-	hashes := map[string]bool{}
-	for i, p := range c.People {
-		if !personIDRe.MatchString(p.ID) {
-			return fmt.Errorf("people[%d]: id %q must match %s", i, p.ID, personIDRe)
-		}
-		if people[p.ID] {
-			return fmt.Errorf("people: id %q is listed twice", p.ID)
-		}
-		people[p.ID] = true
-		if strings.TrimSpace(p.Name) == "" {
-			return fmt.Errorf("person %q: name is empty", p.ID)
-		}
-		for _, pl := range p.Plugins {
-			if pl != "*" && !pluginIDRe.MatchString(pl) {
-				return fmt.Errorf("person %q: plugin %q is neither \"*\" nor a plugin id", p.ID, pl)
-			}
-		}
-		for j, k := range p.Keys {
-			if !sha256Re.MatchString(k.SHA256) {
-				return fmt.Errorf("person %q: keys[%d].sha256 must be 64 lowercase hex characters", p.ID, j)
-			}
-			if hashes[k.SHA256] {
-				return fmt.Errorf("person %q: keys[%d] is listed twice", p.ID, j)
-			}
-			hashes[k.SHA256] = true
-		}
+	if b := t.Cloudflared; b != "" && !filepath.IsAbs(b) && strings.ContainsRune(b, filepath.Separator) {
+		return fmt.Errorf("tunnel: cloudflared %q must be an absolute path or a name looked up in PATH", b)
 	}
 	return nil
 }
 
-// LoopbackPort checks that addr is 127.0.0.1:<port> or localhost:<port> and returns the port. The relay forwards to
+// LoopbackPort checks that addr is 127.0.0.1:<port> or localhost:<port> and returns the port. cloudflared forwards to
 // 127.0.0.1:<port> and the Host guard knows only that address, so other loopback addresses (127.0.0.2, [::1]) would
-// leave the hub unreachable through the relay; nothing else should reach the hub directly.
+// leave the hub unreachable through the tunnel; nothing else should reach the hub directly.
 func LoopbackPort(addr string) (int, error) {
 	host, p, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -212,8 +184,8 @@ func LoopbackPort(addr string) (int, error) {
 	return port, nil
 }
 
-// checkSetupListen accepts "host:port" with any host (the first-run page is meant for the home network, so
-// 0.0.0.0 is the default) and a real port.
+// checkSetupListen accepts "host:port" with any host (the first-run page is meant for the home network while no tunnel
+// is configured, so 0.0.0.0 is the default then) and a real port.
 func checkSetupListen(addr string) error {
 	_, p, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -301,7 +273,7 @@ func DefaultDataDir() (string, error) {
 }
 
 // Load reads and validates homed.yaml in dir. A missing file is an empty config. Unknown keys are errors, so a typo
-// does not silently switch something off.
+// does not silently switch something off; v0.1's relay section is the one exception (HasRelay).
 func Load(dir string) (*Config, error) {
 	raw, err := readConfig(dir)
 	if err != nil {
@@ -343,45 +315,73 @@ func Update(dir string, fn func(*Config) error) error {
 	return updateLocked(dir, fn)
 }
 
-// ArchivePhase1 moves the phase 1 sections (home_name, plugins, people) out of homed.yaml once the import has copied
-// them into homed.db. The file as it was goes to homed.yaml.phase1 (0600; when that exists, a name with the time
-// appended, so no earlier backup is overwritten), then homed.yaml is rewritten without those sections; the rest and
-// its comments stay. It returns the backup's path, or "" when there was nothing to move.
-func ArchivePhase1(dir string) (string, error) {
+// MigrateResult says what MigrateV01 did.
+type MigrateResult struct {
+	// Backup is where v0.1's homed.yaml was copied; "" when this call made no copy.
+	Backup string
+	// RelayRemoved is true when the relay section was removed from homed.yaml.
+	RelayRemoved bool
+	// TokenDeleted is true when the relay token file was deleted.
+	TokenDeleted bool
+}
+
+// MigrateV01 turns a v0.1 data dir into a v0.2 one; homed calls it at every start, before Load, and it is a no-op once
+// done. When homed.yaml has v0.1's relay section:
+//  1. homed.yaml as it is goes to homed.yaml.v0.1 (0600; an existing copy is kept, never overwritten);
+//  2. homed.yaml is rewritten without the relay and with a tunnel section (mode off), and, when it set no
+//     setup_listen, with setup_listen 127.0.0.1:8090: the home had a relay, so its first-run page stays off the home
+//     network;
+//  3. the relay token file is deleted (also when homed.yaml had no relay left).
+//
+// A crash between the steps leaves a state the next call finishes.
+func MigrateV01(dir string) (MigrateResult, error) {
+	var res MigrateResult
 	unlock, err := lock(dir)
 	if err != nil {
-		return "", err
+		return res, err
 	}
 	defer unlock()
 	raw, err := readConfig(dir)
 	if err != nil {
-		return "", err
+		return res, err
 	}
 	c, err := parse(raw)
 	if err != nil {
-		return "", err
+		return res, err
 	}
-	if !c.HasPhase1() {
-		return "", nil
+	if c.HasRelay() {
+		backup := filepath.Join(dir, V01Backup)
+		switch _, err := os.Lstat(backup); {
+		case errors.Is(err, fs.ErrNotExist):
+			if err := WriteFileAtomic(backup, raw, 0o600); err != nil {
+				return res, fmt.Errorf("back up %s: %w", FileName, err)
+			}
+			res.Backup = backup
+		case err != nil:
+			return res, err
+		}
+		err = updateLocked(dir, func(c *Config) error {
+			c.Relay = nil
+			if c.Tunnel.Mode == "" {
+				c.Tunnel.Mode = TunnelOff
+			}
+			if c.SetupListen == "" {
+				c.SetupListen = "127.0.0.1:8090"
+			}
+			return nil
+		})
+		if err != nil {
+			return res, err
+		}
+		res.RelayRemoved = true
 	}
-	backup := filepath.Join(dir, Phase1Backup)
-	switch _, err := os.Lstat(backup); {
+	switch err := os.Remove(filepath.Join(dir, relayTokenFile)); {
 	case err == nil:
-		backup += "." + time.Now().UTC().Format("20060102T150405.000Z")
+		res.TokenDeleted = true
 	case !errors.Is(err, fs.ErrNotExist):
-		return "", err
+		return res, fmt.Errorf("delete the relay token: %w", err)
 	}
-	if err := WriteFileAtomic(backup, raw, 0o600); err != nil {
-		return "", fmt.Errorf("back up %s: %w", FileName, err)
-	}
-	err = updateLocked(dir, func(c *Config) error {
-		c.HomeName, c.Plugins, c.People = "", nil, nil
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return backup, nil
+	return res, nil
 }
 
 // updateLocked is Update without taking the lock.
@@ -516,32 +516,8 @@ func LockInstance(dir string) (func(), error) {
 	}, nil
 }
 
-// ReadRelayToken reads the relay-token file and refuses one readable by group or others.
-func ReadRelayToken(dir string) (string, error) {
-	return readSecretFile(filepath.Join(dir, RelayTokenFile))
-}
-
-// WriteRelayToken stores the relay token (0600).
-func WriteRelayToken(dir, token string) error {
-	return WriteFileAtomic(filepath.Join(dir, RelayTokenFile), []byte(token+"\n"), 0o600)
-}
-
-func readSecretFile(path string) (string, error) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return "", err
-	}
-	if st.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("%s is readable by others (mode %o); run: chmod 600 %s", path, st.Mode().Perm(), path)
-	}
-	raw, err := os.ReadFile(path) //nolint:gosec // the hub's own data dir
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(raw)), nil
-}
-
-// InstanceID returns the hub's persistent random id, creating it on first use.
+// InstanceID returns the hub's persistent random id, creating it on first use. Every answer of the public listener
+// carries it (X-Homie-Instance), so the tunnel's self-check can tell that https://<host> reaches this hub.
 func InstanceID(dir string) (string, error) {
 	path := filepath.Join(dir, InstanceIDFile)
 	raw, err := os.ReadFile(path) //nolint:gosec // the hub's own data dir

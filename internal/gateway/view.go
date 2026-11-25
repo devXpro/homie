@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,34 +25,18 @@ type snapshot struct {
 	instructions string
 
 	mu    sync.Mutex
-	views map[string]*view // keyed by scopeKey
+	views map[string]*view // keyed by scope (scopeOf)
 }
 
-// view is what one scope set (the plugins a person may use) sees: the tools, the REST manifest and the MCP server.
+// view is what one scope (the plugins a person may use) sees: the tools and the MCP server.
 type view struct {
-	byName   map[string]hub.Tool
-	manifest []byte // the GET /api/v1/tools body
-	version  string // "<hub version>+<fingerprint>"
-	server   *mcp.Server
-}
-
-// manifestTool is one tool as the Site reads it (librus-gpt/site/core/mcp.mjs TOOL_KEYS). Optional keys are omitted.
-type manifestTool struct {
-	Name         string          `json:"name"`
-	Title        string          `json:"title,omitempty"`
-	Description  string          `json:"description,omitempty"`
-	InputSchema  json.RawMessage `json:"inputSchema"`
-	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
-	Annotations  json.RawMessage `json:"annotations,omitempty"`
-}
-
-type manifest struct {
-	Instructions string         `json:"instructions"`
-	Tools        []manifestTool `json:"tools"`
+	byName  map[string]hub.Tool
+	version string // "<hub version>+<fingerprint>"
+	server  *mcp.Server
 }
 
 // current returns the snapshot, rebuilding it when the tool set has changed since it was taken.
-func (g *gateway) current() *snapshot {
+func (g *Gateway) current() *snapshot {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.snap != nil && !closed(g.snap.changed) {
@@ -67,7 +50,7 @@ func (g *gateway) current() *snapshot {
 			continue
 		}
 		if err := checkAddTool(t); err != nil {
-			// One bad schema must not take /mcp and the REST façade down for everyone who may use the plugin.
+			// One bad schema must not take /mcp down for everyone who may use the plugin.
 			g.opts.Log.Warn("skipping tool the MCP server refuses", "tool", t.Name, "plugin", t.PluginID, "err", err)
 			continue
 		}
@@ -115,6 +98,14 @@ func usable(t hub.Tool) (hub.Tool, bool) {
 	return t, true
 }
 
+// readOnly reports whether a tool says it only reads (its readOnlyHint annotation).
+func readOnly(t hub.Tool) bool {
+	var a struct {
+		ReadOnly bool `json:"readOnlyHint"`
+	}
+	return t.Annotations != nil && json.Unmarshal(t.Annotations, &a) == nil && a.ReadOnly
+}
+
 // checkAddTool registers t on a throwaway MCP server and turns the go-sdk's AddTool panic (a schema it refuses, e.g.
 // x-mcp-header on a non-primitive property) into an error, so buildView never panics on the request path.
 func checkAddTool(t hub.Tool) (err error) {
@@ -136,10 +127,10 @@ func present(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// instructions is the hub preamble plus the plugins' own instructions (§5.4). g.mu is held. The home name is the
-// owner's text: it goes in as a quoted string (strconv.Quote), so a quote or a line break in it can never end the
-// name and read as an instruction of its own. The admin refuses such names anyway (wire.CheckName).
-func (g *gateway) instructions() string {
+// instructions is the hub preamble plus the plugins' own instructions. g.mu is held. The home name is the owner's
+// text: it goes in as a quoted string (strconv.Quote), so a quote or a line break in it can never end the name and read
+// as an instruction of its own. The name rule refuses such names anyway (auth.NormalizeName).
+func (g *Gateway) instructions() string {
 	home := "the user's home"
 	if g.opts.HomeName != "" {
 		home = "the home " + strconv.Quote(g.opts.HomeName)
@@ -154,23 +145,8 @@ func (g *gateway) instructions() string {
 	return text
 }
 
-// scopeKey normalizes a person's plugin list: "*" if it allows everything, else the sorted unique ids.
-func scopeKey(plugins []string) string {
-	if slices.Contains(plugins, "*") {
-		return "*"
-	}
-	ids := slices.Clone(plugins)
-	slices.Sort(ids)
-	return strings.Join(slices.Compact(ids), ",")
-}
-
-func allowed(scope, pluginID string) bool {
-	return scope == "*" || slices.Contains(strings.Split(scope, ","), pluginID)
-}
-
-// view returns the view for a person's scopes, building it on first use.
-func (s *snapshot) view(g *gateway, person hub.Person) *view {
-	scope := scopeKey(person.Plugins)
+// view returns the view of a scope, building it on first use.
+func (s *snapshot) view(g *Gateway, scope string) *view {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v, ok := s.views[scope]; ok {
@@ -181,9 +157,8 @@ func (s *snapshot) view(g *gateway, person hub.Person) *view {
 	return v
 }
 
-func (g *gateway) buildView(s *snapshot, scope string) *view {
+func (g *Gateway) buildView(s *snapshot, scope string) *view {
 	v := &view{byName: map[string]hub.Tool{}}
-	m := manifest{Instructions: s.instructions, Tools: []manifestTool{}}
 	var tools []hub.Tool
 	for _, t := range s.tools {
 		if !allowed(scope, t.PluginID) {
@@ -191,15 +166,14 @@ func (g *gateway) buildView(s *snapshot, scope string) *view {
 		}
 		tools = append(tools, t)
 		v.byName[t.Name] = t
-		m.Tools = append(m.Tools, manifestTool{
-			Name: t.Name, Title: t.Title, Description: t.Description,
-			InputSchema: t.InputSchema, OutputSchema: t.OutputSchema, Annotations: t.Annotations,
-		})
 	}
-	// Marshaling cannot fail: usable checked every raw field.
-	toolsJSON, _ := marshal(m.Tools)
+	// The fingerprint covers what the model reads: the tools as listed and the instructions.
+	listed := make([]*mcp.Tool, 0, len(tools))
+	for _, t := range tools {
+		listed = append(listed, mcpTool(t))
+	}
+	toolsJSON, _ := json.Marshal(listed) //nolint:errchkjson // usable checked every raw field
 	v.version = g.opts.Version + "+" + fingerprint(string(toolsJSON)+s.instructions)
-	v.manifest, _ = marshal(m)
 
 	v.server = mcp.NewServer(
 		&mcp.Implementation{Name: "homie", Title: s.homeName, Version: v.version},
@@ -214,8 +188,8 @@ func (g *gateway) buildView(s *snapshot, scope string) *view {
 	return v
 }
 
-// fingerprint is FNV-1a 32 in hex, the same trick as the Librus Site: the version moves when what the model reads
-// changes, so ChatGPT reloads the tools.
+// fingerprint is FNV-1a 32 in hex: the version moves when what the model reads changes, so the assistant reloads the
+// tools.
 func fingerprint(text string) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(text))
@@ -236,17 +210,11 @@ func mcpTool(t hub.Tool) *mcp.Tool {
 	return out
 }
 
-// listTools serves GET /api/v1/tools.
-func (g *gateway) listTools(w http.ResponseWriter, r *http.Request) {
-	p := r.Context().Value(principalKey{}).(principal)
-	writeRaw(w, http.StatusOK, g.current().view(g, p.person).manifest)
-}
-
 // mcpServer picks the MCP server for the request's person (called by the go-sdk handler for every request).
-func (g *gateway) mcpServer(r *http.Request) *mcp.Server {
+func (g *Gateway) mcpServer(r *http.Request) *mcp.Server {
 	p, ok := r.Context().Value(principalKey{}).(principal)
 	if !ok {
 		return nil
 	}
-	return g.current().view(g, p.person).server
+	return g.current().view(g, scopeOf(p.person)).server
 }

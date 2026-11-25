@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,10 +13,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,13 +25,14 @@ import (
 	"time"
 
 	"github.com/descope/virtualwebauthn"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/devXpro/homie/internal/auth"
+	"github.com/devXpro/mcp-gatekeeper/core"
+	"github.com/devXpro/mcp-gatekeeper/tunnel/cloudflare"
+
 	"github.com/devXpro/homie/internal/config"
-	"github.com/devXpro/homie/internal/firstrun"
-	"github.com/devXpro/homie/internal/hub"
-	"github.com/devXpro/homie/internal/keys"
 	"github.com/devXpro/homie/internal/store"
+	"github.com/devXpro/homie/internal/tunnel/tunneltest"
 )
 
 // Plugins built once by TestMain: internal/plugins/testdata/fakeplugin (id "fake") and pluginkit/example (id "echo").
@@ -57,7 +62,25 @@ func testMain(m *testing.M) int {
 			return 1
 		}
 	}
-	return m.Run()
+	// No test may ever find a real cloudflared (it would talk to Cloudflare): PATH keeps only go and git.
+	safe := filepath.Join(dir, "path")
+	if err := os.Mkdir(safe, 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	for _, tool := range []string{"go", "git"} {
+		if p, err := exec.LookPath(tool); err == nil {
+			_ = os.Symlink(p, filepath.Join(safe, tool))
+		}
+	}
+	if err := os.Setenv("PATH", safe); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	// Nor open a browser: tests that check the opener replace it and put this one back.
+	origOpenURL = func(string) error { return errors.New("tests never open a browser") }
+	openURL = origOpenURL
+	return tunneltest.Main(m)
 }
 
 func discardLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -71,6 +94,15 @@ func shortTempDir(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path) //nolint:gosec // G304: a test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func freePort(t *testing.T) int {
@@ -102,704 +134,904 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// startDaemon runs serve in the background and returns once it serves; with plugins set, once they listed tools.
-func startDaemon(t *testing.T, opts runOptions, plugins bool) (*daemon, func() error) {
+// fakeClock is the gatekeeper's time in the daemon: now, until a test moves it on.
+type fakeClock struct {
+	mu  sync.Mutex
+	off time.Duration
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.off)
+}
+
+func (c *fakeClock) add(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.off += d
+}
+
+// home is one homed under test: its data dir, its listener and the fake cloudflared it runs.
+type home struct {
+	t     *testing.T
+	dir   string
+	addr  string // the public listener, 127.0.0.1:<port>
+	fake  *tunneltest.Fake
+	clock *fakeClock
+	term  *syncBuffer
+	logs  *syncBuffer
+	d     *daemon
+	stop  func() error
+}
+
+// newHome prepares a data dir: homed.yaml with the listener and the fake cloudflared, plus yaml, and the plugins fake
+// and echo in homie.db.
+func newHome(t *testing.T, yaml string) *home {
 	t.Helper()
-	logs := &syncBuffer{}
-	t.Cleanup(func() {
-		if t.Failed() {
-			t.Logf("homed log:\n%s", logs.String())
+	h := &home{t: t, dir: shortTempDir(t), fake: tunneltest.New(t), clock: &fakeClock{}, term: &syncBuffer{}, logs: &syncBuffer{}}
+	h.addr = "127.0.0.1:" + strconv.Itoa(freePort(t))
+	cfg := "listen: " + h.addr + "\ntunnel:\n  cloudflared: " + h.fake.Bin + "\n" + yaml
+	if err := os.WriteFile(filepath.Join(h.dir, config.FileName), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// withPlugins stores the plugins fake and echo, which homed starts.
+func (h *home) withPlugins() *home {
+	h.t.Helper()
+	st, err := store.Open(context.Background(), store.Options{Path: filepath.Join(h.dir, config.DBFile)})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	for id, bin := range map[string]string{"fake": fakeBin, "echo": echoBin} {
+		if err := st.Plugins().Create(context.Background(), store.Plugin{ID: id, Source: store.PluginLocal,
+			Command: []string{bin, "serve"}, Enabled: true}); err != nil {
+			h.t.Fatal(err)
 		}
-	})
+	}
+	return h
+}
+
+// connected writes a named tunnel for host into the tunnel directory, as `homed cloudflare connect` leaves it.
+func (h *home) connected(host string) *home {
+	h.t.Helper()
+	dir := filepath.Join(h.dir, config.TunnelDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		h.t.Fatal(err)
+	}
+	const id = "6ff42ae2-765d-4adf-8112-31c55c1551ef"
+	files := map[string]string{
+		cloudflare.ConfigFile:      "tunnel: " + id + "\ningress:\n  - hostname: " + host + "\n    service: http://" + h.addr + "\n  - service: http_status:404\n",
+		cloudflare.CredentialsFile: `{"TunnelID":"` + id + `"}`,
+		cloudflare.RecordFile:      `{"name":"homie-test","id":"` + id + `","hostname":"` + host + `"}`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+	return h
+}
+
+// start runs serve and returns once it serves. The first-run page takes free loopback ports, never 8090 or the home
+// network: a test tells its two defaults apart by the port.
+func (h *home) start(extra ...func(*runOptions)) *home {
+	h.t.Helper()
+	opts := runOptions{dataDir: h.dir, terminal: h.term, clock: h.clock.now, probeClient: tunneltest.Edge(h.addr, ""),
+		listenLAN: "127.0.0.1:0", listenLocal: "127.0.0.1:0"}
+	for _, f := range extra {
+		f(&opts)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan *daemon, 1)
 	opts.ready = func(d *daemon) { ready <- d }
-	done := make(chan error, 1)
+	finished := make(chan struct{})
+	var serveErr error
+	logs := h.logs
 	go func() {
-		done <- serve(ctx, opts, slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		defer close(finished)
+		serveErr = serve(ctx, opts, slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	}()
-	stop := sync.OnceValue(func() error {
+	h.stop = sync.OnceValue(func() error {
 		cancel()
-		return <-done
+		<-finished
+		return serveErr
 	})
-	var d *daemon
+	stop := h.stop
+	h.t.Cleanup(func() {
+		_ = stop()
+		if h.t.Failed() {
+			h.t.Logf("homed log:\n%s", logs.String())
+		}
+	})
 	select {
-	case d = <-ready:
-	case err := <-done:
-		cancel()
-		t.Fatalf("serve: %v\n%s", err, logs.String())
+	case h.d = <-ready:
+	case <-finished:
+		h.t.Fatalf("serve: %v\n%s", serveErr, logs.String())
 	case <-time.After(30 * time.Second):
-		cancel()
-		t.Fatal("homed did not start")
+		h.t.Fatal("homed did not start")
 	}
-	t.Cleanup(func() { _ = stop() })
-	if plugins {
-		waitTools(t, d, func(tools []hub.Tool) bool { return len(tools) > 0 })
-	}
-	return d, stop
+	return h
 }
 
-// waitTools waits until the host's admin tool set satisfies cond.
-func waitTools(t *testing.T, d *daemon, cond func([]hub.Tool) bool) {
+// waitFor polls cond for up to 30 s.
+func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.After(30 * time.Second)
-	for {
-		changed := d.host.Changed()
-		if cond(d.host.Tools(hub.AudienceAdmin)) {
-			return
+	deadline := time.Now().Add(30 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
 		}
-		select {
-		case <-changed:
-		case <-deadline:
-			t.Fatalf("the tools never got there: %+v", d.host.Status())
-		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-// httpClient follows no redirects, so a test sees them.
-var httpClient = &http.Client{
-	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	Timeout:       30 * time.Second,
+// browser is a browser at https://<host>, reaching homed the way Cloudflare does.
+type browser struct {
+	t       *testing.T
+	origin  string
+	client  *http.Client
+	cookies map[string]string
 }
 
-// request sends one request; host overrides the Host header, body (when not nil) goes as JSON.
-func request(t *testing.T, method, url, host string, hdr map[string]string, body any) (int, http.Header, []byte) {
-	t.Helper()
-	var rd io.Reader = http.NoBody
-	if body != nil {
-		raw, err := json.Marshal(body)
+func (h *home) browser(host string) *browser {
+	c := tunneltest.Edge(h.addr, "198.51.100.7")
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &browser{t: h.t, origin: "https://" + host, client: c, cookies: map[string]string{}}
+}
+
+func (b *browser) do(method, path string, body any) (int, http.Header, []byte) {
+	b.t.Helper()
+	var rd io.Reader
+	contentType := "application/json"
+	switch v := body.(type) {
+	case nil:
+	case url.Values:
+		rd, contentType = strings.NewReader(v.Encode()), "application/x-www-form-urlencoded"
+	default:
+		raw, err := json.Marshal(v)
 		if err != nil {
-			t.Fatal(err)
+			b.t.Fatal(err)
 		}
 		rd = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(context.Background(), method, url, rd)
+	req, err := http.NewRequestWithContext(context.Background(), method, b.origin+path, rd)
 	if err != nil {
-		t.Fatal(err)
+		b.t.Fatal(err)
 	}
-	if host != "" {
-		req.Host = host
+	if rd != nil {
+		req.Header.Set("Content-Type", contentType)
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if method != http.MethodGet {
+		req.Header.Set("X-Homie", "1")
+		req.Header.Set("Origin", b.origin)
 	}
-	for k, v := range hdr {
-		req.Header.Set(k, v)
+	var cookies []string
+	for name, value := range b.cookies {
+		cookies = append(cookies, name+"="+value)
 	}
-	resp, err := httpClient.Do(req)
+	if len(cookies) > 0 {
+		req.Header.Set("Cookie", strings.Join(cookies, "; "))
+	}
+	res, err := b.client.Do(req)
 	if err != nil {
-		t.Fatal(err)
+		b.t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Header.Get("X-Homie-Instance") == "" && resp.StatusCode != http.StatusMisdirectedRequest &&
-		!strings.Contains(url, "/api/firstrun/") {
-		t.Errorf("%s %s: no instance header", method, url)
-	}
-	return resp.StatusCode, resp.Header, raw
-}
-
-// get is a GET with an optional Host and bearer key.
-func get(t *testing.T, url, host, key string) (int, string) {
-	t.Helper()
-	hdr := map[string]string{}
-	if key != "" {
-		hdr["Authorization"] = "Bearer " + key
-	}
-	status, _, body := request(t, http.MethodGet, url, host, hdr, nil)
-	return status, string(body)
-}
-
-func decode[T any](t *testing.T, raw []byte) T {
-	t.Helper()
-	var v T
-	if err := json.Unmarshal(raw, &v); err != nil {
-		t.Fatalf("decode %T: %v: %s", v, err, raw)
-	}
-	return v
-}
-
-type manifestJSON struct {
-	Instructions string `json:"instructions"`
-	Tools        []struct {
-		Name string `json:"name"`
-	} `json:"tools"`
-}
-
-func (m manifestJSON) names() string {
-	var out []string
-	for _, tl := range m.Tools {
-		out = append(out, tl.Name)
-	}
-	return strings.Join(out, ",")
-}
-
-// browser is a browser on the admin: the session cookie, the CSRF header and the origin the SPA sends, and the Host
-// the relay (or the dev server) gives requests.
-type browser struct {
-	t      *testing.T
-	base   string
-	host   string
-	origin string
-	cookie string
-}
-
-const safariMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15"
-
-func (b *browser) do(method, path string, body any) (int, []byte) {
-	b.t.Helper()
-	hdr := map[string]string{"X-Homie": "1", "Origin": b.origin, "User-Agent": safariMac}
-	if b.cookie != "" {
-		hdr["Cookie"] = auth.CookieName + "=" + b.cookie
-	}
-	status, h, raw := request(b.t, method, b.base+path, b.host, hdr, body)
-	for _, line := range h.Values("Set-Cookie") {
-		if c, err := http.ParseSetCookie(line); err == nil && c.Name == auth.CookieName {
-			b.cookie = c.Value
-			if c.MaxAge < 0 {
-				b.cookie = ""
-			}
+	defer res.Body.Close()
+	for _, c := range res.Cookies() {
+		if c.MaxAge < 0 {
+			delete(b.cookies, c.Name)
+		} else {
+			b.cookies[c.Name] = c.Value
 		}
 	}
-	return status, raw
+	raw, _ := io.ReadAll(res.Body)
+	return res.StatusCode, res.Header, raw
 }
 
-// device is a phone or a Mac with one passkey (a virtual authenticator).
+func (b *browser) json(method, path string, body any, want int) map[string]any {
+	b.t.Helper()
+	code, _, raw := b.do(method, path, body)
+	if code != want {
+		b.t.Fatalf("%s %s: %d %s", method, path, code, raw)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	return out
+}
+
+// device is a phone or a Mac with one passkey of host.
 type device struct {
 	rp   virtualwebauthn.RelyingParty
 	auth virtualwebauthn.Authenticator
 	cred virtualwebauthn.Credential
 }
 
-func newDevice(rpID, origin string) *device {
+func newDevice(host string) *device {
 	return &device{
-		rp: virtualwebauthn.RelyingParty{ID: rpID, Name: "Homie", Origin: origin},
-		auth: virtualwebauthn.NewAuthenticatorWithOptions(virtualwebauthn.AuthenticatorOptions{
-			BackupEligible: true, BackupState: true,
-		}),
+		rp:   virtualwebauthn.RelyingParty{ID: host, Name: "Homie", Origin: "https://" + host},
+		auth: virtualwebauthn.NewAuthenticatorWithOptions(virtualwebauthn.AuthenticatorOptions{BackupEligible: true, BackupState: true}),
 		cred: virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2),
 	}
 }
 
-// register runs the setup link's registration in the browser with the device, as the first-run wizard does.
-func (b *browser) register(d *device, token string, names map[string]string) (int, []byte) {
+// register registers the device with a setup link or invite token, as name, and signs the browser in.
+func (b *browser) register(d *device, token, name, accountName string) {
 	b.t.Helper()
-	body := map[string]string{"token": token}
-	for k, v := range names {
-		body[k] = v
-	}
-	status, raw := b.do(http.MethodPost, "/api/admin/auth/register/begin", body)
-	if status != http.StatusOK {
-		b.t.Fatalf("register/begin: %d %s", status, raw)
-	}
-	opts, err := virtualwebauthn.ParseAttestationOptions(string(raw))
+	begun := b.json("POST", "/api/auth/register/begin", map[string]string{"token": token, "name": name,
+		"account_name": accountName}, 200)
+	options, _ := json.Marshal(begun["options"])
+	opts, err := virtualwebauthn.ParseAttestationOptions(string(options))
 	if err != nil {
-		b.t.Fatalf("attestation options: %v\n%s", err, raw)
+		b.t.Fatal(err)
 	}
 	d.auth.Options.UserHandle = []byte(opts.UserID)
 	cred := json.RawMessage(virtualwebauthn.CreateAttestationResponse(d.rp, d.auth, d.cred, *opts))
-	ceremony := decode[struct {
-		CeremonyID string `json:"ceremonyId"`
-	}](b.t, raw)
-	return b.do(http.MethodPost, "/api/admin/auth/register/finish",
-		map[string]any{"ceremonyId": ceremony.CeremonyID, "credential": cred, "passkeyName": "MacBook Pro"})
+	b.json("POST", "/api/auth/register/finish", map[string]any{"credential": cred}, 200)
 }
 
-// linkToken runs `homed admin setup-link` and returns the link and its token.
-func linkToken(t *testing.T, dir, wantPrefix string) string {
+// tokenOf is the #t= token of a setup link or invite.
+func tokenOf(t *testing.T, link string) string {
 	t.Helper()
-	out := strings.TrimSpace(mustCLI(t, "admin", "setup-link", "--data-dir", dir))
-	token, ok := strings.CutPrefix(out, wantPrefix+"/admin/setup#t=")
-	if !ok || token == "" {
-		t.Fatalf("setup link %q, want %s/admin/setup#t=…", out, wantPrefix)
+	_, tok, ok := strings.Cut(link, "#t=")
+	if !ok {
+		t.Fatalf("no token in %q", link)
 	}
-	return token
+	return tok
 }
 
-var pinRe = regexp.MustCompile(`enter the PIN (\d{4} \d{4})`)
+// setupLink is `homed admin setup-link`: the link alone on stdout.
+func (h *home) setupLink() string {
+	h.t.Helper()
+	code, out, errOut := cli(h.t, "admin", "setup-link", "--data-dir", h.dir)
+	link := strings.TrimSpace(out)
+	if code != 0 || strings.Count(out, "\n") != 1 || !strings.Contains(link, "/setup#t=") || !strings.Contains(errOut, "works once") {
+		h.t.Fatalf("setup-link: %d %q %q", code, out, errOut)
+	}
+	return link
+}
 
-// firstRunPIN waits for the PIN homed prints to its terminal.
-func firstRunPIN(t *testing.T, term *syncBuffer) string {
+// claudeCallback is the redirect URI of a Claude connector.
+const claudeCallback = "https://claude.ai/api/mcp/auth_callback"
+
+// connector is an assistant's connector, as its OAuth client.
+type connector struct {
+	clientID, access, refresh string
+}
+
+// connect walks an assistant's OAuth flow for the signed-in browser b (DCR with Claude's callback, authorize, the
+// consent, the code exchange).
+func (b *browser) connect(resource string) connector {
+	b.t.Helper()
+	callback := claudeCallback
+	reg := b.json("POST", "/oauth/register", map[string]any{"redirect_uris": []string{callback},
+		"token_endpoint_auth_method": "none", "client_name": "Claude"}, http.StatusCreated)
+	clientID, _ := reg["client_id"].(string)
+	verifier := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("v", 40)))
+	sum := sha256.Sum256([]byte(verifier))
+	q := url.Values{"response_type": {"code"}, "client_id": {clientID}, "redirect_uri": {callback}, "state": {"st"},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"},
+		"scope": {"mcp offline_access"}, "resource": {resource}}
+	code, h, raw := b.do("GET", "/oauth/authorize?"+q.Encode(), nil)
+	txn, ok := strings.CutPrefix(h.Get("Location"), "/consent?txn=")
+	if code != http.StatusFound || !ok {
+		b.t.Fatalf("authorize: %d %v %s", code, h, raw)
+	}
+	b.json("GET", "/api/oauth/txn/"+txn, nil, 200)
+	back := b.json("POST", "/api/oauth/txn/"+txn+"/approve", map[string]any{}, 200)
+	u, err := url.Parse(back["redirect_url"].(string))
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	tok := b.json("POST", "/oauth/token", url.Values{"grant_type": {"authorization_code"}, "code": {u.Query().Get("code")},
+		"redirect_uri": {callback}, "code_verifier": {verifier}, "client_id": {clientID}}, 200)
+	c := connector{clientID: clientID}
+	c.access, _ = tok["access_token"].(string)
+	c.refresh, _ = tok["refresh_token"].(string)
+	if c.access == "" || c.refresh == "" {
+		b.t.Fatalf("no tokens: %v", tok)
+	}
+	return c
+}
+
+// refreshed is the connector's refresh grant: the status and, on success, the new tokens.
+func (b *browser) refreshed(c connector) (int, connector) {
+	b.t.Helper()
+	code, _, raw := b.do("POST", "/oauth/token", url.Values{"grant_type": {"refresh_token"}, "refresh_token": {c.refresh},
+		"client_id": {c.clientID}})
+	var tok map[string]any
+	_ = json.Unmarshal(raw, &tok)
+	c.access, _ = tok["access_token"].(string)
+	c.refresh, _ = tok["refresh_token"].(string)
+	return code, c
+}
+
+// e2eHost is the public host of the end-to-end test.
+const e2eHost = "home.example.com"
+
+// mcpSession connects an MCP client to https://<e2eHost>/mcp with token.
+func (h *home) mcpSession(token string) (*mcp.ClientSession, error) {
+	h.t.Helper()
+	edge := tunneltest.Edge(h.addr, "198.51.100.8")
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:             "https://" + e2eHost + "/mcp",
+		HTTPClient:           &http.Client{Transport: bearer{token: token, base: edge.Transport}},
+		DisableStandaloneSSE: true, MaxRetries: -1,
+	}
+	cs, err := client.Connect(h.t.Context(), transport, nil)
+	if err == nil {
+		h.t.Cleanup(func() { _ = cs.Close() })
+	}
+	return cs, err
+}
+
+type bearer struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token)
+	return b.base.RoundTrip(r)
+}
+
+func toolNames(t *testing.T, cs *mcp.ClientSession) []string {
 	t.Helper()
-	tick := time.NewTicker(20 * time.Millisecond)
-	defer tick.Stop()
-	deadline := time.After(10 * time.Second)
-	for {
-		if m := pinRe.FindStringSubmatch(term.String()); m != nil {
-			return m[1]
-		}
-		select {
-		case <-tick.C:
-		case <-deadline:
-			t.Fatalf("no PIN on the terminal:\n%s", term.String())
-		}
-	}
-}
-
-// firstRunSignIn enters the PIN on the first-run page and returns its cookie header.
-func firstRunSignIn(t *testing.T, setup, pin string) string {
-	t.Helper()
-	status, h, raw := request(t, http.MethodPost, setup+"/api/firstrun/pin", "", map[string]string{"X-Homie": "1"},
-		map[string]string{"pin": pin})
-	if status != http.StatusNoContent {
-		t.Fatalf("PIN: %d %s", status, raw)
-	}
-	for _, line := range h.Values("Set-Cookie") {
-		if c, err := http.ParseSetCookie(line); err == nil && c.Name == firstrun.CookieName {
-			return c.Name + "=" + c.Value
-		}
-	}
-	t.Fatal("no first-run cookie")
-	return ""
-}
-
-type callJSONWeb struct {
-	ID       string `json:"id"`
-	State    string `json:"state"`
-	Progress *struct {
-		Message     string            `json:"message"`
-		MessageI18n map[string]string `json:"messageI18n"`
-	} `json:"progress"`
-	Result *struct {
-		Text string `json:"text"`
-	} `json:"result"`
-}
-
-// waitCall polls an admin call until cond holds.
-func waitCall(t *testing.T, b *browser, id string, cond func(callJSONWeb) bool) callJSONWeb {
-	t.Helper()
-	tick := time.NewTicker(20 * time.Millisecond)
-	defer tick.Stop()
-	deadline := time.After(15 * time.Second)
-	for {
-		status, raw := b.do(http.MethodGet, "/api/admin/calls/"+id, nil)
-		if status != http.StatusOK {
-			t.Fatalf("call %s: %d %s", id, status, raw)
-		}
-		c := decode[callJSONWeb](t, raw)
-		if cond(c) {
-			return c
-		}
-		select {
-		case <-tick.C:
-		case <-deadline:
-			t.Fatalf("call %s never got there: %s", id, raw)
-		}
-	}
-}
-
-// TestDaemon is the T2.6 acceptance in Go: a phase 1 data dir (relay, the fake plugin, Roman with a key) starts as a
-// phase 2 homed. The import, the REST façade with the old key, the CLI over the socket, the first-run page, the owner's
-// passkey from a setup link, keys and an admin tool call with progress through the admin API, the home name reaching
-// the gateway, plugins added and removed at run time, the audit, and a clean shutdown.
-func TestDaemon(t *testing.T) {
-	dir := shortTempDir(t)
-	port, relayPort := freePort(t), freePort(t)
-	base := "http://127.0.0.1:" + strconv.Itoa(port)
-	oldKey, oldHash := keys.Generate()
-	writeFile(t, filepath.Join(dir, config.FileName), fmt.Sprintf(`home_name: "Мой шалаш"
-listen: 127.0.0.1:%d
-relay:
-  domain: homie.test
-plugins:
-  - id: fake
-    command: [%q, "serve"]
-people:
-  - id: roman
-    name: Roman
-    plugins: ["*"]
-    keys:
-      - sha256: "%s"
-        label: "ChatGPT Site"
-        created: 2026-11-15T12:00:00Z
-`, port, fakeBin, oldHash))
-	if err := config.WriteRelayToken(dir, testToken); err != nil {
-		t.Fatal(err)
-	}
-	term := &syncBuffer{}
-	// The relay points at a closed local port: the client keeps retrying, which is all this test needs from it.
-	d, stop := startDaemon(t, runOptions{
-		dataDir: dir, setupListen: "127.0.0.1:0", serverAddr: "127.0.0.1:" + strconv.Itoa(relayPort), terminal: term,
-	}, true)
-
-	// The import: homed.yaml keeps listen and the relay; the rest lives in homed.db, the old file in the backup.
-	if cfg, err := config.Load(dir); err != nil || cfg.HasPhase1() || cfg.Relay.Domain != "homie.test" {
-		t.Fatalf("homed.yaml after the import: %+v, %v", cfg, err)
-	}
-	if !strings.Contains(readFile(t, filepath.Join(dir, config.Phase1Backup)), oldHash) {
-		t.Fatal("no phase 1 backup")
-	}
-	if st, err := os.Stat(filepath.Join(dir, config.SocketFile)); err != nil || st.Mode().Perm() != 0o600 {
-		t.Fatalf("socket: %v, %v", st, err)
-	}
-
-	// The REST façade takes Roman's phase 1 key, with the relay's Host too; a foreign Host gets 421.
-	if code, body := get(t, base+"/healthz", "", ""); code != http.StatusOK || !strings.Contains(body, `"ok":true`) {
-		t.Fatalf("healthz: %d %s", code, body)
-	}
-	if code, _ := get(t, base+"/api/v1/tools", "", ""); code != http.StatusUnauthorized {
-		t.Fatalf("tools without a key: %d", code)
-	}
-	code, body := get(t, base+"/api/v1/tools", "homie.test", oldKey)
-	if code != http.StatusOK {
-		t.Fatalf("tools with the phase 1 key: %d %s", code, body)
-	}
-	m := decode[manifestJSON](t, []byte(body))
-	if !strings.Contains(m.names(), "fake_echo") || strings.Contains(m.names(), "fake_add") ||
-		!strings.Contains(m.Instructions, `"Мой шалаш"`) || !strings.Contains(m.Instructions, "Fake instructions.") {
-		t.Fatalf("manifest = %s", body)
-	}
-	if code, _ := get(t, base+"/healthz", "evil.test", ""); code != http.StatusMisdirectedRequest {
-		t.Fatalf("foreign Host: %d", code)
-	}
-	// An argument named like a secret is redacted in the audit (checked at the end).
-	request(t, http.MethodPost, base+"/api/v1/tools/fake_echo", "", map[string]string{"Authorization": "Bearer " + oldKey},
-		map[string]string{"text": "hi", "pin": "1234"})
-
-	// The admin SPA and its API on the same listener.
-	if code, h, _ := request(t, http.MethodGet, base+"/", "", nil, nil); code != http.StatusFound || h.Get("Location") != "/admin/" {
-		t.Fatalf("GET /: %d %v", code, h)
-	}
-	if code, _, raw := request(t, http.MethodGet, base+"/admin/", "", nil, nil); code != http.StatusOK && code != http.StatusServiceUnavailable {
-		t.Fatalf("GET /admin/: %d %s", code, raw) // 503 is the hint before `make web`
-	}
-	code, _, raw := request(t, http.MethodGet, base+"/api/admin/bootstrap", "homie.test", nil, nil)
-	if boot := decode[struct {
-		HomeName   string `json:"homeName"`
-		OwnerReady bool   `json:"ownerReady"`
-	}](t, raw); code != http.StatusOK || boot.HomeName != "Мой шалаш" || boot.OwnerReady {
-		t.Fatalf("bootstrap: %d %s", code, raw)
-	}
-	if code, _ := get(t, base+"/api/admin/session", "homie.test", ""); code != http.StatusUnauthorized {
-		t.Fatalf("session without a cookie: %d", code)
-	}
-
-	// The CLI over the socket: keys, tools, plugins, relay.
-	if list := mustCLI(t, "key", "list", "--data-dir", dir); !strings.Contains(list, "ChatGPT Site") || !strings.Contains(list, "Roman (roman)") {
-		t.Fatalf("key list:\n%s", list)
-	}
-	cliKey := strings.TrimSpace(mustCLI(t, "key", "new", "--label", "CLI", "--data-dir", dir))
-	if code, _ := get(t, base+"/api/v1/tools", "", cliKey); code != http.StatusOK {
-		t.Fatalf("a key from the CLI is not accepted at once: %d", code)
-	}
-	if list := mustCLI(t, "tool", "list", "--data-dir", dir); !strings.Contains(list, "fake_echo") || !strings.Contains(list, "fake_add") {
-		t.Fatalf("tool list:\n%s", list)
-	}
-	out := mustCLI(t, "tool", "call", "fake_echo", `{"text":"hello"}`, "--data-dir", dir)
-	if !strings.Contains(out, "hello") || !strings.Contains(out, `"via": "cli"`) || !strings.Contains(out, `"caller": "Roman"`) {
-		t.Fatalf("tool call output:\n%s", out)
-	}
-	// "-" reads the arguments from stdin, so a secret never reaches argv (review L10).
-	if out, _, err := cli(t, `{"text":"from stdin"}`, "tool", "call", "fake_echo", "-", "--data-dir", dir); err != nil ||
-		!strings.Contains(out, "from stdin") {
-		t.Fatalf("tool call with stdin arguments: %v\n%s", err, out)
-	}
-	if _, _, err := cli(t, `[1]`, "tool", "call", "fake_echo", "-", "--data-dir", dir); err == nil || !strings.Contains(err.Error(), "JSON object") {
-		t.Fatalf("tool call with a stdin array: %v", err)
-	}
-	if _, errOut, err := cli(t, "", "tool", "call", "fake_fail", "--data-dir", dir); !errors.Is(err, errToolFailed) ||
-		!strings.Contains(errOut, "unreachable") {
-		t.Fatalf("failing tool: %v %q", err, errOut)
-	}
-	if _, _, err := cli(t, "", "tool", "call", "fake_nope", "--data-dir", dir); err == nil || !strings.Contains(err.Error(), "unknown tool") {
-		t.Fatalf("unknown tool: %v", err)
-	}
-	if out := mustCLI(t, "plugin", "list", "--data-dir", dir); !strings.Contains(out, "up") || !strings.Contains(out, "1.0.0") {
-		t.Fatalf("plugin list:\n%s", out)
-	}
-	if out := mustCLI(t, "relay", "status", "--data-dir", dir); !strings.Contains(out, "homie.test") || !strings.Contains(out, "self-check") {
-		t.Fatalf("relay status:\n%s", out)
-	}
-
-	// The first-run page: the PIN from the terminal; the relay is configured, so it waits for the connection.
-	if d.setupAddr == nil {
-		t.Fatal("no first-run page while the owner has no passkey")
-	}
-	setup := "http://" + d.setupAddr.String()
-	if code, _, raw := request(t, http.MethodGet, setup+"/api/firstrun/state", "", nil, nil); code != http.StatusOK || !strings.Contains(string(raw), `"pin"`) {
-		t.Fatalf("first-run state: %d %s", code, raw)
-	}
-	frCookie := firstRunSignIn(t, setup, firstRunPIN(t, term))
-	code, _, raw = request(t, http.MethodGet, setup+"/api/firstrun/state", "", map[string]string{"Cookie": frCookie}, nil)
-	if code != http.StatusOK || !strings.Contains(string(raw), `"step":"connecting"`) || !strings.Contains(string(raw), "homie.test") {
-		t.Fatalf("first-run state after the PIN: %d %s", code, raw)
-	}
-	code, _, raw = request(t, http.MethodPost, setup+"/api/firstrun/link", "", map[string]string{"Cookie": frCookie, "X-Homie": "1"}, struct{}{})
-	if code != http.StatusConflict || !strings.Contains(string(raw), "relay_not_ready") {
-		t.Fatalf("link before the relay works: %d %s", code, raw)
-	}
-
-	// The owner's passkey from `homed admin setup-link`, registered through the relay's origin.
-	b := &browser{t: t, base: base, host: "homie.test", origin: "https://homie.test"}
-	token := linkToken(t, dir, "https://homie.test")
-	if code, raw := b.do(http.MethodPost, "/api/admin/auth/token", map[string]string{"token": token}); code != http.StatusOK ||
-		!strings.Contains(string(raw), `"personName":"Roman"`) {
-		t.Fatalf("auth/token: %d %s", code, raw)
-	}
-	if code, raw := b.register(newDevice("homie.test", "https://homie.test"), token,
-		map[string]string{"personName": "Роман", "homeName": "Дача"}); code != http.StatusCreated || b.cookie == "" {
-		t.Fatalf("register: %d %s", code, raw)
-	}
-	code, raw = b.do(http.MethodGet, "/api/admin/session", nil)
-	if code != http.StatusOK || !strings.Contains(string(raw), `"id":"roman"`) || !strings.Contains(string(raw), `"role":"owner"`) ||
-		!strings.Contains(string(raw), `"name":"Дача"`) || !strings.Contains(string(raw), "stepUpUntil") {
-		t.Fatalf("session: %d %s", code, raw)
-	}
-	// The new home name reached the gateway at once, and the first-run page is done.
-	if _, body := get(t, base+"/api/v1/tools", "", oldKey); !strings.Contains(body, `\"Дача\"`) {
-		t.Fatalf("instructions after the setup: %s", body)
-	}
-	if code, _, raw := request(t, http.MethodGet, setup+"/api/firstrun/state", "", nil, nil); code != http.StatusGone {
-		t.Fatalf("first-run page after the setup: %d %s", code, raw)
-	}
-
-	// A key through the admin (the registration counts as step-up), used on the REST façade, then revoked.
-	code, raw = b.do(http.MethodPost, "/api/admin/people/roman/keys", map[string]string{"label": "Web"})
-	if code != http.StatusCreated {
-		t.Fatalf("create a key: %d %s", code, raw)
-	}
-	created := decode[struct {
-		Key struct {
-			ID string `json:"id"`
-		} `json:"key"`
-		Secret string `json:"secret"`
-	}](t, raw)
-	if code, _ := get(t, base+"/api/v1/tools", "homie.test", created.Secret); code != http.StatusOK {
-		t.Fatalf("the new key: %d", code)
-	}
-	if code, raw := b.do(http.MethodDelete, "/api/admin/keys/"+created.Key.ID, nil); code != http.StatusNoContent {
-		t.Fatalf("revoke: %d %s", code, raw)
-	}
-	if code, _ := get(t, base+"/api/v1/tools", "homie.test", created.Secret); code != http.StatusUnauthorized {
-		t.Fatalf("the revoked key: %d", code)
-	}
-	// The key list shows when a key was last used.
-	if code, raw := b.do(http.MethodGet, "/api/admin/keys?person=roman", nil); code != http.StatusOK || !strings.Contains(string(raw), "lastUsedAt") {
-		t.Fatalf("keys: %d %s", code, raw)
-	}
-
-	// An admin tool call with progress: it waits for fake_release, which the CLI sends.
-	code, raw = b.do(http.MethodPost, "/api/admin/tools/fake_progress/calls", map[string]any{"args": map[string]any{}})
-	if code != http.StatusAccepted {
-		t.Fatalf("start a call: %d %s", code, raw)
-	}
-	call := decode[callJSONWeb](t, raw)
-	waitCall(t, b, call.ID, func(c callJSONWeb) bool { return c.Progress != nil && c.Progress.Message != "" })
-	mustCLI(t, "tool", "call", "fake_release", "--data-dir", dir)
-	done := waitCall(t, b, call.ID, func(c callJSONWeb) bool { return c.State != "running" })
-	if done.State != "ok" || done.Result == nil || done.Result.Text != "released" {
-		t.Fatalf("finished call: %+v", done)
-	}
-
-	// The owner renames the home: the gateway follows at once.
-	if code, raw := b.do(http.MethodPatch, "/api/admin/settings", map[string]string{"homeName": "Дача 2"}); code != http.StatusOK {
-		t.Fatalf("rename: %d %s", code, raw)
-	}
-	if _, body := get(t, base+"/api/v1/tools", "", oldKey); !strings.Contains(body, `\"Дача 2\"`) {
-		t.Fatalf("instructions after the rename: %s", body)
-	}
-
-	// Plugins added and removed while homed runs.
-	mustCLI(t, "plugin", "add", "--id", "echo", "--data-dir", dir, "--", echoBin)
-	waitTools(t, d, func(tools []hub.Tool) bool { return strings.Contains(fmt.Sprint(tools), "echo_say") })
-	if out := mustCLI(t, "tool", "call", "echo_say", `{"text":"hi"}`, "--data-dir", dir); !strings.Contains(out, "hi") {
-		t.Fatalf("echo_say: %s", out)
-	}
-	mustCLI(t, "plugin", "remove", "echo", "--data-dir", dir)
-	if st := d.host.Status(); len(st) != 1 || st[0].ID != "fake" {
-		t.Fatalf("plugins after remove: %+v", st)
-	}
-
-	// A second homed on the same data dir is refused and leaves the first one's socket alone.
-	err := serve(context.Background(), runOptions{dataDir: dir, listen: "127.0.0.1:" + strconv.Itoa(freePort(t))}, discardLog())
-	if !errors.Is(err, config.ErrAlreadyRunning) {
-		t.Fatalf("second homed: %v", err)
-	}
-	if out := mustCLI(t, "plugin", "list", "--data-dir", dir); !strings.Contains(out, "fake") {
-		t.Fatalf("the first homed's socket after the refused second start:\n%s", out)
-	}
-
-	if err := stop(); err != nil {
-		t.Fatalf("shutdown: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, config.SocketFile)); !os.IsNotExist(err) {
-		t.Fatalf("socket left behind: %v", err)
-	}
-	checkAudit(t, dir)
-}
-
-// checkAudit expects the calls and the admin actions of TestDaemon in homed.db, with secrets redacted.
-func checkAudit(t *testing.T, dir string) {
-	t.Helper()
-	recs, err := openDB(t, dir).Audit().Query(context.Background(), store.AuditFilter{Limit: 200})
+	res, err := cs.ListTools(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := map[string]bool{}
-	for _, r := range recs {
-		seen[string(r.Kind)+" "+r.Via+" "+r.Tool+r.Action] = true
-		if r.Tool == "fake_echo" && r.Via == "site" && (strings.Contains(string(r.Args), "1234") || !strings.Contains(string(r.Args), "[redacted]")) {
-			t.Errorf("args not redacted: %s", r.Args)
+	var out []string
+	for _, tool := range res.Tools {
+		out = append(out, tool.Name)
+	}
+	return out
+}
+
+// TestGuestEndToEnd is H2's acceptance in one process: the setup link → a virtual passkey → an invite of a guest
+// with plugin:fake and a 1-hour term → the guest's OAuth flow with a fake Claude client → tools/list shows only the
+// fake plugin's tools → a call reaches the plugin → after the term, 401. The owner sees every tool; a token cannot be
+// asked for another resource; no /api/v1 route is left.
+func TestGuestEndToEnd(t *testing.T) {
+	const host = e2eHost
+	h := newHome(t, "  mode: named\n  hostname: "+host+"\n").withPlugins().connected(host).start()
+	waitFor(t, "the tunnel's self-check", func() bool { return h.d.tun.Status().State == "connected" })
+	waitFor(t, "the plugins", func() bool { return len(h.d.host.Tools("admin")) > 0 })
+
+	// The owner: the setup link from the home box, then a passkey.
+	alice := h.browser(host)
+	if b := alice.json("GET", "/api/home/bootstrap", nil, 200); b["ownerReady"] != false {
+		t.Fatalf("bootstrap before the owner: %v", b)
+	}
+	alice.register(newDevice(host), tokenOf(t, h.setupLink()), "Alice", "Дом")
+	if b := alice.json("GET", "/api/home/bootstrap", nil, 200); b["ownerReady"] != true || b["homeName"] != "Дом" {
+		t.Fatalf("bootstrap: %v", b)
+	}
+	acct := alice.json("GET", "/api/account", nil, 200)
+	res := acct["resources"].([]any)[0].(map[string]any)
+	if res["mcp_url"] != "https://"+host+"/mcp" || len(acct["devices"].([]any)) != 2 {
+		t.Fatalf("account: %v", acct)
+	}
+	// "Delete everything" is not for the home: its data goes with an uninstall on the home box.
+	if code, _, raw := alice.do("DELETE", "/api/account", map[string]any{"confirm": "Дом"}); code != http.StatusForbidden ||
+		!strings.Contains(string(raw), "uninstall homed") {
+		t.Fatalf("DELETE /api/account: %d %s", code, raw)
+	}
+	// The permissions an invite can give besides "all": one per plugin.
+	if code, _, raw := alice.do("GET", "/api/account/permissions", nil); code != 200 || !strings.Contains(string(raw), `"plugin:fake"`) ||
+		!strings.Contains(string(raw), `"plugin:echo"`) || strings.Contains(string(raw), `"all"`) {
+		t.Fatalf("permissions: %d %s", code, raw)
+	}
+
+	// A guest: the fake plugin, for an hour.
+	until := h.clock.now().Add(time.Hour).UTC().Format(time.RFC3339)
+	inv := alice.json("POST", "/api/account/invites", map[string]any{"name": "Bella", "permissions": []string{"plugin:fake"},
+		"access_until": until}, 200)
+	bella := h.browser(host)
+	bella.register(newDevice(host), tokenOf(t, inv["url"].(string)), "Bella", "")
+	if me := bella.json("GET", "/api/me", nil, 200); me["person"].(map[string]any)["role"] != "member" {
+		t.Fatalf("me: %v", me)
+	}
+	if devs := bella.json("GET", "/api/account", nil, 200)["devices"].([]any); len(devs) != 1 ||
+		devs[0].(map[string]any)["id"] != "fake" {
+		t.Fatalf("the guest's devices: %v", devs)
+	}
+
+	// The guest's connector sees the fake plugin only, and a call reaches it with the guest's name.
+	guest := bella.connect("https://" + host + "/mcp")
+	cs, err := h.mcpSession(guest.access)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range toolNames(t, cs) {
+		if !strings.HasPrefix(name, "fake_") {
+			t.Fatalf("the guest sees %s", name)
 		}
 	}
-	for _, want := range []string{
-		"tool site fake_echo", "tool cli fake_echo", "tool cli fake_fail", "tool admin fake_progress", "tool cli echo_say",
-		"admin cli setup.link", "admin admin auth.setup", "admin cli key.create", "admin admin key.create",
-		"admin admin key.revoke", "admin cli plugin.install", "admin cli plugin.remove", "admin admin settings.update",
+	call, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "fake_echo", Arguments: map[string]any{"text": "hi"}})
+	if err != nil || call.IsError {
+		t.Fatalf("fake_echo: %v %+v", err, call)
+	}
+	if b, _ := json.Marshal(call.StructuredContent); !strings.Contains(string(b), `"caller":"Bella"`) || !strings.Contains(string(b), `"via":"claude"`) {
+		t.Fatalf("the plugin saw %s", b)
+	}
+	if res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "echo_say", Arguments: map[string]any{"text": "x"}}); err == nil && !res.IsError {
+		t.Fatal("the guest called a tool outside their permissions")
+	}
+
+	// The owner sees every tool.
+	owner := alice.connect("https://" + host + "/mcp")
+	ocs, err := h.mcpSession(owner.access)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := toolNames(t, ocs)
+	if !slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "echo_") }) ||
+		!slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "fake_") }) {
+		t.Fatalf("the owner sees %v", names)
+	}
+
+	// A token for another resource is never handed out, and refused at /mcp; /mcp/<anything> is not the home.
+	for want, q := range map[string]url.Values{
+		"invalid_target": {"resource": {"https://" + host + "/mcp/other"}},
+		"invalid_scope":  {"resource": {"https://" + host + "/mcp"}, "scope": {"mcp:other"}},
 	} {
-		if !seen[want] {
-			t.Errorf("audit lacks %q; has %v", want, seen)
+		if got := alice.authorizeError(owner.clientID, q); got != want {
+			t.Errorf("authorize %v: %q, want %q", q, got, want)
+		}
+	}
+	other := h.tokenForAnotherResource(owner.access)
+	if _, err := h.mcpSession(other); err == nil {
+		t.Fatal("a token for another resource was accepted at /mcp")
+	}
+	if code := mcpStatus(t, h, host, "/mcp/other", owner.access); code != http.StatusNotFound {
+		t.Fatalf("/mcp/other: %d", code)
+	}
+	// The REST façade of the ChatGPT Sites is gone.
+	if code, _, _ := alice.do("GET", "/api/v1/tools", nil); code != http.StatusNotFound {
+		t.Fatalf("/api/v1/tools: %d", code)
+	}
+
+	// The term ends: the guest's token is refused with 401, and so are their refresh and their session. The owner's
+	// access token ran out too (an hour); the refresh gives a new one.
+	h.clock.add(time.Hour + time.Second)
+	if _, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "fake_echo", Arguments: map[string]any{"text": "late"}}); err == nil {
+		t.Fatal("the guest's call went through after the term")
+	}
+	if code := mcpStatus(t, h, host, "/mcp", guest.access); code != http.StatusUnauthorized {
+		t.Fatalf("the guest after the term: %d", code)
+	}
+	if code, _ := bella.refreshed(guest); code != http.StatusBadRequest {
+		t.Fatalf("the guest's refresh after the term: %d", code)
+	}
+	if code, _, _ := bella.do("GET", "/api/me", nil); code != http.StatusUnauthorized {
+		t.Fatalf("the guest's session after the term: %d", code)
+	}
+	code, owner := alice.refreshed(owner)
+	if code != http.StatusOK {
+		t.Fatalf("the owner's refresh: %d", code)
+	}
+	if ocs, err = h.mcpSession(owner.access); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := ocs.CallTool(t.Context(), &mcp.CallToolParams{Name: "echo_say", Arguments: map[string]any{"text": "x"}}); err != nil || res.IsError {
+		t.Fatalf("the owner after the guest's term: %v %+v", err, res)
+	}
+	// Every assistant call is in the activity log, with its surface.
+	waitFor(t, "the activity", func() bool {
+		recs, _ := h.d.st.Activity().Query(t.Context(), store.ActivityFilter{Via: []string{"claude"}})
+		return len(recs) >= 2
+	})
+}
+
+// authorizeError starts an authorization for client with q over the usual parameters and returns the error the
+// gatekeeper sends back to the client's callback ("" when it went on to the consent).
+func (b *browser) authorizeError(clientID string, q url.Values) string {
+	b.t.Helper()
+	sum := sha256.Sum256([]byte(strings.Repeat("v", 43)))
+	base := url.Values{"response_type": {"code"}, "client_id": {clientID}, "redirect_uri": {claudeCallback},
+		"state": {"st"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])},
+		"code_challenge_method": {"S256"}, "scope": {"mcp offline_access"}}
+	for k, v := range q {
+		base[k] = v
+	}
+	code, h, raw := b.do("GET", "/oauth/authorize?"+base.Encode(), nil)
+	loc, err := url.Parse(h.Get("Location"))
+	if code != http.StatusFound || err != nil {
+		b.t.Fatalf("authorize: %d %v %s", code, h, raw)
+	}
+	if strings.HasPrefix(loc.Path, "/consent") {
+		return ""
+	}
+	return loc.Query().Get("error")
+}
+
+// tokenForAnotherResource stores an access token like access (the same person, account and client) but for the
+// resource "other": the OAuth server never issues one, a bug or a second resource could.
+func (h *home) tokenForAnotherResource(access string) string {
+	h.t.Helper()
+	ctx := h.t.Context()
+	sum := sha256.Sum256([]byte(access))
+	tok, err := h.d.st.OAuth().GetToken(ctx, sum[:])
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	g, err := h.d.st.OAuth().GetGrant(ctx, tok.GrantID)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	g.ID, g.ResourceID = "grt_other", "other"
+	if err := h.d.st.OAuth().PutGrant(ctx, g); err != nil {
+		h.t.Fatal(err)
+	}
+	const other = "access-token-for-another-resource"
+	sum = sha256.Sum256([]byte(other))
+	now := h.clock.now()
+	if err := h.d.st.OAuth().PutToken(ctx, core.Token{Hash: sum[:], GrantID: g.ID, Kind: core.TokenAccess, Family: "other",
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		h.t.Fatal(err)
+	}
+	return other
+}
+
+// mcpStatus is the status of an MCP tools/list at path with token, as an assistant sends it.
+func mcpStatus(t *testing.T, h *home, host, path, token string) int {
+	t.Helper()
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://"+host+path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	res, err := tunneltest.Edge(h.addr, "").Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode == http.StatusUnauthorized && !strings.Contains(res.Header.Get("WWW-Authenticate"), "Bearer") {
+		t.Errorf("a 401 without a Bearer challenge: %v", res.Header)
+	}
+	return res.StatusCode
+}
+
+// A v0.1 data dir moves over at the first start: homed.yaml loses the relay (kept as homed.yaml.v0.1), the relay
+// token goes, the old database is imported (plugins, home name, language) and kept as homed.db.v0.1; the plugins run;
+// the first-run page stays off the home network; nobody can sign in until the setup link.
+func TestMigrationFromV01(t *testing.T) {
+	h := newHome(t, "")
+	v01 := "listen: " + h.addr + "\nrelay:\n  domain: relay.example.com\n"
+	if err := os.WriteFile(filepath.Join(h.dir, config.FileName), []byte(v01), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.dir, "relay-token"), []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeV01DB(t, filepath.Join(h.dir, config.OldDBFile))
+	h.start(func(o *runOptions) { o.setupListen = "127.0.0.1:0" }) // homed.yaml now says 127.0.0.1:8090
+
+	if _, err := os.Stat(filepath.Join(h.dir, "relay-token")); !os.IsNotExist(err) {
+		t.Errorf("relay-token: %v", err)
+	}
+	cfg, err := config.Load(h.dir)
+	if err != nil || cfg.HasRelay() || cfg.Tunnel.Mode != config.TunnelOff || cfg.SetupListen != "127.0.0.1:8090" {
+		t.Fatalf("homed.yaml: %+v %v", cfg, err)
+	}
+	for _, f := range []string{config.V01Backup, config.OldDBFile + store.V01Suffix} {
+		fi, err := os.Stat(filepath.Join(h.dir, f))
+		if err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v %v", f, fi, err)
+		}
+	}
+	waitFor(t, "the imported plugins", func() bool { return len(h.d.host.Tools("admin")) > 0 })
+	if hs, _ := h.d.st.Settings().Get(t.Context()); hs.HomeName != "Дом" || hs.Language != "en" {
+		t.Fatalf("settings: %+v", hs)
+	}
+	// A second start finds nothing to move.
+	if err := h.stop(); err != nil {
+		t.Fatal(err)
+	}
+	h.logs = &syncBuffer{}
+	h.start(func(o *runOptions) { o.setupListen = "127.0.0.1:0" }) // homed.yaml now says 127.0.0.1:8090
+	if strings.Contains(h.logs.String(), "imported the v0.1 database") || strings.Contains(h.logs.String(), "moved homed.yaml") {
+		t.Fatalf("a second start migrated again:\n%s", h.logs.String())
+	}
+	// The first-run page: on loopback (the home had a relay), with nothing to connect yet.
+	h.d.mu.Lock()
+	urls := h.d.firstRun.urls
+	h.d.mu.Unlock()
+	if len(urls) != 1 || !strings.HasPrefix(urls[0], "http://127.0.0.1:") {
+		t.Fatalf("first-run page: %v", urls)
+	}
+}
+
+// writeV01DB makes a v0.1.1 homed.db: the schema of internal/store/testdata/homed-v0.1.1.sql with neutral rows, its
+// plugins the test builds.
+func writeV01DB(t *testing.T, path string) {
+	t.Helper()
+	schema, err := os.ReadFile(filepath.Join("..", "..", "internal", "store", "testdata", "homed-v0.1.1.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	cmd := func(bin string) string { b, _ := json.Marshal([]string{bin, "serve"}); return string(b) }
+	ms := time.Now().UnixMilli()
+	for _, s := range []string{
+		string(schema),
+		`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL) STRICT`,
+		fmt.Sprintf(`INSERT INTO schema_migrations VALUES (1, '0001_init.sql', %d)`, ms),
+		fmt.Sprintf(`INSERT INTO people VALUES ('alice', 'Alice', 'owner', '["*"]', '', X'01', %d, %d)`, ms, ms),
+		fmt.Sprintf(`INSERT INTO plugins VALUES ('fake', 'local', '', '', '', '%s', 1, %d, %d)`, cmd(fakeBin), ms, ms),
+		fmt.Sprintf(`INSERT INTO settings VALUES (1, 'Дом', 'en', '', 0, %d)`, ms),
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("%v\n%s", err, s)
 		}
 	}
 }
 
-// A relay that fails before it ever connects (here: the CA file is missing) shows why in `homed relay status`.
-func TestRelayConfigErrorInStatus(t *testing.T) {
-	dir := shortTempDir(t)
-	connectRelay(t, dir)
-	d, _ := startDaemon(t, runOptions{
-		dataDir: dir, listen: "127.0.0.1:" + strconv.Itoa(freePort(t)), setupListen: "127.0.0.1:0",
-		caFile: filepath.Join(dir, "missing-ca.pem"),
-	}, false)
-	tick := time.NewTicker(50 * time.Millisecond)
-	defer tick.Stop()
-	deadline := time.After(10 * time.Second)
-	for {
-		out := mustCLI(t, "relay", "status", "--data-dir", dir)
-		if strings.Contains(out, "last error: read relay CA file") && d.relay.Status().LastError != "" {
-			return
-		}
-		select {
-		case <-tick.C:
-		case <-deadline:
-			t.Fatalf("relay status never showed the config error:\n%s", out)
-		}
+// An unknown tunnel mode stops homed at start.
+func TestUnknownTunnelModeRefusesToStart(t *testing.T) {
+	h := newHome(t, "  mode: relay\n")
+	err := serve(t.Context(), runOptions{dataDir: h.dir}, discardLog())
+	if err == nil || !strings.Contains(err.Error(), `mode "relay"`) {
+		t.Fatalf("serve = %v", err)
 	}
 }
 
-// A connect code given to a running homed (first-run page, admin, CLI) switches the relay at once: the Host guard,
-// the passkey relying party and the admin's origin follow without a restart.
-func TestRelayConnectAtRunTime(t *testing.T) {
-	dir := shortTempDir(t)
-	port := freePort(t)
-	base := "http://127.0.0.1:" + strconv.Itoa(port)
-	d, _ := startDaemon(t, runOptions{
-		dataDir: dir, listen: "127.0.0.1:" + strconv.Itoa(port), setupListen: "127.0.0.1:0",
-		serverAddr: "127.0.0.1:" + strconv.Itoa(freePort(t)),
-	}, false)
-	b := &browser{t: t, base: base, host: "homie.test", origin: "https://homie.test"}
-	if code, _ := get(t, base+"/healthz", "homie.test", ""); code != http.StatusMisdirectedRequest {
-		t.Fatalf("Host before the relay: %d", code)
+// firstRunPIN asks `homed admin firstrun` for the page and its PIN.
+func (h *home) firstRunPIN() (pageURL, pin string) {
+	h.t.Helper()
+	code, out, errOut := cli(h.t, "admin", "firstrun", "--data-dir", h.dir)
+	if code != 0 {
+		h.t.Fatalf("admin firstrun: %d %s %s", code, out, errOut)
 	}
-	if code, raw := (&browser{t: t, base: base, origin: "https://homie.test"}).do(http.MethodPost, "/api/admin/auth/login/begin", struct{}{}); code != http.StatusForbidden {
-		t.Fatalf("a write with an origin before the relay: %d %s", code, raw)
+	for _, line := range strings.Split(out, "\n") {
+		if u, ok := strings.CutPrefix(strings.TrimSpace(line), "http://"); ok {
+			pageURL = "http://" + strings.TrimSuffix(u, "/firstrun")
+		}
+		if p, ok := strings.CutPrefix(line, "PIN: "); ok {
+			pin = strings.ReplaceAll(strings.Fields(p)[0]+strings.Fields(p)[1], " ", "")
+		}
+	}
+	if pageURL == "" || len(pin) != 8 {
+		h.t.Fatalf("admin firstrun:\n%s", out)
+	}
+	return pageURL, pin
+}
+
+// page is a browser on the first-run page.
+type page struct {
+	t      *testing.T
+	base   string
+	cookie string
+}
+
+func (p *page) do(method, path string, body any) (int, map[string]any) {
+	p.t.Helper()
+	var rd io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		rd = bytes.NewReader(raw)
+	}
+	req, _ := http.NewRequestWithContext(p.t.Context(), method, p.base+path, rd)
+	if rd != nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Homie", "1")
+	}
+	if p.cookie != "" {
+		req.Header.Set("Cookie", "homie_firstrun="+p.cookie)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	for _, c := range res.Cookies() {
+		if c.Name == "homie_firstrun" {
+			p.cookie = c.Value
+		}
+	}
+	var out map[string]any
+	_ = json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
+}
+
+func (h *home) openPage() *page {
+	h.t.Helper()
+	base, pin := h.firstRunPIN()
+	p := &page{t: h.t, base: base}
+	if code, out := p.do("POST", "/api/firstrun/pin", map[string]string{"pin": pin}); code != http.StatusNoContent {
+		h.t.Fatalf("PIN: %d %v", code, out)
+	}
+	return p
+}
+
+// "My domain" from the first-run page: the login link, the connect, the self-check, the setup link; the page leaves
+// the home network once the tunnel is configured, keeping its PIN and cookie.
+func TestNamedConnectFromThePage(t *testing.T) {
+	h := newHome(t, "").start()
+	pageURLs := func() []string {
+		h.d.mu.Lock()
+		defer h.d.mu.Unlock()
+		if h.d.firstRun == nil {
+			return nil
+		}
+		return h.d.firstRun.urls
+	}
+	first := pageURLs()
+	if h.d.firstRun == nil || !h.d.firstRun.moves || len(first) != 1 {
+		t.Fatalf("without a tunnel the page is not on its home-network default: %v", first)
+	}
+	p := h.openPage()
+	if code, st := p.do("GET", "/api/firstrun/state", nil); code != 200 || st["step"] != "tunnel" {
+		t.Fatalf("state: %d %v", code, st)
+	}
+	h.fake.Set("login-release")
+	if code, out := p.do("POST", "/api/firstrun/tunnel", map[string]any{"mode": "named", "hostname": "home.example.com"}); code != http.StatusAccepted {
+		t.Fatalf("connect: %d %v", code, out)
+	}
+	// The page moves to its loopback default (here another free port), with its PIN and cookie.
+	waitFor(t, "the page to move", func() bool { u := pageURLs(); return len(u) == 1 && u[0] != first[0] })
+	p.base = strings.TrimSuffix(pageURLs()[0], "/firstrun")
+	waitFor(t, "the link step", func() bool { _, st := p.do("GET", "/api/firstrun/state", nil); return st["step"] == "link" })
+	code, link := p.do("POST", "/api/firstrun/link", map[string]any{})
+	if code != 200 || !strings.HasPrefix(link["url"].(string), "https://home.example.com/setup#t=") {
+		t.Fatalf("link: %d %v", code, link)
+	}
+	cfg, _ := config.Load(h.dir)
+	if cfg.Tunnel.Mode != config.TunnelNamed || cfg.Tunnel.Hostname != "home.example.com" {
+		t.Fatalf("homed.yaml: %+v", cfg.Tunnel)
+	}
+	b := h.browser("home.example.com")
+	b.register(newDevice("home.example.com"), tokenOf(t, link["url"].(string)), "Alice", "Дом")
+	waitFor(t, "the owner", func() bool { r, _ := h.d.ownerReady(t.Context()); return r })
+}
+
+// Quick mode: the owner signs in at the first URL; a restart of cloudflared brings a new URL, where the old passkeys
+// no longer count: the first-run page opens again by itself, its link reconnects the same owner, and the old host is
+// refused.
+func TestQuickHostChange(t *testing.T) {
+	h := newHome(t, "  mode: quick\n").start()
+	first := tunneltest.QuickHost(1)
+	waitFor(t, "the quick URL", func() bool { return h.d.publicHost() == first })
+	waitFor(t, "the self-check", func() bool { return h.d.tun.Status().State == "connected" })
+	p := h.openPage()
+	_, st := p.do("GET", "/api/firstrun/state", nil)
+	if st["step"] != "link" || st["ownerExists"] != false {
+		t.Fatalf("state: %v", st)
+	}
+	_, link := p.do("POST", "/api/firstrun/link", map[string]any{})
+	alice := h.browser(first)
+	alice.register(newDevice(first), tokenOf(t, link["url"].(string)), "Alice", "Дом")
+	me := alice.json("GET", "/api/me", nil, 200)
+	aliceID := me["person"].(map[string]any)["id"]
+	closing := func() bool {
+		h.d.mu.Lock()
+		defer h.d.mu.Unlock()
+		return h.d.firstRun != nil && h.d.firstRunTimer != nil
+	}
+	waitFor(t, "the page to start closing", closing)
+
+	// The admin's reconnect (here the tunnel itself): a new URL.
+	if err := h.d.tun.Restart(); err != nil {
+		t.Fatal(err)
+	}
+	second := tunneltest.QuickHost(2)
+	waitFor(t, "the new quick URL", func() bool { return h.d.publicHost() == second })
+	if ready, _ := ownerReady(t.Context(), h.d.st, second); ready {
+		t.Fatal("the old URL's passkey counts at the new one")
+	}
+	if code, _, _ := alice.do("GET", "/api/me", nil); code != http.StatusMisdirectedRequest {
+		t.Fatalf("the old host: %d", code)
+	}
+	// The page that was about to close stays open.
+	waitFor(t, "the page to stay", func() bool {
+		h.d.mu.Lock()
+		defer h.d.mu.Unlock()
+		return h.d.firstRun != nil && h.d.firstRunTimer == nil
+	})
+	p = h.openPage()
+	_, st = p.do("GET", "/api/firstrun/state", nil)
+	if st["step"] != "link" || st["ownerExists"] != true {
+		t.Fatalf("state after the change: %v", st)
+	}
+	_, link = p.do("POST", "/api/firstrun/link", map[string]any{})
+	if !strings.HasPrefix(link["url"].(string), "https://"+second+"/setup#t=") {
+		t.Fatalf("link: %v", link)
+	}
+	again := h.browser(second)
+	again.register(newDevice(second), tokenOf(t, link["url"].(string)), "", "")
+	if me := again.json("GET", "/api/me", nil, 200); me["person"].(map[string]any)["id"] != aliceID {
+		t.Fatalf("the reconnect made another person: %v", me)
+	}
+	if code, _, out := again.do("POST", "/api/account/invites", map[string]any{"name": "Bella", "permissions": []string{"all"}}); code != http.StatusOK {
+		t.Fatalf("an invite in quick mode: %d %s", code, out)
 	}
 
-	out := connectRelay(t, dir)
-	if !strings.Contains(out, "connecting") || d.relay.Domain() != "homie.test" {
-		t.Fatalf("relay connect: %s (domain %q)", out, d.relay.Domain())
+	// Later, the page closed (its two minutes passed, here at once): the next new URL opens it again by itself.
+	waitFor(t, "the page to start closing again", closing)
+	h.d.mu.Lock()
+	h.d.firstRunTimer.Reset(time.Millisecond)
+	h.d.mu.Unlock()
+	pageOpen := func() bool {
+		h.d.mu.Lock()
+		defer h.d.mu.Unlock()
+		return h.d.firstRun != nil
 	}
-	if cfg, err := config.Load(dir); err != nil || cfg.Relay.Domain != "homie.test" {
-		t.Fatalf("homed.yaml: %+v, %v", cfg, err)
+	waitFor(t, "the page to close", func() bool { return !pageOpen() })
+	if err := h.d.tun.Restart(); err != nil {
+		t.Fatal(err)
 	}
-	if tok, err := config.ReadRelayToken(dir); err != nil || tok != testToken {
-		t.Fatalf("relay-token: %v", err)
-	}
-	if code, _ := get(t, base+"/healthz", "homie.test", ""); code != http.StatusOK {
-		t.Fatalf("Host after the relay: %d", code)
-	}
-	if code, raw := b.do(http.MethodPost, "/api/admin/auth/login/begin", struct{}{}); code != http.StatusOK || !strings.Contains(string(raw), `"rpId":"homie.test"`) {
-		t.Fatalf("login/begin after the relay: %d %s", code, raw)
-	}
-	if out := mustCLI(t, "relay", "status", "--data-dir", dir); !strings.Contains(out, "relay:      homie.test") {
-		t.Fatalf("relay status:\n%s", out)
-	}
-	// The first-run page sees the relay too: the link waits for the connection and the self-check.
-	if d.setupAddr == nil {
-		t.Fatal("no first-run page")
+	third := tunneltest.QuickHost(3)
+	waitFor(t, "the third quick URL", func() bool { return h.d.publicHost() == third })
+	waitFor(t, "the page to reopen", pageOpen)
+	p = h.openPage()
+	_, link = p.do("POST", "/api/firstrun/link", map[string]any{})
+	last := h.browser(third)
+	last.register(newDevice(third), tokenOf(t, link["url"].(string)), "", "")
+	if me := last.json("GET", "/api/me", nil, 200); me["person"].(map[string]any)["id"] != aliceID {
+		t.Fatalf("the second reconnect made another person: %v", me)
 	}
 }
 
-// --dev-origin: passkeys and setup links for localhost over plain http, and no relay at all.
+// Development: --dev-origin serves the gatekeeper at the dev origin without a tunnel.
 func TestDevMode(t *testing.T) {
-	relayDir := shortTempDir(t)
-	connectRelay(t, relayDir)
-	err := serve(context.Background(), runOptions{
-		dataDir: relayDir, listen: "127.0.0.1:" + strconv.Itoa(freePort(t)), devOrigin: "http://localhost:5173",
-	}, discardLog())
-	if err == nil || !strings.Contains(err.Error(), "--dev-origin") {
-		t.Fatalf("dev origin with a relay: %v", err)
+	h := newHome(t, "").start(func(o *runOptions) { o.devOrigin = "http://localhost:5173" })
+	if link := h.setupLink(); !strings.HasPrefix(link, "http://localhost:5173/setup#t=") {
+		t.Fatalf("link %q", link)
 	}
-	if err := serve(context.Background(), runOptions{dataDir: shortTempDir(t), devOrigin: "http://evil.test"}, discardLog()); err == nil {
-		t.Fatal("a dev origin that is not localhost was accepted")
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+h.addr+"/api/home/bootstrap", http.NoBody)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("bootstrap: %v %v", res, err)
 	}
-
-	dir := shortTempDir(t)
-	port := freePort(t)
-	origin := "http://localhost:" + strconv.Itoa(port)
-	term := &syncBuffer{}
-	d, _ := startDaemon(t, runOptions{
-		dataDir: dir, listen: "127.0.0.1:" + strconv.Itoa(port), setupListen: "127.0.0.1:0", devOrigin: origin, terminal: term,
-	}, false)
-	if !strings.Contains(term.String(), "homed admin setup-link") {
-		t.Fatalf("terminal:\n%s", term.String())
-	}
-	// The first-run page has no relay to connect in development mode.
-	setup := "http://" + d.setupAddr.String()
-	frCookie := firstRunSignIn(t, setup, firstRunPIN(t, term))
-	code, _, raw := request(t, http.MethodPost, setup+"/api/firstrun/relay", "",
-		map[string]string{"Cookie": frCookie, "X-Homie": "1"}, map[string]string{"code": testCode(t, "homie.test")})
-	if code != http.StatusConflict || !strings.Contains(string(raw), "development mode") {
-		t.Fatalf("first-run relay in development mode: %d %s", code, raw)
-	}
-
-	b := &browser{t: t, base: "http://127.0.0.1:" + strconv.Itoa(port), host: "localhost:" + strconv.Itoa(port), origin: origin}
-	token := linkToken(t, dir, origin)
-	if code, raw := b.register(newDevice("localhost", origin), token, map[string]string{"personName": "Dev", "homeName": "Dev home"}); code != http.StatusCreated {
-		t.Fatalf("register on localhost: %d %s", code, raw)
-	}
-	if code, raw := b.do(http.MethodGet, "/api/admin/relay", nil); code != http.StatusOK || !strings.Contains(string(raw), "not_configured") {
-		t.Fatalf("relay in development mode: %d %s", code, raw)
-	}
-	if code, raw := b.do(http.MethodPut, "/api/admin/relay", map[string]string{"code": testCode(t, "homie.test")}); code != http.StatusServiceUnavailable {
-		t.Fatalf("relay change in development mode: %d %s", code, raw)
-	}
-	if _, _, err := cli(t, testCode(t, "homie.test")+"\n", "relay", "connect", "-", "--data-dir", dir); err == nil {
-		t.Fatal("relay connect in development mode succeeded")
+	_ = res.Body.Close()
+	// A tunnel in homed.yaml and --dev-origin do not go together.
+	other := newHome(t, "  mode: quick\n")
+	if err := serve(t.Context(), runOptions{dataDir: other.dir, devOrigin: "http://localhost:5173"}, discardLog()); err == nil ||
+		!strings.Contains(err.Error(), "--dev-origin") {
+		t.Fatalf("dev with a tunnel: %v", err)
 	}
 }
 
-// After a hub update homed shuts down cleanly and serve returns errRestart; main exits with 75 for the service manager.
-func TestRestartAfterHubUpdate(t *testing.T) {
-	dir := shortTempDir(t)
-	ready := make(chan *daemon, 1)
-	done := make(chan error, 1)
-	go func() {
-		done <- serve(context.Background(), runOptions{
-			dataDir: dir, listen: "127.0.0.1:" + strconv.Itoa(freePort(t)), setupListen: "127.0.0.1:0",
-			ready: func(d *daemon) { ready <- d },
-		}, discardLog())
-	}()
-	var d *daemon
-	select {
-	case d = <-ready:
-	case err := <-done:
-		t.Fatalf("serve: %v", err)
-	}
-	d.requestRestart()
-	d.requestRestart() // only the first counts
-	select {
-	case err := <-done:
-		if !errors.Is(err, errRestart) {
-			t.Fatalf("serve after a restart request: %v", err)
+// Without a public URL the hub answers the bootstrap and the health check, and 503 for what needs the gatekeeper;
+// the CLI's setup-link says to connect first.
+func TestNoTunnel(t *testing.T) {
+	h := newHome(t, "").start()
+	get := func(path string) (int, http.Header, string) {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+h.addr+path, http.NoBody)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
 		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("homed did not stop")
+		defer res.Body.Close()
+		raw, _ := io.ReadAll(res.Body)
+		return res.StatusCode, res.Header, string(raw)
 	}
-	if _, err := os.Stat(filepath.Join(dir, config.SocketFile)); !os.IsNotExist(err) {
-		t.Fatalf("socket left behind: %v", err)
+	if code, hd, _ := get("/healthz"); code != 200 || hd.Get("X-Homie-Instance") == "" {
+		t.Fatalf("healthz: %d %v", code, hd)
 	}
+	if code, _, body := get("/api/home/bootstrap"); code != 200 || !strings.Contains(body, `"mode":"off"`) {
+		t.Fatalf("bootstrap: %d %s", code, body)
+	}
+	for _, p := range []string{"/api/me", "/mcp", "/.well-known/oauth-authorization-server", "/api/account"} {
+		if code, _, body := get(p); code != http.StatusServiceUnavailable || !strings.Contains(body, "home_not_ready") {
+			t.Errorf("%s: %d %s", p, code, body)
+		}
+	}
+	if code, _, errOut := cli(t, "admin", "setup-link", "--data-dir", h.dir); code != 1 || !strings.Contains(errOut, "connect it first") {
+		t.Fatalf("setup-link: %d %s", code, errOut)
+	}
+	if code, out, _ := cli(t, "cloudflare", "status", "--data-dir", h.dir); code != 0 || !strings.Contains(out, "mode:  off") {
+		t.Fatalf("status: %d %s", code, out)
+	}
+	_ = core.ErrNotFound
 }
