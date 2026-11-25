@@ -34,7 +34,7 @@ import { useJobs } from '@/features/run/jobs'
 import { useRun } from '@/features/run/run'
 import { OwnerOnly } from '@/features/shell/OwnerOnly'
 import { useCloseSheet } from '@/features/shell/useCloseSheet'
-import { homeApi, isHomeError } from '@/lib/api'
+import { homeApi, pointedAt } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { pluginRemovedBus } from '@/lib/events'
 import { hq, useInventory, usePlugin } from '@/lib/queries'
@@ -42,8 +42,8 @@ import { itemTone, pluginTone } from '@/lib/status'
 import { groupTools, isDestructive, moduleTitle, toolDescription, toolTitle } from '@/lib/tools'
 import type { InventoryItem, Job, PluginDetail, PluginSummary, Tool } from '@/lib/types'
 
-// Module detail (DESIGN.md §8.7): header, a banner when it is not running, its devices, its actions, what it does
-// in ChatGPT and Claude, and maintenance. The device sheet (§8.7.3) is the route …/items/:itemId over this page.
+// Module detail: header, a banner when it is not running, its devices, its actions, what it does
+// in ChatGPT and Claude, and maintenance. The device sheet is the route …/items/:itemId over this page.
 // Owners only: a member's devices page lists what they may use, without details.
 
 export function ModulePage() {
@@ -154,7 +154,7 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   const [removing, setRemoving] = useState(false)
   const autoSetup = useRef(false)
 
-  // Right after installing, the module page opens its setup action by itself (DESIGN.md §8.6 step 4).
+  // Right after installing, the module page opens its setup action by itself.
   const wantsSetup = (location.state as { setup?: boolean } | null)?.setup === true
   useEffect(() => {
     if (!wantsSetup || autoSetup.current || !groups.setup || !inventory.data) return
@@ -180,7 +180,7 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   })
   const enable = useMutation({
     mutationFn: (enabled: boolean) => homeApi.patch<PluginSummary>(`/plugins/${seg(p.id)}`, { enabled }),
-    // Switches are optimistic (DESIGN.md §7).
+    // Switches are optimistic: the cache changes at once and goes back if homed refuses.
     onMutate: (enabled) => {
       const before = qc.getQueryData<PluginDetail>(hq.plugin(p.id))
       qc.setQueryData<PluginDetail>(hq.plugin(p.id), (d) => d && { ...d, enabled, state: enabled ? 'starting' : 'disabled' })
@@ -196,7 +196,8 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   const update = async () => {
     const version = p.update?.latest
     const job = await withStepUp(() => homeApi.post<Job>(`/plugins/${seg(p.id)}/update`, version ? { version } : {}), t('stepup.action.update', { title })).catch((err) => {
-      if (isHomeError(err, 'job_running') && err.jobId) return { id: err.jobId } as Job
+      const running = pointedAt(err, 'jobId')
+      if (running) return { id: running } as Job
       toast(errorText(err, t), 'warning')
       return undefined
     })

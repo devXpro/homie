@@ -580,10 +580,11 @@ async function runConnect(hostname: string, loggedIn = false, overwrite = false)
   for (const step of ['tunnel', 'dns', 'config'] as const) {
     db.firstrun.connect = { hostname, state: 'running', step, startedAt: started }
     await sleep(ms(700))
-    // A taken address stops at DNS, as `cloudflared tunnel route dns` does without --overwrite-dns.
+    // A taken address stops at DNS, as `cloudflared tunnel route dns` does without --overwrite-dns; homed names it
+    // with the code dns_exists, the text stays the gatekeeper's.
     if (step === 'dns' && hostname.startsWith('taken.') && !overwrites.get(hostname)) {
-      const error = `failed to add route: code: 1003, reason: An A, AAAA, or CNAME record with that host already exists. Retry with overwriteDns to replace it.`
-      db.firstrun.connect = { hostname, state: 'failed', step: 'dns', error, startedAt: started, endedAt: nowIso() }
+      const error = `${hostname} already has a DNS record; run again with --overwrite-dns to point it at this tunnel`
+      db.firstrun.connect = { hostname, state: 'failed', step: 'dns', code: 'dns_exists', error, startedAt: started, endedAt: nowIso() }
       return
     }
   }
@@ -649,7 +650,7 @@ const H = '/api/home'
 const F = '/api/firstrun'
 
 export const handlers = [
-  // The home is offline: Cloudflare's own HTML page for every call (DESIGN.md §8.12.1).
+  // The home is offline: Cloudflare's own HTML page for every call.
   http.all('/api/*', () => (db.offline ? offlinePage() : undefined)),
 
   // ------------------------------------------------ the gatekeeper: sign-in, setup, join

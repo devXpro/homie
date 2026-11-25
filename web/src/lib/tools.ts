@@ -1,4 +1,4 @@
-// How plugin tools become words and actions in the UI (DESIGN.md §9.1–§9.2), the same for every plugin.
+// How plugin tools become words and actions in the UI, the same for every plugin.
 
 import type { TFunction } from 'i18next'
 import type { CallProgress, JSONSchema, Lang, PluginSummary, Tool } from './types'
@@ -44,7 +44,7 @@ function byTitle(lang: Lang) {
   return (a: Tool, b: Tool) => toolTitle(a, lang).localeCompare(toolTitle(b, lang), lang)
 }
 
-/** orderActions puts the setup action first, then the others by title, destructive ones last (DESIGN.md §9.2). */
+/** orderActions puts the setup action first, then the others by title, destructive ones last. */
 function orderActions(tools: Tool[], lang: Lang, setup?: Tool) {
   const rest = tools.filter((t) => t !== setup)
   const safe = rest.filter((t) => !isDestructive(t)).sort(byTitle(lang))
@@ -68,7 +68,7 @@ export function groupTools(tools: Tool[], lang: Lang): ToolGroups {
   }
 }
 
-/** fieldCount counts the inputs a tool asks for; zero means it runs as soon as it opens (DESIGN.md §9.3). */
+/** fieldCount counts the inputs a tool asks for; zero means it runs as soon as it opens. */
 export function fieldCount(tool: Tool, hiddenTarget?: boolean) {
   const props = Object.keys(tool.inputSchema.properties ?? {})
   return props.filter((p) => !(hiddenTarget && p === tool.target)).length
@@ -76,7 +76,7 @@ export function fieldCount(tool: Tool, hiddenTarget?: boolean) {
 
 const FIRST_PARTY = new Set(['tv'])
 
-/** moduleTitle is the plugin's own title, except the first-party names of DESIGN.md §10.4. */
+/** moduleTitle is the plugin's own title; first-party plugins get the admin's own name for them (module.name.<id>). */
 export function moduleTitle(plugin: Pick<PluginSummary, 'id' | 'title'>, t: TFunction) {
   return FIRST_PARTY.has(plugin.id) ? t(`module.name.${plugin.id}`) : plugin.title || plugin.id
 }

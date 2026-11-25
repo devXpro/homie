@@ -1,7 +1,7 @@
 import { Button, currentLang, ProgressBar, Sheet, SheetFooter, StepList, SuccessCheck, toast, type StepItem } from '@devxpro/mcp-gatekeeper-ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router'
 import { jobErrorText } from '@/lib/errors'
@@ -10,8 +10,8 @@ import { fmtBytes } from '@/lib/format'
 import { hq, useJob } from '@/lib/queries'
 import type { Job } from '@/lib/types'
 
-// Jobs (ADMIN-API §2 Job): installs, updates, removals and the hub's self-update, shown as a StepList
-// (DESIGN.md §8.6, §8.9). Closing the sheet keeps the job running; the pill reopens it.
+// Jobs (ADMIN-API §2 Job): installs, updates, removals and the hub's self-update, shown as a StepList. Closing the
+// sheet keeps the job running; the pill reopens it.
 
 /** jobSteps turns a job into StepList rows, with the download bar under the active download step. */
 export function JobSteps({ job }: { job: Job }) {
@@ -49,43 +49,69 @@ export interface JobRequest {
   retry?: () => Promise<Job | undefined>
 }
 
-interface JobsApi {
-  openJob: (r: JobRequest) => void
-  shownJobId?: string
+// The one job sheet of the admin, kept outside React: pages open it (useJobs), and the shell's overlay shows it on
+// every page (JobSheet), so it survives navigation.
+interface JobSheetState {
+  req: JobRequest
+  open: boolean
+  key: number
+  /** the page it was opened on: like the run sheet, it belongs there; the pill reopens it elsewhere */
+  path: string
 }
 
-const JobContext = createContext<JobsApi | null>(null)
-
-export function useJobs() {
-  const ctx = useContext(JobContext)
-  if (!ctx) throw new Error('useJobs outside JobProvider')
-  return ctx
-}
-
-/**
- * What must outlive a page: the provider sits inside each page's frame (the shell re-creates it on every page), so
- * the callbacks of running jobs and the one sheet that is open live here.
- */
-const onDone = new Map<string, NonNullable<JobRequest['onDone']>>()
-let shown: { id?: string; open: boolean } = { open: false }
-
+let sheet: JobSheetState | null = null
 let seq = 0
+const listeners = new Set<() => void>()
+/** the callbacks of running jobs, run once when each ends well */
+const onDone = new Map<string, NonNullable<JobRequest['onDone']>>()
 
-export function JobProvider({ children }: { children: ReactNode }) {
+function setSheet(next: JobSheetState | null) {
+  sheet = next
+  for (const l of listeners) l()
+}
+
+function subscribe(l: () => void) {
+  listeners.add(l)
+  return () => {
+    listeners.delete(l)
+  }
+}
+
+const getSheet = () => sheet
+
+/** openJob shows a job's sheet on the current page. */
+function openJob(req: JobRequest) {
+  if (req.onDone) onDone.set(req.jobId, req.onDone)
+  setSheet({ req, open: true, key: ++seq, path: window.location.pathname })
+}
+
+function closeJob() {
+  if (sheet) setSheet({ ...sheet, open: false })
+}
+
+/** useOpenJobSheet is the job whose sheet is open on this page, if any. */
+function useOpenJobSheet(): JobSheetState | undefined {
+  const s = useSyncExternalStore(subscribe, getSheet, getSheet)
+  const { pathname } = useLocation()
+  return s?.open && s.path === pathname ? s : undefined
+}
+
+/** useJobs: open a job's sheet; the job the open sheet shows, so the pill can leave it out. */
+export function useJobs() {
+  const shownJobId = useOpenJobSheet()?.req.jobId
+  return { openJob, shownJobId }
+}
+
+/** JobSheet is the job sheet itself, mounted once by the shell's overlay; a job that ends unseen gets a toast. */
+export function JobSheet() {
   const qc = useQueryClient()
   const { t } = useTranslation()
-  const { pathname } = useLocation()
-  const [state, setState] = useState<{ req: JobRequest; open: boolean; key: number; path: string } | null>(null)
-  // Like the run sheet, the job sheet belongs to the page it was opened on; the pill reopens it elsewhere.
-  const open = !!state?.open && state.path === pathname
+  const shown = useOpenJobSheet()
+  const s = useSyncExternalStore(subscribe, getSheet, getSheet)
+  const shownId = useRef<string | undefined>(undefined)
   useEffect(() => {
-    shown = { id: state?.req.jobId, open }
-  }, [state, open])
-
-  const openJob = useCallback((req: JobRequest) => {
-    if (req.onDone) onDone.set(req.jobId, req.onDone)
-    setState({ req, open: true, key: ++seq, path: window.location.pathname })
-  }, [])
+    shownId.current = shown?.req.jobId
+  }, [shown])
 
   useEffect(
     () =>
@@ -95,35 +121,28 @@ export function JobProvider({ children }: { children: ReactNode }) {
         if (!done) return
         onDone.delete(j.id)
         if (j.state === 'ok') done(j)
-        const visible = shown.open && shown.id === j.id
-        if (!visible) toast(t(j.state === 'ok' ? 'common.done' : 'run.failed'), j.state === 'ok' ? 'success' : 'warning')
+        if (shownId.current !== j.id) toast(t(j.state === 'ok' ? 'common.done' : 'run.failed'), j.state === 'ok' ? 'success' : 'warning')
       }),
     [t],
   )
 
-  const value = useMemo(() => ({ openJob, shownJobId: open ? state?.req.jobId : undefined }), [openJob, open, state])
-  const close = () => setState((s) => s && { ...s, open: false })
-
   return (
-    <JobContext.Provider value={value}>
-      {children}
-      <Sheet open={open} onClose={close} title={state?.req.title}>
-        {state && (
-          <JobContent
-            key={state.key}
-            req={state.req}
-            onClose={close}
-            onRetry={async () => {
-              const next = await state.req.retry?.()
-              if (next) {
-                qc.setQueryData(hq.job(next.id), next)
-                openJob({ ...state.req, jobId: next.id })
-              }
-            }}
-          />
-        )}
-      </Sheet>
-    </JobContext.Provider>
+    <Sheet open={!!shown} onClose={closeJob} title={s?.req.title}>
+      {s && (
+        <JobContent
+          key={s.key}
+          req={s.req}
+          onClose={closeJob}
+          onRetry={async () => {
+            const next = await s.req.retry?.()
+            if (next) {
+              qc.setQueryData(hq.job(next.id), next)
+              openJob({ ...s.req, jobId: next.id })
+            }
+          }}
+        />
+      )}
+    </Sheet>
   )
 }
 

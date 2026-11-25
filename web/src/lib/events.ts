@@ -1,5 +1,5 @@
 // The admin's live stream feeds the TanStack Query cache (ADMIN-API §4): every event carries a whole object, so the
-// cache simply replaces what it holds (DESIGN.md §7). It arrives as server-sent events (GET /api/home/events), or,
+// cache simply replaces what it holds. It arrives as server-sent events (GET /api/home/events), or,
 // behind a Cloudflare quick tunnel, by long-polling the same ring of events (GET /api/home/events/poll?after=<seq>,
 // STEP2 §4.7). GatekeeperApp's `live` option says which.
 
@@ -172,7 +172,7 @@ export function applyEvent(qc: QueryClient, type: string, data: unknown) {
 
 const TYPES = ['hello', 'resync', 'tunnel', 'plugin', 'plugin.removed', 'tools', 'call', 'job', 'activity', 'settings', 'attention', 'session.revoked']
 
-/** helloWatcher reloads into the new SPA after a self-update: a hello with another version (DESIGN.md §8.9 About). */
+/** helloWatcher reloads into the new SPA after a self-update: a hello with another version. */
 function helloWatcher() {
   let version: string | undefined
   return (data: unknown) => {

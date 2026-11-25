@@ -1,7 +1,7 @@
 // What an invite or a member's detail can tick (STEP2 §2.4 Q1): a device is a plugin, its permission id is
 // "plugin:<id>", and "all" (the package adds it) covers the plugins installed later too. homed's catalog has the
-// plugins' own titles; the pickers show the admin's (DESIGN.md §10.4), in both languages, so they follow a language
-// switch.
+// plugins' own titles; the pickers show the names the admin uses for them (moduleTitle in lib/tools.ts), in both
+// languages, so they follow a language switch.
 
 import { i18n, type PermissionInfo } from '@devxpro/mcp-gatekeeper-ui'
 import { moduleTitle } from './tools'

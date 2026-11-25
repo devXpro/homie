@@ -6,7 +6,7 @@ import { fmtDuration } from '@/lib/format'
 import type { ActivityItem, Tool } from '@/lib/types'
 import { activityTitle } from './toolIndex'
 
-/** ActivityRow is one call: the module's icon, the action, "who · how · when", and a red cross or the duration (§8.8). */
+/** ActivityRow is one call: the module's icon, the action, "who · how · when", and a red cross or the duration. */
 export function ActivityRow({
   item,
   tools,

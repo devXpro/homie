@@ -39,7 +39,7 @@ import type { ActivityItem, Page as ApiPage, HomeAccount, Via } from '@/lib/type
 import { ActivityRow } from './rows'
 import { activityTitle, useToolIndex } from './toolIndex'
 
-// Журнал (DESIGN.md §8.8): every tool call — by the assistants, from the admin and the terminal — with filters as
+// Журнал: every tool call — by the assistants, from the admin and the terminal — with filters as
 // removable chips, days, infinite scroll, and new calls arriving live (a flash at the top, or a capsule when scrolled
 // down). Sign-ins and admin actions are the gatekeeper's audit: People → Changes and sign-ins. A member sees their
 // own calls only (the API filters).
@@ -100,7 +100,7 @@ export function ActivityPage() {
     saved = { seg, extra }
   }, [seg, extra])
 
-  // New calls: at the top they slide in and flash; further down a capsule offers them (DESIGN.md §8.8).
+  // New calls: at the top they slide in and flash; further down a capsule offers them.
   useEffect(
     () =>
       activityBus.on((a) => {
@@ -163,7 +163,7 @@ export function ActivityPage() {
     chips.push({ key: 'plugin', label: p ? moduleTitle(p, t) : extra.plugin })
   }
   if (extra.via) chips.push({ key: 'via', label: t(`activity.via.${extra.via}`) })
-  // The default Ассистенты view counts as unfiltered: a new home is simply empty (DESIGN.md §8.8).
+  // The default Ассистенты view counts as unfiltered: a new home is simply empty.
   const filtered = seg === 'failed' || chips.length > 0
 
   const showPending = () => {

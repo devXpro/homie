@@ -10,7 +10,7 @@ import { errorText } from '@/lib/errors'
 import { hq, useSettings } from '@/lib/queries'
 import type { Overview, Settings } from '@/lib/types'
 
-// The home's name (DESIGN.md §8.9): what ChatGPT and Claude call the home. It is the gatekeeper account's name too
+// The home's name: what ChatGPT and Claude call the home. It is the gatekeeper account's name too
 // (STEP2 §2.4), so a rename here renames the account: the sidebar, the people page and the invites follow.
 
 export function HomeNamePage() {

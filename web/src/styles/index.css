@@ -2,7 +2,7 @@
 @import '@devxpro/mcp-gatekeeper-ui/styles.css';
 @source '../../node_modules/@devxpro/mcp-gatekeeper-ui/ui/src';
 
-/* Homie's own pieces on top of the package's design system (DESIGN.md §4, §6): the status orb of the home and the
+/* Homie's own pieces on top of the design system of @devxpro/mcp-gatekeeper-ui: the status orb of the home and the
    tunnel, the flash of a new activity entry, and the iOS slider of the plugin forms. The hero card is the package's
    fh-hero with an fh-status-* tone. */
 
@@ -82,12 +82,6 @@
   box-shadow:
     0 0.5px 4px rgba(0, 0, 0, 0.12),
     0 6px 13px rgba(0, 0, 0, 0.12);
-}
-
-/* «Удалить всё» of the people page: homed refuses DELETE /api/account, one home is one account (HC-api §5). The UI
-   package has no option to leave that row out yet, so its section is hidden here. */
-section:has(a[href='/account/delete']) {
-  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

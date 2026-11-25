@@ -1,4 +1,4 @@
-// JSON Schema → form (DESIGN.md §9.3): which control each property gets, the initial values, the arguments that
+// JSON Schema → form: which control each property gets, the initial values, the arguments that
 // are sent, and validation with @cfworker/json-schema (no eval, so the CSP holds).
 
 import { Validator, type OutputUnit, type Schema } from '@cfworker/json-schema'

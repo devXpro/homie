@@ -76,7 +76,7 @@ test('first-run page → passkey → Дом → tool with progress → activity 
     const nav = page.getByRole('navigation', { name: 'Разделы' })
     await nav.getByRole('link', { name: 'Устройства' }).click()
     await page.getByRole('link', { name: /Fake/ }).click()
-    // Assistant tools run from "what it can do" just for testing (DESIGN.md §9.2); untitled tools carry their name.
+    // Assistant tools run from "what it can do" just for testing; untitled tools carry their name.
     await page.getByRole('region', { name: 'Что умеет в ChatGPT и Claude' }).getByRole('button', { name: /^fake_progress/ }).click()
     await page.getByRole('dialog', { name: 'fake_progress' }).getByRole('button', { name: 'Проверить без ассистента' }).click()
     await expect(page.getByText(/Нажмите OK|Almost done/)).toBeVisible()

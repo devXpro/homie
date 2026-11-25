@@ -5,12 +5,12 @@ import { ArrowDownCircle, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useJobs } from '@/features/run/jobs'
 import { OwnerOnly } from '@/features/shell/OwnerOnly'
-import { homeApi, isHomeError } from '@/lib/api'
+import { homeApi, pointedAt } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { hq, useSystem } from '@/lib/queries'
 import type { Job, SystemInfo } from '@/lib/types'
 
-// О программе (DESIGN.md §8.9): the version, a check for updates and the self-update (step-up, then a job; at
+// О программе: the version, a check for updates and the self-update (step-up, then a job; at
 // "restart" the page waits for the new hub's hello and reloads itself).
 
 export function AboutPage() {
@@ -47,7 +47,8 @@ function AboutScreen() {
       qc.setQueryData(hq.job(job.id), job)
       openJob({ jobId: job.id, title: t('job.title.hub.update'), doneText: t('job.done.hub.update') })
     } catch (err) {
-      if (isHomeError(err, 'job_running') && err.jobId) openJob({ jobId: err.jobId, title: t('job.title.hub.update') })
+      const running = pointedAt(err, 'jobId')
+      if (running) openJob({ jobId: running, title: t('job.title.hub.update') })
       else toast(errorText(err, t), 'warning')
     }
   }

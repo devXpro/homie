@@ -1,5 +1,7 @@
-// Applies the saved appearance and language before the first paint (DESIGN.md §8.9, §11), so there is no flash and no
-// inline script. Keep in sync with the UI package's lib/theme.ts and i18n (prefix "homie", src/setup.ts).
+// Applies the saved appearance and language before the first paint, so there is no flash and no inline script: the
+// appearance ("dark" by default, "light", or "system") and the language (the saved one, else the browser's: Russian
+// for ru/uk/be, English otherwise). Keep in sync with @devxpro/mcp-gatekeeper-ui (lib/theme.ts and its i18n start),
+// under the storage prefix "homie" (src/setup.ts).
 (function () {
   var pref = 'dark';
   var lang = '';

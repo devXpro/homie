@@ -11,7 +11,7 @@ import { usePluginLogStream } from '@/lib/events'
 import { usePlugin, usePluginLogs } from '@/lib/queries'
 import { moduleTitle } from '@/lib/tools'
 
-// Module log (DESIGN.md §8.7.6): the last 1000 stderr lines, live; "Следить" keeps the end in view and turns off
+// Module log: the last 1000 stderr lines, live; "Следить" keeps the end in view and turns off
 // when the person scrolls up. Behind a quick tunnel the lines are fetched again every few seconds instead.
 
 export function LogsPage() {
@@ -72,7 +72,7 @@ function LogsScreen() {
   )
 }
 
-/** LogView is monospace 12/16 on --surface-1, wrapped, virtualized above 300 lines (DESIGN.md §6). */
+/** LogView is monospace 12/16 on --surface-1, wrapped, virtualized above 300 lines. */
 function LogView({ lines, follow, onUserScrollUp }: { lines: string[]; follow: boolean; onUserScrollUp: () => void }) {
   const listRef = useRef<HTMLOListElement>(null)
   const [offset, setOffset] = useState(0)

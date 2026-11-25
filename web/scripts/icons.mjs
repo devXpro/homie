@@ -1,4 +1,5 @@
-// Renders the app icon (DESIGN.md §6 AppIcon) to the PNGs iOS and the web manifest need: node scripts/icons.mjs
+// Renders the app icon (the house glyph on the blue-to-indigo tile, as the AppIcon of @devxpro/mcp-gatekeeper-ui draws
+// it with brand.icon = House) to the PNGs iOS and the web manifest need: node scripts/icons.mjs
 // Full-bleed squares: iOS rounds the corners itself.
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

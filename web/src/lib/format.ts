@@ -1,4 +1,4 @@
-// Durations, clocks and sizes (DESIGN.md §11); dates, times and quotes are the package's (fmtDate, fmtRelative, …).
+// Durations, clocks and sizes; dates, times and quotes are the package's (fmtDate, fmtRelative, …).
 
 import type { Lang } from './types'
 

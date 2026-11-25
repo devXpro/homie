@@ -6,8 +6,8 @@ import { itemTone } from '@/lib/status'
 import { humanize, toolTitle } from '@/lib/tools'
 import type { InventoryItem, ItemState, JSONSchema, Tool } from '@/lib/types'
 
-// ResultView renders a call's structured result by its shape (DESIGN.md §9.6) and offers the next step on each
-// object (§9.7), without the person knowing any tool names.
+// ResultView renders a call's structured result by its shape and offers the next step on each
+// object, without the person knowing any tool names.
 
 type Obj = Record<string, unknown>
 

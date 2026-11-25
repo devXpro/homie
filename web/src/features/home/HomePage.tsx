@@ -32,7 +32,7 @@ import { needsOwner, pluginTone, tunnelLook, tunnelTone } from '@/lib/status'
 import { moduleTitle } from '@/lib/tools'
 import type { Attention, PluginSummary, TunnelStatus } from '@/lib/types'
 
-// Дом (DESIGN.md §8.4): how the home is reachable, what needs the owner, the modules, the assistants, and what
+// Дом: how the home is reachable, what needs the owner, the modules, the assistants, and what
 // ChatGPT and Claude did lately. A member has no home page of their own: the connect page is theirs.
 
 export function HomePage() {
@@ -156,7 +156,7 @@ export function ModuleSubtitle({ p }: { p: PluginSummary }) {
   )
 }
 
-/** Hero is the status card: is the home reachable from outside, and what that means (DESIGN.md §8.4). */
+/** Hero is the status card: is the home reachable from outside, and what that means. */
 function Hero({ tunnel }: { tunnel: TunnelStatus }) {
   const { t } = useTranslation()
   const look = tunnelLook(tunnel)

@@ -1,7 +1,7 @@
 import { ResourceTile, tileColor, type ResourceTileProps, type TileColor } from '@devxpro/mcp-gatekeeper-ui'
 import { Blocks, CupSoda, Fan, House, Lightbulb, Speaker, Tv, type LucideIcon } from 'lucide-react'
 
-/** moduleLook picks a module's glyph and tile colour by plugin id (DESIGN.md §3.6). */
+/** moduleLook picks a module's glyph and tile colour by plugin id. */
 function moduleLook(id: string): { icon: LucideIcon; color: TileColor } {
   if (id === 'tv') return { icon: Tv, color: 'indigo' }
   if (id.startsWith('light')) return { icon: Lightbulb, color: 'orange' }

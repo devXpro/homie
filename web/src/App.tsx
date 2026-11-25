@@ -1,14 +1,15 @@
-import { api, GatekeeperApp, i18n, useMe, type ConnectSlots, type PermissionInfo, type Resource } from '@devxpro/mcp-gatekeeper-ui'
+import { api, GatekeeperApp, i18n, useAccount, useMe, type ConnectSlots, type PermissionInfo, type Resource } from '@devxpro/mcp-gatekeeper-ui'
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { HomeTile } from '@/components/tile'
 import { ConnectSteps, QuickNote, TunnelBadge } from '@/features/connect/slots'
-import { useHomieShell } from '@/features/shell/layer'
+import { HomieOverlay, useHomieShell } from '@/features/shell/layer'
 import { liveOf, mcpUrl, useBootstrap } from '@/lib/bootstrap'
 import { localCatalog } from '@/lib/permissions'
 import { hq } from '@/lib/queries'
 import type { HomeAccount } from '@/lib/types'
-import { publicRoutes, routes, tabs } from '@/routes'
+import { indexRoute, publicRoutes, routes, tabs } from '@/routes'
 
 // Homie on the gatekeeper's UI package (STEP2 §3.1 web row): the package owns sign-in, setup and join, consent, the
 // connect page, people and passkeys, and the shell; Homie adds its tabs and pages (routes.ts), the LAN first-run
@@ -45,6 +46,17 @@ function usePluginCatalog(): PermissionInfo[] | undefined {
   return owner ? catalog : NO_CATALOG
 }
 
+/**
+ * useQuickInvitesOff: a quick tunnel is for trying, the owner's alone (STEP2 Q4): its address changes on every
+ * restart, and every guest's passkey with it. The people list says so where «Пригласить» was.
+ */
+function useQuickInvitesOff(): string | undefined {
+  const { t } = useTranslation()
+  const account = useAccount<HomeAccount>().data
+  const boot = useBootstrap()
+  return (account?.tunnel?.mode ?? boot?.tunnel.mode) === 'quick' ? t('invite.off.quick') : undefined
+}
+
 export function App() {
   const boot = useBootstrap()
   return (
@@ -52,12 +64,15 @@ export function App() {
       tabs={tabs}
       routes={routes}
       publicRoutes={publicRoutes}
+      indexRoute={indexRoute}
       resources={(a) => resources(a as HomeAccount)}
       ResourceTile={HomeTile}
       useBadges={useHomieShell}
       connect={connect}
       setupDoneTo="/home"
       usePermissions={usePluginCatalog}
+      useInvitesDisabled={useQuickInvitesOff}
+      Overlay={HomieOverlay}
       live={liveOf(boot?.tunnel.mode)}
     />
   )

@@ -1,6 +1,6 @@
-import { isOffline, onNoSession } from '@devxpro/mcp-gatekeeper-ui'
+import { isApiError, isOffline, onNoSession } from '@devxpro/mcp-gatekeeper-ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { firstrunApi, homeApi, isHomeError, isInvalid } from './api'
+import { firstrunApi, homeApi, invalidFields, isInvalid, pointedAt } from './api'
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
@@ -23,20 +23,26 @@ describe('homeApi', () => {
     expect(init.body).toBe('{"homeName":"Дом"}')
   })
 
-  it('reads the gatekeeper error form and keeps the call a 409 points at', async () => {
-    stub(json(409, { error: 'call_running', message: 'the tool already runs', callId: 'c_1' }))
-    const err = await homeApi.post('/tools/tv_pair/calls', { args: {} }).catch((e: unknown) => e)
-    expect(isHomeError(err, 'call_running')).toBe(true)
-    expect(isHomeError(err) && err.callId).toBe('c_1')
+  it('reads the gatekeeper error form and keeps what a 409 points at', async () => {
+    stub(
+      json(409, { error: 'call_running', message: 'the tool already runs', callId: 'c_1' }),
+      json(409, { error: 'job_running', message: 'busy', jobId: 'j_1' }),
+      json(409, { error: 'conflict', message: 'no id' }),
+    )
+    const call = await homeApi.post('/tools/tv_pair/calls', { args: {} }).catch((e: unknown) => e)
+    expect(isApiError(call, 'call_running')).toBe(true)
+    expect(pointedAt(call, 'callId')).toBe('c_1')
+    const job = await homeApi.post('/plugins/tv/update').catch((e: unknown) => e)
+    expect(pointedAt(job, 'jobId')).toBe('j_1')
+    expect(pointedAt(await homeApi.post('/plugins').catch((e: unknown) => e), 'jobId')).toBeUndefined()
   })
 
-  it('accepts snake_case extras and the older nested form', async () => {
-    stub(json(409, { error: 'job_running', message: 'busy', job_id: 'j_1' }), json(400, { error: { code: 'invalid_args', message: 'bad', fields: [{ path: '/percent', code: 'maximum', message: 'too big' }] } }))
-    const busy = await homeApi.post('/plugins/tv/update').catch((e: unknown) => e)
-    expect(isHomeError(busy) && busy.jobId).toBe('j_1')
+  it('keeps the invalid fields of a tool’s form', async () => {
+    stub(json(400, { error: 'invalid_args', message: 'bad', fields: [{ path: '/percent', code: 'maximum', message: 'too big' }] }))
     const bad = await homeApi.post('/tools/tv_set_volume/calls').catch((e: unknown) => e)
     expect(isInvalid(bad)).toBe(true)
-    expect(isHomeError(bad) && bad.fields.map((f) => f.path)).toEqual(['/percent'])
+    expect(invalidFields(bad).map((f) => f.path)).toEqual(['/percent'])
+    expect(invalidFields(new Error('x'))).toEqual([])
   })
 
   it('treats Cloudflare’s HTML error page as the home being offline', async () => {
@@ -44,13 +50,12 @@ describe('homeApi', () => {
     expect(isOffline(await homeApi.get('/overview').catch((e: unknown) => e))).toBe(true)
   })
 
-  it('lets the shell notice an ended session through the package’s own client', async () => {
-    const f = stub(json(401, { error: 'no_session', message: 'no session' }), json(401, { error: 'no_session', message: 'no session' }))
+  it('tells the shell about an ended session', async () => {
+    stub(json(401, { error: 'no_session', message: 'no session' }))
     const listener = vi.fn()
     const off = onNoSession(listener)
     await homeApi.get('/overview').catch(() => undefined)
-    await vi.waitFor(() => expect(listener).toHaveBeenCalled())
-    expect((f.mock.calls[1] as unknown as [string])[0]).toBe('/api/me')
+    expect(listener).toHaveBeenCalledOnce()
     off()
   })
 })
@@ -60,6 +65,6 @@ describe('firstrunApi', () => {
     const f = stub(new Response(JSON.stringify({ error: 'rate_limited', message: 'wait' }), { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '540' } }))
     const err = await firstrunApi.post('/pin', { pin: '00000000' }).catch((e: unknown) => e)
     expect((f.mock.calls[0] as unknown as [string])[0]).toBe('/api/firstrun/pin')
-    expect(isHomeError(err, 'rate_limited') && err.retryAfter).toBe(540)
+    expect(isApiError(err, 'rate_limited') && err.retryAfter).toBe(540)
   })
 })

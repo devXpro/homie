@@ -1,4 +1,4 @@
-// TanStack Query hooks for every GET of /api/home/* (DESIGN.md §7): staleTime 10 s, refetch on focus, previous data
+// TanStack Query hooks for every GET of /api/home/*: staleTime 10 s, refetch on focus, previous data
 // kept while refetching. The gatekeeper's queries (me, account, connections, passkeys, the audit) are the package's;
 // the live stream (events.ts) keeps both current. The query client itself is the package's (GatekeeperApp).
 

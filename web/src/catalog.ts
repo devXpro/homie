@@ -1,4 +1,4 @@
-// The built-in catalog of the Add devices sheet (DESIGN.md §8.6): recommended modules, previewed lazily.
+// The built-in catalog of the Add devices sheet: recommended modules, previewed lazily.
 export const catalog: { repo: string; icon: string }[] = [{ repo: 'devXpro/homie-tv', icon: 'tv' }]
 
 /** parseRepo accepts "owner/repo" or a GitHub URL and returns "owner/repo", or undefined. */

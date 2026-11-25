@@ -243,6 +243,7 @@ const SHOTS: Shot[] = [
 
   // Люди (the package's account page and sheets, with devices and terms)
   { name: '60-people', path: '/account', ready: 'Белла' },
+  { name: '60b-people-quick', path: '/account', scenario: 'quick', ready: 'нужен свой домен' },
   {
     name: '61-invite',
     path: '/account',

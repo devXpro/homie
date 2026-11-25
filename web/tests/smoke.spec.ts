@@ -14,11 +14,11 @@ test('sign in with a passkey lands an owner on Дом', async ({ page }) => {
   const csp = await guardCSP(page)
   const auth = await useRealWebAuthn(page)
   await auth.addPasskey()
-  await open(page, '/', 'signed-out')
-  await expect(page).toHaveURL(/\/login/)
+  await open(page, '/home', 'signed-out')
+  await expect(page).toHaveURL(/\/login\?next=%2Fhome/)
   await expect(page.getByRole('heading', { name: 'Homie' })).toBeVisible()
   await page.getByRole('button', { name: 'Войти' }).click()
-  await expect(page).toHaveURL(/\/home$/)
+  await expect(page).toHaveURL(/\/home(\?|$)/)
   await expect(page.getByRole('heading', { name: 'Дом', level: 1 })).toBeVisible()
   await expect(page.getByText('ChatGPT и Claude могут управлять домом')).toBeVisible()
   await csp.expectClean()
@@ -111,6 +111,22 @@ test('call an admin tool: pair a TV with progress', async ({ page }) => {
   await csp.expectClean()
 })
 
+test('a running action follows the owner to the package’s pages: the pill reopens its sheet there', async ({ page }) => {
+  const csp = await guardCSP(page)
+  await open(page, '/devices/tv/items/tv', 'default', '&slow=1')
+  await dialog(page, 'Телевизор в гостиной').getByRole('button', { name: 'Подключить телевизор' }).click()
+  const run = dialog(page, 'Подключить телевизор')
+  await expect(run.getByText('Нажмите OK на пульте телевизора')).toBeVisible({ timeout: 15_000 })
+  // Closing the sheets never cancels the call.
+  await run.getByRole('button', { name: 'Закрыть' }).click()
+  await dialog(page, 'Телевизор в гостиной').getByRole('button', { name: 'Закрыть' }).click()
+  await nav(page).getByRole('link', { name: 'Люди' }).click()
+  await expect(page).toHaveURL(/\/account$/)
+  await page.getByRole('button', { name: 'Открыть действие «Подключить телевизор»' }).click()
+  await expect(run.getByText('Нажмите OK на пульте телевизора')).toBeVisible()
+  await csp.expectClean()
+})
+
 test('admin tool form: validation, a failed run, retry keeps the values', async ({ page }) => {
   const csp = await guardCSP(page)
   await open(page, '/devices/tv')
@@ -168,8 +184,8 @@ test('people: a guest whose term ended is greyed with «Продлить»; the 
   const csp = await guardCSP(page)
   await open(page, '/account')
   await expect(page.getByText(/доступ закончился/)).toBeVisible()
-  // homed refuses to delete the home's one account: the row is not offered.
-  await expect(page.getByRole('link', { name: 'Сбросить доступ к дому' })).toBeHidden()
+  // homed refuses to delete the home's one account: the package leaves «Удалить всё» out (accountDelete: false).
+  await expect(page.locator('a[href="/account/delete"]')).toHaveCount(0)
   await page.getByRole('button', { name: 'Продлить доступ: Карина' }).click()
   await expect(page.getByRole('dialog')).toContainText('Неделя')
   await page.keyboard.press('Escape')
@@ -226,6 +242,15 @@ test('quick mode: the admin polls instead of SSE, says «для пробы» and
   await mock(page, 'restartQuick')
   await page.getByRole('link', { name: /Подключить ChatGPT и Claude/ }).click()
   await expect(page.getByLabel('Адрес для подключения')).toHaveText('https://example-two.trycloudflare.com/mcp')
+  await csp.expectClean()
+})
+
+test('people: in quick mode invites are off, and the list says why', async ({ page }) => {
+  const csp = await guardCSP(page)
+  await open(page, '/account', 'quick')
+  const people = page.getByRole('region', { name: 'Люди' })
+  await expect(people).toContainText('С адресом для пробы приглашать нельзя — нужен свой домен.')
+  await expect(people.getByRole('button', { name: 'Пригласить в дом' })).toHaveCount(0)
   await csp.expectClean()
 })
 
@@ -344,6 +369,9 @@ test('a member lands on the connect page and sees only their devices', async ({ 
   await open(page, '/', 'member')
   await expect(page).toHaveURL(/\/connect$/)
   await expect(page.getByText('https://home.example.com/mcp')).toBeVisible()
+  // Дом is the owner's tab: a member has the connect page in its place.
+  await expect(nav(page).getByRole('link', { name: 'Подключить' })).toHaveAttribute('aria-current', 'page')
+  await expect(nav(page).getByRole('link', { name: 'Дом' })).toHaveCount(0)
   await nav(page).getByRole('link', { name: 'Устройства' }).click()
   await expect(page.getByText('Телевизоры')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Добавить устройства' })).toBeHidden()

@@ -3,9 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { AnimatePresence, motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
-import { Outlet } from 'react-router'
-import { JobProvider, useJobs } from '@/features/run/jobs'
-import { RunProvider, useRun } from '@/features/run/run'
+import { JobSheet, useJobs } from '@/features/run/jobs'
+import { RunSheet, useRun } from '@/features/run/run'
 import { useBootstrapSettled } from '@/lib/bootstrap'
 import { useHomeEvents } from '@/lib/events'
 import { fmtClock } from '@/lib/format'
@@ -18,9 +17,9 @@ import type { Call, Job, PluginDetail, PluginSummary } from '@/lib/types'
 // sign-in redirect and step-up; Homie adds:
 // - useHomieShell, its useBadges hook: the shell calls it on every render while someone is signed in, so it also
 //   keeps the live events running (SSE or polling) and puts the red dots on Дом and Устройства;
-// - HomieLayer, the layout route of Homie's own pages: the run and job sheets and the running-action pill.
+// - HomieOverlay, its Overlay: the run and job sheets and the running-action pill, mounted once over every page.
 
-/** useHomieShell follows the admin's events and marks the tabs that need the owner (DESIGN.md §5.2). */
+/** useHomieShell follows the admin's events and marks the tabs that need the owner. */
 export function useHomieShell(me: Me) {
   const qc = useQueryClient()
   const live = useLiveMode()
@@ -35,15 +34,15 @@ export function useHomieShell(me: Me) {
   }
 }
 
-/** HomieLayer wraps Homie's pages with the run and job sheets and the pill that reopens them. */
-export function HomieLayer() {
+/** HomieOverlay is the run and job sheets and the pill that reopens them; only owners run tools. */
+export function HomieOverlay({ me }: { me: Me }) {
+  if (me.person.role !== 'owner') return null
   return (
-    <JobProvider>
-      <RunProvider>
-        <Outlet />
-        <RunningPill />
-      </RunProvider>
-    </JobProvider>
+    <>
+      <RunSheet />
+      <JobSheet />
+      <RunningPill />
+    </>
   )
 }
 
@@ -56,7 +55,7 @@ function jobTitle(job: Job, plugins: PluginSummary[] | undefined, t: TFunction) 
 
 /**
  * RunningPill floats above the tab bar on phones and sits at the foot of the sidebar on desktop while an action
- * runs with its sheet closed; a tap reopens the sheet (DESIGN.md §5.2).
+ * runs with its sheet closed; a tap reopens the sheet.
  */
 function RunningPill() {
   const { t } = useTranslation()

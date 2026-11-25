@@ -7,8 +7,9 @@ import { Select, Slider, Stepper, TextArea } from '@/components/controls'
 import type { FieldErrors, FieldSpec, FormValues } from '@/lib/schema'
 import type { InventoryItem } from '@/lib/types'
 
-// SchemaForm renders a tool's fields by the rules of DESIGN.md §9.3. The fields and their validation come from
-// lib/schema.ts; this file only draws them.
+// SchemaForm renders a tool's fields, one control per field kind (a device of the module, text, secret, IP address,
+// number, slider, stepper, switch, choices, a nested object, raw JSON, …). Which kind a property gets, the initial
+// values and the validation come from lib/schema.ts; this file only draws them.
 
 export interface SchemaFormProps {
   fields: FieldSpec[]
@@ -221,7 +222,7 @@ function FieldGroup({ label, hint, error, badge, children }: { label?: string; h
 
 const OTHER = '\u0000other'
 
-/** TargetField picks one of the module's devices, with "Другое…" for a free value (DESIGN.md §9.3). */
+/** TargetField picks one of the module's devices, with "Другое…" for a free value. */
 function TargetField({
   field: f,
   value,

@@ -1,3 +1,4 @@
+import { ApiError, errorText, i18n } from '@devxpro/mcp-gatekeeper-ui'
 import { describe, expect, it } from 'vitest'
 import en from './en.json'
 import ru from './ru.json'
@@ -18,6 +19,12 @@ describe('translations', () => {
     for (const p of plurals) {
       for (const form of ['one', 'few', 'many', 'other']) expect(ru).toHaveProperty([`${p}_${form}`])
     }
+  })
+
+  it('words homed’s own refusals, wherever the package shows an error', () => {
+    const t = i18n.getFixedT('ru')
+    expect(errorText(new ApiError(409, 'quick_mode', 'invites need the home’s own domain'), t)).toBe(ru['error.quick_mode'])
+    expect(errorText(new ApiError(421, 'misdirected', 'not the public host'), t)).toBe(ru['error.misdirected'])
   })
 
   it('every interpolation in RU exists in EN', () => {

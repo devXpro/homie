@@ -1,10 +1,10 @@
-import { ActionSheet, Button, currentLang, ProgressBar, seg, Sheet, SheetFooter, Spinner, SuccessCheck, toast, useNow } from '@devxpro/mcp-gatekeeper-ui'
-import { useQueryClient } from '@tanstack/react-query'
+import { ActionSheet, Button, currentLang, isApiError, ProgressBar, seg, Sheet, SheetFooter, Spinner, SuccessCheck, toast, useNow } from '@devxpro/mcp-gatekeeper-ui'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router'
-import { homeApi, isHomeError, isInvalid } from '@/lib/api'
+import { homeApi, invalidFields, isInvalid, pointedAt } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { callBus, useEventsConnected } from '@/lib/events'
 import { fmtClock } from '@/lib/format'
@@ -15,7 +15,7 @@ import type { Call, List, PluginDetail, Tool } from '@/lib/types'
 import { ResultView, type FollowUpContext } from './ResultView'
 import { SchemaForm } from './SchemaForm'
 
-// The run sheet (DESIGN.md §9.4–§9.7): an admin tool as a form, then the call with its progress, then the result
+// The run sheet: an admin tool as a form, then the call with its progress, then the result
 // with follow-up actions. Calls are detached from the page: closing the sheet never cancels; the running-action
 // pill reopens it, and a toast says when a call ends while its sheet is closed.
 
@@ -28,85 +28,114 @@ export interface RunRequest {
   callId?: string
 }
 
-interface RunApi {
-  openRun: (r: RunRequest) => void
-  openCall: (call: Pick<Call, 'id' | 'tool' | 'pluginId' | 'title' | 'timeoutMs'>) => void
-  /** the call the open sheet shows, so the pill can leave it out */
-  shownCallId?: string
-}
-
-const RunContext = createContext<RunApi | null>(null)
-
-export function useRun() {
-  const ctx = useContext(RunContext)
-  if (!ctx) throw new Error('useRun outside RunProvider')
-  return ctx
-}
-
-/** Calls started from this page; only they get the "done" toast. */
+/** Calls started from a run sheet; only they get the "done" toast. */
 const myCalls = new Set<string>()
 
-function toolFromCache(qc: ReturnType<typeof useQueryClient>, pluginId: string, name: string) {
+function toolFromCache(qc: QueryClient, pluginId: string, name: string) {
   return qc.getQueryData<PluginDetail>(hq.plugin(pluginId))?.tools.find((t) => t.name === name)
 }
 
-let seq = 0
+// The one run sheet of the admin, kept outside React: pages open it (useRun), and the shell's overlay shows it on
+// every page (RunSheet), so a call's sheet survives navigation.
+interface RunSheetState {
+  req: RunRequest
+  key: number
+  /** the page it was opened on: the sheet belongs there; navigating away closes it (the call keeps running) */
+  path: string
+  open: boolean
+  /** the call the sheet shows, once it runs */
+  callId?: string
+}
 
-export function RunProvider({ children }: { children: ReactNode }) {
+let sheet: RunSheetState | null = null
+let seq = 0
+const listeners = new Set<() => void>()
+
+function setSheet(next: RunSheetState | null) {
+  sheet = next
+  for (const l of listeners) l()
+}
+
+function subscribe(l: () => void) {
+  listeners.add(l)
+  return () => {
+    listeners.delete(l)
+  }
+}
+
+const getSheet = () => sheet
+
+/** openRun shows a tool's run sheet on the current page: its form, or the call it attaches to. */
+function openRun(req: RunRequest) {
+  setSheet({ req, key: ++seq, path: window.location.pathname, open: true, callId: req.callId })
+}
+
+function closeRun() {
+  if (sheet) setSheet({ ...sheet, open: false })
+}
+
+function showCall(key: number, callId: string | undefined) {
+  if (sheet?.key === key) setSheet({ ...sheet, callId })
+}
+
+/** openCall reopens a running call's sheet, finding its tool in the cache or asking homed. */
+function openCall(qc: QueryClient, call: Pick<Call, 'id' | 'tool' | 'pluginId' | 'title' | 'timeoutMs'>) {
+  const show = (tool: Tool) => openRun({ tool, callId: call.id })
+  const cached = toolFromCache(qc, call.pluginId, call.tool)
+  if (cached) return show(cached)
+  void qc
+    .fetchQuery({ queryKey: hq.plugin(call.pluginId), queryFn: () => homeApi.get<PluginDetail>(`/plugins/${seg(call.pluginId)}`) })
+    .then((d) => d.tools.find((x) => x.name === call.tool))
+    .catch(() => undefined)
+    .then((tool) =>
+      show(
+        tool ?? {
+          name: call.tool,
+          pluginId: call.pluginId,
+          title: call.title,
+          description: '',
+          audience: 'admin',
+          inputSchema: { type: 'object', properties: {} },
+          timeoutMs: call.timeoutMs,
+          inventory: false,
+        },
+      ),
+    )
+}
+
+/** useOpenRunSheet is the run sheet open on this page, if any. */
+function useOpenRunSheet(): RunSheetState | undefined {
+  const s = useSyncExternalStore(subscribe, getSheet, getSheet)
+  const { pathname } = useLocation()
+  return s?.open && s.path === pathname ? s : undefined
+}
+
+/** useRun: open a tool's sheet or a running call's; the call the open sheet shows, so the pill can leave it out. */
+export function useRun() {
+  const qc = useQueryClient()
+  const shownCallId = useOpenRunSheet()?.callId
+  return useMemo(() => ({ openRun, openCall: (call: Parameters<typeof openCall>[1]) => openCall(qc, call), shownCallId }), [qc, shownCallId])
+}
+
+/** RunSheet is the run sheet itself, mounted once by the shell's overlay; a call that ends unseen gets a toast. */
+export function RunSheet() {
   const qc = useQueryClient()
   const { t } = useTranslation()
-  const { pathname } = useLocation()
-  const [state, setState] = useState<{ req: RunRequest; key: number; path: string; open: boolean } | null>(null)
-  const [shown, setShown] = useState<string | undefined>()
-  // The sheet belongs to the page it was opened on; navigating away closes it (the call keeps running).
-  const open = !!state?.open && state.path === pathname
-  const openRef = useRef({ open, shown })
+  const lang = currentLang()
+  const shown = useOpenRunSheet()
+  const s = useSyncExternalStore(subscribe, getSheet, getSheet)
+  const shownCall = useRef<string | undefined>(undefined)
   useEffect(() => {
-    openRef.current = { open, shown }
-  }, [open, shown])
+    shownCall.current = shown?.callId
+  }, [shown])
 
-  const openRun = useCallback(
-    (req: RunRequest) => {
-      setShown(req.callId)
-      setState({ req, key: ++seq, path: window.location.pathname, open: true })
-    },
-    [],
-  )
-
-  const openCall = useCallback<RunApi['openCall']>(
-    (call) => {
-      const show = (tool: Tool) => openRun({ tool, callId: call.id })
-      const cached = toolFromCache(qc, call.pluginId, call.tool)
-      if (cached) return show(cached)
-      void qc
-        .fetchQuery({ queryKey: hq.plugin(call.pluginId), queryFn: () => homeApi.get<PluginDetail>(`/plugins/${seg(call.pluginId)}`) })
-        .then((d) => d.tools.find((x) => x.name === call.tool))
-        .catch(() => undefined)
-        .then((tool) =>
-          show(
-            tool ?? {
-              name: call.tool,
-              pluginId: call.pluginId,
-              title: call.title,
-              description: '',
-              audience: 'admin',
-              inputSchema: { type: 'object', properties: {} },
-              timeoutMs: call.timeoutMs,
-              inventory: false,
-            },
-          ),
-        )
-    },
-    [qc, openRun],
-  )
-
-  // A call that ends while its sheet is closed gets a toast (DESIGN.md §9.4).
+  // A call that ends while its sheet is closed gets a toast.
   useEffect(
     () =>
       callBus.on((c) => {
         if (c.state === 'running' || !myCalls.has(c.id)) return
         myCalls.delete(c.id)
-        if (openRef.current.open && openRef.current.shown === c.id) return
+        if (shownCall.current === c.id) return
         const tool = toolFromCache(qc, c.pluginId, c.tool)
         const title = tool ? toolTitle(tool, currentLang()) : c.title
         if (c.state === 'ok') toast(t('run.done_bg', { title }), 'success')
@@ -115,17 +144,18 @@ export function RunProvider({ children }: { children: ReactNode }) {
     [qc, t],
   )
 
-  const value = useMemo(() => ({ openRun, openCall, shownCallId: open ? shown : undefined }), [openRun, openCall, open, shown])
-  const close = () => setState((s) => s && { ...s, open: false })
-  const lang = currentLang()
+  const key = s?.key
+  const onCallShown = useCallback(
+    (id: string | undefined) => {
+      if (key !== undefined) showCall(key, id)
+    },
+    [key],
+  )
 
   return (
-    <RunContext.Provider value={value}>
-      {children}
-      <Sheet open={open} onClose={close} title={state ? toolTitle(state.req.tool, lang) : ''}>
-        {state && <RunContent key={state.key} req={state.req} onClose={close} onCallShown={setShown} onFollowUp={openRun} />}
-      </Sheet>
-    </RunContext.Provider>
+    <Sheet open={!!shown} onClose={closeRun} title={s ? toolTitle(s.req.tool, lang) : ''}>
+      {s && <RunContent key={s.key} req={s.req} onClose={closeRun} onCallShown={onCallShown} onFollowUp={openRun} />}
+    </Sheet>
   )
 }
 
@@ -151,7 +181,7 @@ function RunContent({
   const [callId, setCallId] = useState<string | undefined>(req.callId)
   const [submitError, setSubmitError] = useState<unknown>(null)
   const [submitting, setSubmitting] = useState(false)
-  // A tool with no fields runs as soon as it opens; a destructive one asks first (DESIGN.md §9.3).
+  // A tool with no fields runs as soon as it opens; a destructive one asks first.
   const noFields = fieldCount(tool, req.hideTarget) === 0
   const [confirming, setConfirming] = useState(() => noFields && isDestructive(tool) && !req.callId)
   const autoRan = useRef(false)
@@ -184,13 +214,13 @@ function RunContent({
         onCallShown(created.id)
       } catch (err) {
         // The same tool runs already: attach to that call (409 names it; else find it among the running ones).
-        const running = isHomeError(err, 'call_running') ? (err.callId ?? (await runningCallOf(tool.name))) : undefined
+        const running = isApiError(err, 'call_running') ? (pointedAt(err, 'callId') ?? (await runningCallOf(tool.name))) : undefined
         if (running) {
           myCalls.add(running)
           setCallId(running)
           onCallShown(running)
         } else if (isInvalid(err)) {
-          const mapped = serverErrors(tool, fields, isHomeError(err) ? err.fields : [], t)
+          const mapped = serverErrors(tool, fields, invalidFields(err), t)
           setErrors(mapped.errors)
           setOtherErrors(mapped.other.length ? mapped.other : Object.keys(mapped.errors).length ? [] : [errorText(err, t)])
         } else {
@@ -405,7 +435,7 @@ function Outcome({ icon, title, text }: { icon: 'warning' | 'none'; title: strin
   )
 }
 
-/** Running shows a call's progress (DESIGN.md §9.5): spinner or bar, the message, the elapsed time, "slow". */
+/** Running shows a call's progress: spinner or bar, the message, the elapsed time, "slow". */
 function Running({ call, tool }: { call?: Call; tool: Tool }) {
   const { t } = useTranslation()
   const lang = currentLang()

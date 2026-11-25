@@ -20,7 +20,7 @@ function tool(inputSchema: JSONSchema, over: Partial<Tool> = {}): Tool {
   }
 }
 
-describe('buildFields: JSON Schema → controls (DESIGN.md §9.3)', () => {
+describe('buildFields: JSON Schema → controls', () => {
   const schema: JSONSchema = {
     type: 'object',
     properties: {
@@ -173,7 +173,7 @@ describe('validate (no eval: @cfworker/json-schema)', () => {
     expect(validate(tl, fields, { percent: 40, host: '192.0.2.66', id: 'tv-2', name: 'abc', input: 'tv' }, t).errors).toEqual({})
   })
 
-  it('maps every keyword to the field words of DESIGN.md §9.3', () => {
+  it('maps every keyword to the field words', () => {
     const { errors } = validate(tl, fields, { percent: 140, host: '', id: 'Bad id', name: 'a', input: 'vga' }, t)
     expect(errors).toEqual({
       '/host': 'Заполните это поле',
@@ -199,7 +199,7 @@ describe('validate (no eval: @cfworker/json-schema)', () => {
   })
 })
 
-describe('groupTools (DESIGN.md §9.2)', () => {
+describe('groupTools', () => {
   const mk = (name: string, over: Partial<Tool> = {}) => tool({ type: 'object', properties: {} }, { name, title: name, pluginId: 'tv', ...over })
   const groups = groupTools(
     [

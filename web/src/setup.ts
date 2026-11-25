@@ -8,6 +8,7 @@ import ru from './i18n/ru.json'
  * - the brand: core.Brand.CSRFHeader of homed ("X-Homie"), the localStorage prefix ("homie.theme", "homie.lang", as
  *   public/theme.js reads them) and the app icon's glyph;
  * - the people options of homed (STEP2 §2.4): one account, which is the home, and co-owners;
+ * - no «Удалить всё»: homed refuses DELETE /api/account, the home goes with homed's uninstall on the home computer;
  * - Homie's strings on top of the package's.
  */
 export function setupHomie() {
@@ -16,5 +17,6 @@ export function setupHomie() {
     strings: { ru, en },
     singleAccount: true,
     coOwners: true,
+    accountDelete: false,
   })
 }

@@ -308,7 +308,9 @@ export interface ConnectStatus {
   step?: ConnectStepName
   /** the Cloudflare link to sign in and pick the zone, as soon as cloudflared prints it */
   loginUrl?: string
-  /** English; an existing DNS record says to retry with overwriteDns */
+  /** "dns_exists": the address has a DNS record already; connect again with overwriteDns once the owner agrees */
+  code?: string
+  /** English, for «Подробнее» */
   error?: string
   startedAt?: ISOTime
   endedAt?: ISOTime

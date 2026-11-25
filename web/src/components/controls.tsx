@@ -3,8 +3,9 @@ import { Check, ChevronDown, Minus, Plus } from 'lucide-react'
 import { useId, useState, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
 
-// The form controls Homie needs beyond the package's (DESIGN.md §6): TextArea, Slider, Stepper and Select, for the
-// forms built from plugin schemas (§9.3). They share the package's look: the same field frame and input fill.
+// The form controls Homie needs beyond those of @devxpro/mcp-gatekeeper-ui: TextArea, Slider, Stepper and Select, for
+// the forms built from plugin schemas (lib/schema.ts). They share the package's look: the same field frame and input
+// fill.
 
 interface FieldChrome {
   label?: ReactNode

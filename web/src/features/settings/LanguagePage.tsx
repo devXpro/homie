@@ -7,7 +7,7 @@ import { errorText } from '@/lib/errors'
 import { hq, useOwner } from '@/lib/queries'
 import type { Settings } from '@/lib/types'
 
-// Язык (DESIGN.md §8.9): applies at once in this browser. For an owner it is also the home's language, the default
+// Язык: applies at once in this browser. For an owner it is also the home's language, the default
 // of anyone who has not chosen one (PATCH /api/home/settings).
 
 export function LanguagePage() {

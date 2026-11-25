@@ -33,7 +33,7 @@ import { hostnameOk } from '@/lib/hostname'
 import { tunnelHost, tunnelLook } from '@/lib/status'
 import type { ConnectStatus, ConnectStepName, FirstRunState, SetupLink, TunnelStatus } from '@/lib/types'
 
-// The LAN first-run page (STEP2 §4.8, DESIGN.md §8.3), served by homed's setup listener on http://<lan ip>:8090 while
+// The LAN first-run page (STEP2 §4.8), served by homed's setup listener on http://<lan ip>:8090 while
 // no tunnel is configured (then on 127.0.0.1:8090 only) and until an owner has a passkey of the current address:
 // PIN → "my domain" (the Cloudflare login link, then the connect's progress) or "try without a domain" (a quick
 // tunnel) → the probe → the one-time setup link. Behind a quick tunnel the address changes on every restart; the page
@@ -405,9 +405,6 @@ function connectSteps(c: ConnectStatus, t: TFunction): StepItem[] {
   }))
 }
 
-/** dnsExists: Cloudflare has a record for the address already; homed's error says to retry with overwriteDns. */
-const dnsExists = (error: string | undefined) => !!error && /overwrite|already exists/i.test(error)
-
 /**
  * ConnectFailed is a connect of "my domain" that stopped: the step it stopped at and why. An existing DNS record can
  * be replaced, after a confirmation (STEP2 §3.4 asks before --overwrite-dns); any other failure goes back to the form.
@@ -418,7 +415,8 @@ function ConnectFailed({ connect: c, onDone }: { connect: ConnectStatus; onDone:
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const exists = dnsExists(c.error)
+  // Cloudflare has a record for the address already: it can be replaced with overwriteDns.
+  const exists = c.code === 'dns_exists'
 
   if (again) {
     return (

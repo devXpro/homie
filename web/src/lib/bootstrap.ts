@@ -46,7 +46,7 @@ function savedLang(): string | null {
 
 /**
  * loadBootstrap reads the bootstrap and applies the home's language when this browser has not chosen one: the
- * person's choice first, then the home's (DESIGN.md §11). It never throws: without an answer the admin starts with
+ * person's choice first, then the home's. It never throws: without an answer the admin starts with
  * SSE and the browser's language.
  */
 export async function loadBootstrap() {
