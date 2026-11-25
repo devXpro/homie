@@ -33,6 +33,7 @@ type ConnectJSON struct {
 	Step      string `json:"step"`
 	LoginURL  string `json:"loginUrl,omitempty"`
 	Error     string `json:"error,omitempty"`
+	Code      string `json:"code,omitempty"`
 	StartedAt string `json:"startedAt"`
 	EndedAt   string `json:"endedAt,omitempty"`
 }
@@ -40,5 +41,5 @@ type ConnectJSON struct {
 // JSON is j on the wire.
 func (j ConnectJob) JSON() ConnectJSON {
 	return ConnectJSON{Hostname: j.Hostname, State: j.State, Step: j.Step, LoginURL: j.LoginURL, Error: j.Error,
-		StartedAt: wire.Time(j.StartedAt), EndedAt: wire.OptTime(j.EndedAt)}
+		Code: j.Code, StartedAt: wire.Time(j.StartedAt), EndedAt: wire.OptTime(j.EndedAt)}
 }

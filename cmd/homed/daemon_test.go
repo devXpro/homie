@@ -913,6 +913,10 @@ func TestQuickHostChange(t *testing.T) {
 	alice.register(newDevice(first), tokenOf(t, link["url"].(string)), "Alice", "Дом")
 	me := alice.json("GET", "/api/me", nil, 200)
 	aliceID := me["person"].(map[string]any)["id"]
+	// Quick mode is the owner's alone (STEP2 Q4): a guest's passkey would die with the next URL, so no invites.
+	if inv := alice.json("POST", "/api/account/invites", map[string]any{"name": "Bella"}, http.StatusConflict); inv["error"] != "quick_mode" {
+		t.Fatalf("an invite in quick mode: %v", inv)
+	}
 	closing := func() bool {
 		h.d.mu.Lock()
 		defer h.d.mu.Unlock()
@@ -952,8 +956,8 @@ func TestQuickHostChange(t *testing.T) {
 	if me := again.json("GET", "/api/me", nil, 200); me["person"].(map[string]any)["id"] != aliceID {
 		t.Fatalf("the reconnect made another person: %v", me)
 	}
-	if code, _, out := again.do("POST", "/api/account/invites", map[string]any{"name": "Bella", "permissions": []string{"all"}}); code != http.StatusOK {
-		t.Fatalf("an invite in quick mode: %d %s", code, out)
+	if code, _, out := again.do("POST", "/api/account/invites", map[string]any{"name": "Bella", "permissions": []string{"all"}}); code != http.StatusConflict || !strings.Contains(string(out), `"error":"quick_mode"`) {
+		t.Fatalf("an invite in quick mode after the reconnect: %d %s", code, out)
 	}
 
 	// Later, the page closed (its two minutes passed, here at once): the next new URL opens it again by itself.

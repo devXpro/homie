@@ -18,6 +18,10 @@ const (
 	JobFailed  = "failed"
 )
 
+// CodeDNSExists is ConnectJob.Code when the hostname already has a DNS record: connecting again with overwriteDNS
+// replaces it, so the page asks the owner first.
+const CodeDNSExists = "dns_exists"
+
 // ConnectJob is a connect of the owner's domain, as the first-run page and `homed cloudflare connect` follow it.
 type ConnectJob struct {
 	Hostname string
@@ -28,6 +32,7 @@ type ConnectJob struct {
 	// opens it first picks the Cloudflare account; it is never logged.
 	LoginURL  string
 	Error     string // why it failed, English
+	Code      string // a failure a client may act on: CodeDNSExists; empty otherwise
 	StartedAt time.Time
 	EndedAt   time.Time // zero while running
 }
@@ -98,6 +103,9 @@ func (m *Manager) finish(job *ConnectJob, flow *cloudflare.Flow, cancel context.
 	job.EndedAt = m.now()
 	if err != nil {
 		job.State, job.Error = JobFailed, err.Error()
+		if errors.Is(err, cloudflare.ErrDNSRecordExists) {
+			job.Code = CodeDNSExists
+		}
 	} else {
 		job.State = JobOK
 	}

@@ -19,6 +19,7 @@ import (
 	gkstore "github.com/devXpro/mcp-gatekeeper/store"
 
 	"github.com/devXpro/homie/internal/gateway"
+	"github.com/devXpro/homie/internal/tunnel"
 )
 
 // brand is what Homie puts on the wire. A running hub never changes a name of it (core.Brand): the cookies would sign
@@ -67,7 +68,7 @@ func (d *daemon) newStack(site core.Site) (*stack, error) {
 		return nil, err
 	}
 	p, err := gkpeople.New(gkpeople.Options{
-		Site: site, Brand: brand, Sessions: a, Store: d.st, Inviter: inviter{a}, Revoker: o,
+		Site: site, Brand: brand, Sessions: a, Store: d.st, Inviter: inviter{a: a, d: d}, Revoker: o,
 		NormalizeName: auth.NormalizeName, Eraser: keepHome{}, Fields: homeFields{d: d, site: site},
 		Permissions: pluginCatalog{d}, CoOwners: true, SingleAccount: true,
 		Log: d.log.With("component", "people"), Clock: d.clock,
@@ -240,25 +241,50 @@ func superadmins(ctx context.Context, st gkstore.Store) ([]core.Person, error) {
 	return out, nil
 }
 
-// inviter is *auth.Auth as the people service's AccessInviter.
-type inviter struct{ a *auth.Auth }
+// codeQuickMode refuses what a quick tunnel cannot keep: its URL changes on every restart, and every passkey with it.
+const codeQuickMode = "quick_mode"
+
+// inviter is *auth.Auth as the people service's AccessInviter. In quick mode it refuses every invite (STEP2 Q4: the
+// mode is the owner's alone; a guest's passkey would die with the next URL).
+type inviter struct {
+	a *auth.Auth
+	d *daemon
+}
 
 var _ gkpeople.AccessInviter = inviter{}
 
+// quick refuses an invite while the home is on a quick tunnel.
+func (i inviter) quick() error {
+	if i.d == nil || i.d.tun == nil || i.d.tun.Status().Mode != tunnel.ModeQuick {
+		return nil
+	}
+	return gkpeople.NewError(http.StatusConflict, codeQuickMode,
+		"invites need the home's own domain: a quick tunnel is for trying, and its address changes on every restart")
+}
+
 func (i inviter) IssueInvite(ctx context.Context, kind core.InviteKind, account core.AccountID, name string,
 	by core.PersonID) (gkpeople.IssuedInvite, error) {
+	if err := i.quick(); err != nil {
+		return gkpeople.IssuedInvite{}, err
+	}
 	inv, err := i.a.IssueInvite(ctx, kind, account, name, by)
 	return gkpeople.IssuedInvite(inv), err
 }
 
 func (i inviter) IssueInviteIn(ctx context.Context, st gkstore.Store, kind core.InviteKind, account core.AccountID,
 	name string, by core.PersonID) (gkpeople.IssuedInvite, error) {
+	if err := i.quick(); err != nil {
+		return gkpeople.IssuedInvite{}, err
+	}
 	inv, err := i.a.IssueInviteIn(ctx, st, kind, account, name, by)
 	return gkpeople.IssuedInvite(inv), err
 }
 
 func (i inviter) IssueInviteWithAccess(ctx context.Context, kind core.InviteKind, account core.AccountID, name string,
 	by core.PersonID, until *time.Time, perms []string) (gkpeople.IssuedInvite, error) {
+	if err := i.quick(); err != nil {
+		return gkpeople.IssuedInvite{}, err
+	}
 	inv, err := i.a.IssueInviteWithAccess(ctx, kind, account, name, by, until, perms)
 	return gkpeople.IssuedInvite(inv), err
 }

@@ -179,8 +179,11 @@ func TestConnectExistingDNSRecord(t *testing.T) {
 	}
 	tunneltest.Eventually(t, "the job to fail", func() bool { j, _ := r.m.Job(); return j.State == JobFailed })
 	j, _ := r.m.Job()
-	if j.Step != cloudflare.StepDNS || !strings.Contains(j.Error, "--overwrite-dns") {
+	if j.Step != cloudflare.StepDNS || !strings.Contains(j.Error, "--overwrite-dns") || j.Code != CodeDNSExists {
 		t.Errorf("job = %+v", j)
+	}
+	if got := j.JSON().Code; got != "dns_exists" {
+		t.Errorf("the job's JSON code = %q, want dns_exists", got)
 	}
 	if len(r.savedModes()) != 0 || r.m.Status().Mode != ModeOff {
 		t.Errorf("a failed connect changed the mode: %v %+v", r.savedModes(), r.m.Status())
@@ -189,7 +192,7 @@ func TestConnectExistingDNSRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	tunneltest.Eventually(t, "the job to end", func() bool { j, _ := r.m.Job(); return j.State != JobRunning })
-	if j, _ := r.m.Job(); j.State != JobOK {
+	if j, _ := r.m.Job(); j.State != JobOK || j.Code != "" {
 		t.Errorf("job = %+v", j)
 	}
 	r.connected(t)
