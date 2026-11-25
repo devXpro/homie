@@ -195,11 +195,14 @@ func TestHeadersAndErrorShape(t *testing.T) {
 	}
 }
 
-// Every endpoint and every role: nobody gets 401, a member 403 on the owner's endpoints, an owner without a fresh
-// passkey 403 step_up_required on the ✋ ones, and an owner with one passes the session layer.
+// Every endpoint and every role: nobody gets 401, a member 403 on the owner's endpoints, the superadmin without a fresh
+// passkey 403 step_up_required on the ✋ ones and with one passes the session layer, and a co-owner passes it on the
+// owner's endpoints but gets 403 forbidden on the superadmin's (review R-3), even with a fresh passkey.
 func TestRoles(t *testing.T) {
 	e := newEnv(t)
 	e.sess.stepUp("tok-bella")
+	e.sess.add("tok-alice-up", e.sess.viewers["tok-alice"])
+	e.sess.stepUp("tok-alice-up")
 	path := func(p string) string {
 		p = strings.ReplaceAll(p, "{id}", "tv")
 		return strings.ReplaceAll(p, "{name}", "tv_list")
@@ -234,14 +237,24 @@ func TestRoles(t *testing.T) {
 			}
 			c.tok = "tok-alice"
 			noStep := e.do(c)
-			if rt.level == levelOwnerStepUp {
+			if rt.level == levelSuperadminStepUp {
 				expect(t, noStep, 403, "step_up_required")
+				c.tok = "tok-alice-up"
+				if r := e.do(c); r.status == 401 || r.status == 403 {
+					t.Fatalf("superadmin, stepped up: %d %s", r.status, r.raw)
+				}
 			} else if noStep.status == 401 || noStep.status == 403 {
 				t.Fatalf("owner: %d %s", noStep.status, noStep.raw)
 			}
 			c.tok = "tok-bella" // the co-owner, stepped up
-			if r := e.do(c); r.status == 401 || r.status == 403 {
-				t.Fatalf("co-owner: %d %s", r.status, r.raw)
+			coOwner := e.do(c)
+			if rt.level == levelSuperadminStepUp {
+				expect(t, coOwner, 403, "forbidden")
+				if !strings.Contains(coOwner.body["message"].(string), "superadmin") {
+					t.Fatalf("co-owner: %s", coOwner.raw)
+				}
+			} else if coOwner.status == 401 || coOwner.status == 403 {
+				t.Fatalf("co-owner: %d %s", coOwner.status, coOwner.raw)
 			}
 		})
 	}
@@ -1082,6 +1095,68 @@ func TestVersionLess(t *testing.T) {
 	}{{"0.2.0", "0.3.0", true}, {"0.2.10", "0.2.9", false}, {"v1.0.0", "1.0.1", true}, {"1.0.0", "1.0.0", false}, {"", "0.1.0", true}} {
 		if got := versionLess(tt.a, tt.b); got != tt.want {
 			t.Errorf("versionLess(%q, %q) = %v", tt.a, tt.b, got)
+		}
+	}
+}
+
+// Removing a plugin takes its permission from every person and open invite (review R-12): a person keeps their other
+// permissions, an open invite that gives it is revoked, a used or another plugin's invite stays; all audited.
+func TestRemovingAPluginDropsItsPermission(t *testing.T) {
+	e := newEnv(t)
+	e.sess.stepUp("tok-alice")
+	ctx := context.Background()
+	now := time.Now()
+	dan := core.Person{ID: "per_dan", AccountID: account, Name: "Dan", Role: core.RoleMember, CreatedAt: now,
+		Permissions: []string{"plugin:kettle", "plugin:tv"}}
+	if err := e.st.People().Create(ctx, dan); err != nil {
+		t.Fatal(err)
+	}
+	used := now.Add(-time.Minute)
+	for _, inv := range []core.Invite{
+		{ID: "inv_tv", Permissions: []string{"plugin:tv"}},
+		{ID: "inv_kettle", Permissions: []string{"plugin:kettle"}},
+		{ID: "inv_used", Permissions: []string{"plugin:tv"}, UsedAt: &used},
+	} {
+		inv.TokenHash, inv.Kind, inv.AccountID, inv.Name = []byte("hash-"+inv.ID), core.InviteMember, account, inv.ID
+		inv.CreatedAt, inv.ExpiresAt, inv.CreatedBy = now, now.Add(24*time.Hour), alice.ID
+		if err := e.st.Invites().Create(ctx, inv); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := e.do(call{method: "DELETE", path: "/plugins/tv", tok: "tok-alice"})
+	expect(t, r, 202, "")
+	jobDone(t, e, r.body["id"].(string))
+	waitUntil(t, "the invite revoked", func() bool {
+		return slices.Contains(e.auditActions(), "account.invite.revoke inv_tv admin")
+	})
+	for id, want := range map[core.PersonID][]string{carol.ID: {}, dan.ID: {"plugin:kettle"}} {
+		p, err := e.st.People().Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Permissions) != len(want) || len(want) > 0 && !slices.Equal(p.Permissions, want) {
+			t.Errorf("%s keeps %v, want %v", id, p.Permissions, want)
+		}
+	}
+	// The store lists the open invites: the kettle's stays, the TV's is revoked (the used one was never open).
+	invites, err := e.st.Invites().ListByAccount(ctx, account)
+	if err != nil || len(invites) != 1 || invites[0].ID != "inv_kettle" {
+		t.Errorf("open invites = %+v, %v", invites, err)
+	}
+	got := e.auditActions()
+	if slices.Contains(got, "account.invite.revoke inv_used admin") {
+		t.Errorf("a used invite was revoked: %v", got)
+	}
+	for _, want := range []string{"account.member.update per_carol admin", "account.member.update per_dan admin"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("audit %v lacks %q", got, want)
+		}
+	}
+	entries, _ := e.st.Audit().ListByAccount(ctx, account, "", 100)
+	for _, en := range entries {
+		if en.Target == string(dan.ID) && (en.Detail["permissions"] != "plugin:kettle" || en.Detail["reason"] != "plugin.remove" ||
+			en.Actor != alice.ID) {
+			t.Errorf("dan's audit = %+v", en)
 		}
 	}
 }

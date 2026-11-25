@@ -38,9 +38,15 @@ The gatekeeper's endpoints are documented in its [README](https://github.com/dev
   `Content-Type: application/json` when it has a body (else `415 unsupported_media_type`). Bodies are at most 1 MiB
   (`413 too_large`), tool arguments at most 64 KiB.
 - Session: the gatekeeper's. `401 no_session` without one, `403 step_up_required` for ✋ endpoints (do a passkey
-  step-up and retry), `403 forbidden` for a member on an owner endpoint.
-- **Roles.** *owner* = `role: "owner"` (the first owner and a co-owner alike); *session* = any signed-in person (owner
-  or member). Members never see devices they may not use, nor anyone else's activity.
+  step-up and retry), `403 forbidden` for a member on an owner endpoint and for anyone but the superadmin on a
+  superadmin endpoint (checked before the step-up, so a co-owner is never asked for a passkey there).
+- **Roles.** *owner* = `role: "owner"` (the first owner and a co-owner alike); *superadmin* = the owner who set the home
+  up (`person.superadmin` in `GET /api/me`): the endpoints that run code on the home box or change the system —
+  installing, updating and removing plugins, updating the hub, reconnecting the tunnel — are theirs alone, and a
+  co-owner gets `403 {"error":"forbidden","message":"only the home's superadmin may do this: …"}`, so the SPA hides
+  those controls from co-owners; *session* = any signed-in person (owner or member). Members never see devices they may
+  not use, nor anyone else's activity. The admin socket (the homed CLI on the home box) is the local operator and may
+  do everything.
 - Rate limit: 600 requests a minute per session → `429 rate_limited` with `Retry-After`.
 - Codes used besides the gatekeeper's: `invalid_json`, `invalid_args`, `unsupported_media_type`, `too_large`,
   `unknown_tool`, `no_inventory`, `call_running`, `job_running`, `downgrade`, `tool_failed` (422), `timeout` (504),
@@ -147,7 +153,8 @@ most 50).
 **Attention item** — `{"kind":"…","target?":"tv","version?":"0.3.0","at?":"…","peer?":"/usr/bin/example (pid 4242)"}`;
 kinds, by severity:
 - `access_reset` — someone ran `homed admin reset-access` on the home box in the last 7 days (`at`; `peer` is the
-  program that asked);
+  program that asked, e.g. `"/usr/local/bin/homed (pid 812)"`, followed by `", run from <ancestors>"` when the socket
+  knew them: `"<exe> (pid N) < <exe> (pid N)"`, nearest first);
 - `tunnel_offline` — state `failing`;
 - `tunnel_unreachable` — state `probing` with a `lastError`;
 - `plugin_failing` (`target`), `hub_update` (`version`), `plugin_update` (`target`, `version`);
@@ -155,7 +162,7 @@ kinds, by severity:
 
 ## 4. Endpoints (`/api/home`)
 
-✋ = needs a fresh passkey (step-up).
+✋ = needs a fresh passkey (step-up). *superadmin* = the home's superadmin only (a co-owner gets `403 forbidden`).
 
 | Method, path | Level | Request | Response |
 |---|---|---|---|
@@ -164,12 +171,12 @@ kinds, by severity:
 | `GET /plugins` | owner | — | `200 {"items":[PluginSummary…]}` |
 | `GET /plugins/preview` | owner | `?repo=owner/name&version=latest` | `200` a preview; `404 not_found`, `502 upstream` |
 | `POST /plugins/check-updates` | owner | `{}` | `200 {"items":[PluginSummary…]}` |
-| `POST /plugins` | owner ✋ | `{"repo":"devXpro/homie-tv","version?":"0.2.0","id?":"tv"}` | `202 Job` (`plugin.install`); `409 conflict`, `409 job_running` |
+| `POST /plugins` | superadmin ✋ | `{"repo":"devXpro/homie-tv","version?":"0.2.0","id?":"tv"}` | `202 Job` (`plugin.install`); `409 conflict`, `409 job_running` |
 | `GET /plugins/{id}` | owner | — | `200 PluginDetail` |
 | `PATCH /plugins/{id}` | owner | `{"enabled":false}` | `200 PluginSummary` |
-| `DELETE /plugins/{id}` | owner ✋ | `?keepData=false` | `202 Job` (`plugin.remove`) |
+| `DELETE /plugins/{id}` | superadmin ✋ | `?keepData=false` | `202 Job` (`plugin.remove`); when it succeeds, `plugin:<id>` is taken from every person (`account.member.update`, detail `reason: plugin.remove`) and every open invite that gives it is revoked (`account.invite.revoke`) |
 | `POST /plugins/{id}/restart` | owner | `{}` | `202 PluginSummary` |
-| `POST /plugins/{id}/update` | owner ✋ | `{"version?":"0.3.0"}` | `202 Job` (`plugin.update`); `409 downgrade`; `allowDowngrade` → `403 forbidden` (CLI only) |
+| `POST /plugins/{id}/update` | superadmin ✋ | `{"version?":"0.3.0"}` | `202 Job` (`plugin.update`); `409 downgrade`; `allowDowngrade` → `403 forbidden` (CLI only) |
 | `GET /plugins/{id}/inventory` | owner | — | `200 {"items":[InventoryItem…],"fetchedAt":"…"}`; `404 no_inventory`, `422 tool_failed`, `503 plugin_unavailable`, `504 timeout` |
 | `GET /plugins/{id}/logs` | owner | `?tail=200` | `200 {"lines":["…"]}` |
 | `GET /tools` | owner | `?audience=admin\|assistant&plugin=tv` | `200 {"items":[Tool…]}` |
@@ -185,10 +192,10 @@ kinds, by severity:
 | `PATCH /settings` | owner | `{"homeName?":"Home","language?":"en"}` | `200 Settings`; renames the account, the MCP title and the instructions at once; audited as `settings.update` |
 | `GET /tunnel` | owner | — | `200 TunnelStatus` |
 | `POST /tunnel/check` | owner | `{}` | `200 TunnelStatus` after a self-check now |
-| `POST /tunnel/reconnect` | owner ✋ | `{}` | `202 TunnelStatus`: restarts cloudflared. **Quick mode: a new address** — every passkey and connector of the old one stops working, and the owner continues on the first-run page of the home box; `409 conflict` with mode `off` |
+| `POST /tunnel/reconnect` | superadmin ✋ | `{}` | `202 TunnelStatus`: restarts cloudflared. **Quick mode: a new address** — every passkey and connector of the old one stops working, and the owner continues on the first-run page of the home box; `409 conflict` with mode `off` |
 | `GET /system` | owner | — | `200 SystemInfo` |
 | `POST /system/check-update` | owner | `{}` | `200 SystemInfo` |
-| `POST /system/update` | owner ✋ | `{"version?":"0.3.0"}` | `202 Job` (`hub.update`); after `replace` homed restarts: wait for the `hello` event with the new version |
+| `POST /system/update` | superadmin ✋ | `{"version?":"0.3.0"}` | `202 Job` (`hub.update`); after `replace` homed restarts: wait for the `hello` event with the new version |
 | `GET /events` | session | `Last-Event-ID`, `?logs=<plugin id>` (owner) | SSE, §6 |
 | `GET /events/poll` | session | `?after=<cursor>&logs=<plugin id>` | long poll, §6 |
 
@@ -207,17 +214,21 @@ For the People and Connect screens:
   disabled ones included; `"all"` is not in it and is always accepted besides.
 - **Invites.** `POST /api/account/invites {"name","permissions","access_until?"}` (a member) or `{"name","role":"owner"}`
   (a co-owner; the superadmin only) → `200 {"id":"inv_…","url":"https://home.example.com/join#t=…","expires_at":"…"}`.
-  `access_until` is RFC 3339, in the future, at most one year ahead. In **quick mode** every invite answers `409
-  {"error":"quick_mode","message":"invites need the home's own domain: …"}`.
+  `access_until` is RFC 3339, in the future, at most one year ahead. Switching to a **quick tunnel** revokes every
+  open member and owner invite (`account.invite.revoke`, detail `reason: tunnel.quick`), and in **quick mode** every
+  invite answers `409 {"error":"quick_mode","message":"invites need the home's own domain: …"}`.
 - **Members.** `PATCH /api/account/members/{id}` with `{"access_until?":"…"|null,"permissions?":[…]}`; widening access
   needs a step-up. `DELETE /api/account/members/{id}` removes a person. Members and invites in listings carry
   `access_until`, `permissions` and `active`; an expired person stays listed.
 - **Connections.** `DELETE /api/account/connections/{grant id}` revokes one assistant connection.
+- **The consent screen** (`GET /api/oauth/txn/{txn}`, the gatekeeper's) lists in `resource.tools` only the tools the
+  signed-in viewer may use: a guest sees their devices' tools, never the rest of the home. The resource metadata
+  (no viewer) lists every tool.
 - **Audit of admin actions**: `GET /api/account/audit`. Homie's own actions: `plugin.install`, `plugin.update`,
   `plugin.remove`, `plugin.enable`, `plugin.disable`, `plugin.restart`, `settings.update` (detail `keys`),
   `hub.update`, `tunnel.connect`, `tunnel.quick`, `tunnel.disconnect`, `tunnel.reconnect`, `firstrun.link`; the detail
   `via` is `admin` or `cli`. Plus the gatekeeper's own (`auth.*`, `account.*`, `oauth.*`, `admin.setup-link`,
-  `admin.reset-access`).
+  `admin.reset-access`, whose detail names the socket peer: `peer_pid`, `peer_exe` and `peer_chain`, its ancestors).
 - `DELETE /api/account` («delete everything») is refused: `403 forbidden` (after the gatekeeper's own `400 invalid`
   without `{"confirm":"<account name>"}`). The UI hides that screen.
 - `/api/admin/accounts` lists the one account (single-account mode): the UI hides the families section.

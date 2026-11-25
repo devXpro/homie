@@ -65,12 +65,13 @@ func TestCommands(t *testing.T) {
 	var (
 		mu      sync.Mutex
 		audited []string
+		ready   bool // whether the owner has a passkey of the current URL
 	)
 	c := socket(t, Commands(r.m, func(_ context.Context, e core.AuditEntry) {
 		mu.Lock()
 		defer mu.Unlock()
 		audited = append(audited, e.Action+" "+e.Target+" "+e.Detail["via"])
-	}))
+	}, func(context.Context) (bool, error) { mu.Lock(); defer mu.Unlock(); return ready, nil }))
 	ctx := context.Background()
 
 	var out bytes.Buffer
@@ -91,7 +92,7 @@ func TestCommands(t *testing.T) {
 	}
 	got := stream.String()
 	for _, want := range []string{"Step 1/4", "Connected:", "The hub answers at https://home.example.com",
-		"https://home.example.com/mcp"} {
+		"https://home.example.com/mcp", "The owner has no passkey for https://home.example.com yet", "homed admin setup-link"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("connect output lacks %q:\n%s", want, got)
 		}
@@ -115,9 +116,15 @@ func TestCommands(t *testing.T) {
 		t.Fatalf("disconnect = %v\n%s", err, out.String())
 	}
 	out.Reset()
+	mu.Lock()
+	ready = true
+	mu.Unlock()
 	if err := c.Run(ctx, "cloudflare quick", nil, nil, &out); err != nil ||
 		!strings.Contains(out.String(), "https://"+tunneltest.QuickHost(2)+"/mcp") { // run 1 was the named tunnel
 		t.Fatalf("quick = %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "no passkey") {
+		t.Errorf("the passkey hint while the owner can sign in:\n%s", out.String())
 	}
 	mu.Lock()
 	defer mu.Unlock()

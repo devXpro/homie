@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/devXpro/mcp-gatekeeper/core"
@@ -407,5 +408,107 @@ func TestChildLogRotates(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".3"); !os.IsNotExist(err) {
 		t.Errorf("a fourth file was kept: %v", err)
+	}
+}
+
+// alive counts the fake's tunnel children that still run.
+func (r *rig) alive() []int {
+	var pids []int
+	for _, run := range r.fake.Runs() {
+		if syscall.Kill(run.Pid, 0) == nil {
+			pids = append(pids, run.Pid)
+		}
+	}
+	return pids
+}
+
+// Reconnects at once (a double tap, two owners; eight here, so a missing lock shows every time) leave exactly one
+// cloudflared child, whose host is the one the hub follows and shows; Stop leaves none (review R-1).
+func TestConcurrentRestartsLeaveOneChild(t *testing.T) {
+	r := newRig(t)
+	if err := r.m.Quick(); err != nil {
+		t.Fatal(err)
+	}
+	r.connected(t)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if err := r.m.Restart(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	// A child may be stopped before it got to run (and to count), so the last child is the last run recorded.
+	tunneltest.Eventually(t, "the status and the hub on the last child's host", func() bool {
+		st, last := r.m.Status(), "https://"+tunneltest.QuickHost(len(r.fake.Runs()))
+		return st.State == string(cloudflare.StateConnected) && st.URL == last && r.lastState().URL == last
+	})
+	runs := r.fake.Runs()
+	if alive := r.alive(); len(runs) < 2 || len(alive) != 1 || alive[0] != runs[len(runs)-1].Pid {
+		t.Fatalf("after concurrent restarts: %d runs, children alive %v (want only the last one)", len(runs), alive)
+	}
+	r.m.Stop()
+	if alive := r.alive(); len(alive) != 0 {
+		t.Fatalf("children alive after Stop: %v", alive)
+	}
+}
+
+// A disconnect while a connect waits for the Cloudflare login cancels it: when the login would have come through, the
+// mode stays off and no tunnel starts (review R-1).
+func TestDisconnectCancelsARunningConnect(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.m.Connect("home.example.com", false); err != nil {
+		t.Fatal(err)
+	}
+	tunneltest.Eventually(t, "the login link", func() bool { j, _ := r.m.Job(); return j.LoginURL != "" })
+	if err := r.m.Disconnect(); err != nil {
+		t.Fatal(err)
+	}
+	r.fake.Set("login-release")
+	tunneltest.Eventually(t, "the job to end", func() bool { j, _ := r.m.Job(); return j.State != JobRunning })
+	if j, _ := r.m.Job(); j.State != JobFailed || !strings.Contains(j.Error, "cancelled") {
+		t.Errorf("job = %+v", j)
+	}
+	if got := r.savedModes(); !slices.Equal(got, [][2]string{{ModeOff, ""}}) {
+		t.Errorf("saved = %v", got)
+	}
+	if st := r.m.Status(); st.Mode != ModeOff || st.URL != "" || len(r.fake.Runs()) != 0 {
+		t.Errorf("status = %+v, runs %v", st, r.fake.Runs())
+	}
+}
+
+// A connect whose flow ends after the mode changed under it switches nothing.
+func TestConnectEndingAfterAModeChangeSwitchesNothing(t *testing.T) {
+	r := newRig(t)
+	ctx := t.Context()
+	job := &ConnectJob{Hostname: "home.example.com", State: JobRunning, from: ModeQuick}
+	if err := r.m.switchToNamed(ctx, job, "home.example.com"); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Errorf("= %v", err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	job.from = ModeOff
+	if err := r.m.switchToNamed(cancelled, job, "home.example.com"); !errors.Is(err, errConnectCancelled) {
+		t.Errorf("cancelled = %v", err)
+	}
+	if len(r.savedModes()) != 0 || r.m.Status().Mode != ModeOff {
+		t.Errorf("saved %v, status %+v", r.savedModes(), r.m.Status())
+	}
+}
+
+// A URL from a supervisor that is no longer the current one never reaches OnState.
+func TestAnnounceIgnoresAReplacedChild(t *testing.T) {
+	r := newRig(t)
+	r.m.mu.Lock()
+	r.m.gen = 2
+	r.m.mu.Unlock()
+	r.m.announce(1, "https://"+tunneltest.QuickHost(9))
+	if s := r.lastState(); s != (State{}) {
+		t.Errorf("a stale URL was announced: %+v", s)
+	}
+	r.m.announce(2, "https://"+tunneltest.QuickHost(1))
+	if s := r.lastState(); s.URL != "https://"+tunneltest.QuickHost(1) {
+		t.Errorf("the current URL was not announced: %+v", s)
 	}
 }

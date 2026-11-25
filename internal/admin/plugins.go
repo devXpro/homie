@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/devXpro/mcp-gatekeeper/core"
+	gkpeople "github.com/devXpro/mcp-gatekeeper/people"
 
+	"github.com/devXpro/homie/internal/gateway"
 	"github.com/devXpro/homie/internal/hub"
 	"github.com/devXpro/homie/internal/store"
 )
@@ -603,4 +605,64 @@ func (s *Server) removePlugin(q *request) error {
 		return err
 	}
 	return s.writeJSON(q, http.StatusAccepted, s.jobSnapshot(job))
+}
+
+// dropPluginAccess takes the permission of a removed plugin ("plugin:<id>") from every person and open invite of the
+// home, so a plugin installed later under the same id is not visible to anyone until it is granted again (review
+// R-12). A person keeps their other permissions (audited as account.member.update with reason plugin.remove). An open
+// invite cannot be narrowed (the gatekeeper's store has no such change), so one that gives the plugin is revoked
+// (account.invite.revoke with the same reason): the owner invites again.
+func (s *Server) dropPluginAccess(q *request, id string) error {
+	ctx := context.WithoutCancel(q.ctx)
+	perm := gateway.PluginPermission(id)
+	now := s.now()
+	accounts, err := s.st.Accounts().List(ctx)
+	if err != nil {
+		return err
+	}
+	var actor core.PersonID
+	if !q.local {
+		actor = q.v.Person.ID
+	}
+	return s.st.Tx(ctx, func(ctx context.Context) error {
+		for _, acc := range accounts {
+			people, err := s.st.People().ListByAccount(ctx, acc.ID)
+			if err != nil {
+				return err
+			}
+			for _, p := range people {
+				if !slices.Contains(p.Permissions, perm) {
+					continue
+				}
+				rest := slices.DeleteFunc(slices.Clone(p.Permissions), func(x string) bool { return x == perm })
+				if err := s.st.People().SetAccess(ctx, p.ID, p.AccessUntil, rest); err != nil {
+					return err
+				}
+				if err := s.st.Audit().Append(ctx, core.AuditEntry{At: now, AccountID: acc.ID, Actor: actor,
+					Action: gkpeople.ActionMemberUpdate, Target: string(p.ID), IP: q.ip, Detail: map[string]string{
+						"via": q.via(), "role": string(p.Role), "permissions": strings.Join(rest, ","),
+						"reason": "plugin.remove", "plugin": id}}); err != nil {
+					return err
+				}
+			}
+			invites, err := s.st.Invites().ListByAccount(ctx, acc.ID)
+			if err != nil {
+				return err
+			}
+			for _, inv := range invites {
+				if inv.UsedAt != nil || inv.RevokedAt != nil || !now.Before(inv.ExpiresAt) || !slices.Contains(inv.Permissions, perm) {
+					continue
+				}
+				if err := s.st.Invites().Revoke(ctx, inv.ID, now); err != nil {
+					return err
+				}
+				if err := s.st.Audit().Append(ctx, core.AuditEntry{At: now, AccountID: acc.ID, Actor: actor,
+					Action: gkpeople.ActionInviteRevoke, Target: inv.ID, IP: q.ip, Detail: map[string]string{
+						"via": q.via(), "reason": "plugin.remove", "plugin": id}}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }

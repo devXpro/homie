@@ -91,9 +91,22 @@ People are owners (the superadmin and co-owners) or members. Members are what an
 - **Known gap.** A token issued before an "end access now" is refused by the gate at once, but it counts against the
   address's failure limit until it expires (at most an hour).
 - **Co-owners.** Only the **superadmin** can invite another owner, and only into the same home. A co-owner has every
-  device and no term, invites and manages members and guests, revokes their connections and reads the audit. Changing
-  or removing an owner (or the superadmin), or resetting access, is the superadmin's alone: a co-owner gets `403`. Nobody
-  can remove the last superadmin.
+  device and no term, invites and manages members and guests, revokes their connections, reads the audit, changes the
+  settings and runs the devices' tools from the admin. Changing or removing an owner (or the superadmin), or resetting
+  access, is the superadmin's alone: a co-owner gets `403`. Nobody can remove the last superadmin.
+- **Running code and changing the system is the superadmin's alone.** Installing, updating or removing a plugin (a
+  plugin is a program homed runs with its own rights), updating the hub and reconnecting the tunnel answer a co-owner
+  `403 forbidden`, even with a fresh passkey: a co-owner's stolen phone or passkey must never run new code on the home
+  box. The full list is in [ADMIN-API.md](ADMIN-API.md#4-endpoints-apihome) (level *superadmin*). The homed CLI on the
+  home box (the admin socket) is the local operator and is not limited by this.
+- **A removed plugin's permission goes with it.** Removing a plugin takes `plugin:<id>` from every person (audited as
+  `account.member.update`, reason `plugin.remove`) and revokes every open invite that gives it (`account.invite.revoke`),
+  so a plugin installed later under the same id is visible to nobody until it is granted again.
+- **Quick mode revokes the open invites.** Switching to a quick tunnel revokes every open member and owner invite
+  (audited as `account.invite.revoke`, reason `tunnel.quick`): an invite link carries no host, and quick mode is the
+  owner's alone.
+- **The consent page shows only what the viewer may use.** When a guest connects an assistant, the consent page lists
+  only the tools of the devices they were given, never the rest of the home.
 - **What a member sees.** Their own devices, connections and activity, and nothing of anyone else's.
 
 ## The hub (`homed`)
@@ -148,7 +161,8 @@ People are owners (the superadmin and co-owners) or members. Members are what an
 - **Sessions.** `__Host-homie_session` (`Secure; HttpOnly; SameSite=Strict`), stored as a hash, 12 h idle and 7 days
   absolute. Every mutating request needs `X-Homie: 1`, and a present `Origin` must be the public origin and a present
   `Sec-Fetch-Site` `same-origin`.
-- **Step-up.** Installing, updating or removing plugins, updating the hub, reconnecting the tunnel and widening a
+- **Step-up.** Installing, updating or removing plugins, updating the hub, reconnecting the tunnel (all four the
+  superadmin's alone, see [Guests, terms and co-owners](#guests-terms-and-co-owners)) and widening a
   person's access need a passkey assertion no older than 5 minutes. **Signing in and registering count as step-up**:
   right after either, a stolen session cookie is as good as a fresh assertion for 5 minutes. A setup link is therefore
   as powerful as a step-up session.
@@ -215,9 +229,11 @@ but a same-user program can already replace the `homed` binary in the data dir, 
 read the tunnel credentials, so hardening the socket alone would buy little. What Homie does instead is *detection*:
 
 - the audit and the log record the **process id and executable path** of whoever asked for `setup-link` or
-  `reset-access`;
+  `reset-access`, and of up to three programs above it (detail `peer_chain`);
 - a `reset-access` raises an **"access was reset"** alert in the admin's Home screen (kept for 7 days), naming the
-  program that asked;
+  program that asked and, when the socket knew them, the programs that ran it (up to three ancestors, e.g. `…/homed
+  (pid 812), run from /bin/zsh (pid 790) < /System/Applications/Utilities/Terminal.app/… (pid 655)`): the program on
+  the socket is usually the homed CLI itself, so the chain above it is what tells who asked;
 - the boundary is documented: on a Mac that is not yours alone, do not run Homie as an account that others use.
 
 A dedicated macOS user for the daemon would be a real boundary, but needs `sudo` at install and has unverified

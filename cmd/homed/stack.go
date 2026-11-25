@@ -289,6 +289,46 @@ func (i inviter) IssueInviteWithAccess(ctx context.Context, kind core.InviteKind
 	return gkpeople.IssuedInvite(inv), err
 }
 
+// revokeInvitesForQuick revokes every open member and owner invite before the home switches to a quick tunnel (review
+// R-11): quick mode is the owner's alone, and an invite made on the domain carries no host, so it could otherwise be
+// redeemed at the quick URL. Setup links stay: they are how the owner gets a passkey of the quick URL. Each revoke is
+// audited as account.invite.revoke with reason tunnel.quick.
+func (d *daemon) revokeInvitesForQuick(ctx context.Context) error {
+	accounts, err := d.st.Accounts().List(ctx)
+	if err != nil {
+		return err
+	}
+	now := d.clock()
+	revoked := 0
+	err = d.st.Tx(ctx, func(ctx context.Context) error {
+		for _, acc := range accounts {
+			invites, err := d.st.Invites().ListByAccount(ctx, acc.ID)
+			if err != nil {
+				return err
+			}
+			for _, inv := range invites {
+				if inv.Kind == core.InviteSetup || inv.UsedAt != nil || inv.RevokedAt != nil || !now.Before(inv.ExpiresAt) {
+					continue
+				}
+				if err := d.st.Invites().Revoke(ctx, inv.ID, now); err != nil {
+					return err
+				}
+				if err := d.st.Audit().Append(ctx, core.AuditEntry{At: now.UTC(), AccountID: acc.ID,
+					Action: gkpeople.ActionInviteRevoke, Target: inv.ID,
+					Detail: map[string]string{"via": "tunnel", "reason": "tunnel.quick", "kind": string(inv.Kind)}}); err != nil {
+					return err
+				}
+				revoked++
+			}
+		}
+		return nil
+	})
+	if err == nil && revoked > 0 {
+		d.log.Info("revoked the open invites: a quick tunnel is the owner's alone", "invites", revoked)
+	}
+	return err
+}
+
 // keepHome refuses "delete everything" (DELETE /api/account): the home is its one account, and it goes with homed's
 // uninstall on the home box, not from a browser.
 type keepHome struct{}
@@ -377,15 +417,39 @@ func (f homeFields) AccountFields(ctx context.Context, v core.Viewer) (map[strin
 }
 
 // accessReset hears of every reset-access on the admin socket (review GK-5): an alert in the admin, a warning in the
-// log, with the program that asked.
+// log, with the program that asked and, when the socket knew them, the programs that ran it (review R-5: the peer is
+// the homed CLI itself, so the chain above it is what says who asked).
 func (d *daemon) accessReset(ctx context.Context, r auth.AccessReset) {
 	by := ""
 	if r.Peer.PID > 0 {
 		by = fmt.Sprintf("%s (pid %d)", cmpOr(r.Peer.Exe, "unknown program"), r.Peer.PID)
+		if chain := d.resetPeerChain(ctx, r.At); chain != "" {
+			by += ", run from " + chain
+		}
 	}
 	d.log.Warn("ACCESS WAS RESET on the admin socket: every passkey and session of the owner is gone; if you did not "+
 		"do this, a program of this user did", "by", by, "people", len(r.People))
 	d.admin.AccessReset(ctx, r.At, by)
+}
+
+// peerChainDetail is the audit detail of admin.reset-access (and admin.setup-link) that names the socket peer's
+// ancestors, nearest first: "<exe> (pid N) < <exe> (pid N) < …".
+const peerChainDetail = "peer_chain"
+
+// resetPeerChain is the peer_chain of the admin.reset-access entry the gatekeeper wrote at at (it writes the entry
+// before it calls OnAccessReset); "" when there is none, or the gatekeeper does not record it.
+func (d *daemon) resetPeerChain(ctx context.Context, at time.Time) string {
+	entries, err := d.st.Audit().ListSystem(ctx, "", 20)
+	if err != nil {
+		d.log.Warn("cannot read the audit for the access reset's peer", "err", err)
+		return ""
+	}
+	for _, e := range entries {
+		if e.Action == "admin.reset-access" && (e.At.Sub(at)).Abs() < time.Millisecond {
+			return e.Detail[peerChainDetail]
+		}
+	}
+	return ""
 }
 
 // authCommand is one of auth's admin socket commands (setup-link, reset-access) run by the current stack's auth: a

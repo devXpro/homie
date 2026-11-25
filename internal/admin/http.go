@@ -42,10 +42,10 @@ func notReady(what string) *wire.Error {
 type level int
 
 const (
-	levelPublic      level = iota
-	levelSession           // anyone signed in
-	levelOwner             // a person of role owner
-	levelOwnerStepUp       // an owner with a fresh passkey assertion
+	levelPublic           level = iota
+	levelSession                // anyone signed in
+	levelOwner                  // a person of role owner
+	levelSuperadminStepUp       // the home's superadmin with a fresh passkey assertion: code that runs, the system
 )
 
 // request is one admin request, or one admin socket command (local, with neither w nor r).
@@ -174,8 +174,23 @@ func (s *Server) wrap(rt route, sess core.Sessions, ipMode core.ClientIPMode) ht
 	case levelOwner:
 		return sess.RequireViewer(ownerOnly(h))
 	default:
-		return sess.RequireViewer(ownerOnly(sess.RequireStepUp(h)))
+		return sess.RequireViewer(superadminOnly(sess.RequireStepUp(h)))
 	}
+}
+
+// superadminOnly answers 403 forbidden to anyone signed in who is not the home's superadmin, co-owners included, before
+// any step-up is asked for: installing, updating or removing a plugin, updating the hub and reconnecting the tunnel
+// run code on the home box or change the system (docs/SECURITY.md).
+func superadminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v, ok := core.ViewerFrom(r.Context()); !ok || v.Person.Role != core.RoleOwner || !v.Person.Superadmin {
+			wire.WriteError(w, errorf(http.StatusForbidden, "forbidden", "only the home's superadmin may do this: "+
+				"installing, updating and removing plugins, updating the hub and reconnecting the tunnel run code on the "+
+				"home box or change it; co-owners manage people, settings and the devices' tools"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ownerOnly answers 403 forbidden to anyone signed in who is not an owner, before any step-up is asked for.

@@ -30,7 +30,7 @@ type firstRunPage struct {
 }
 
 // openFirstRun opens the first-run page unless it is open, and returns it: a new listener, a new PIN, 30 minutes and
-// a fresh budget of wrong PINs. homed opens it at start while the owner cannot sign in, when a quick tunnel's URL
+// a fresh budget of wrong PINs. homed opens it at start while the owner cannot sign in, when the public URL
 // changes, and on `homed admin firstrun`; every caller has just seen that the owner cannot sign in, so a page that was
 // about to close (the owner could sign in at the old quick URL) stays open.
 func (d *daemon) openFirstRun() (*firstRunPage, error) {

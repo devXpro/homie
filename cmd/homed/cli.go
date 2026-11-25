@@ -220,6 +220,9 @@ func cloudflareConnect(ctx context.Context, dir string, args []string, stdout, s
 	}
 	fmt.Fprintf(stdout, "homed runs the tunnel when it starts. The MCP address for ChatGPT and Claude: https://%s%s\n",
 		rec.Hostname, tunnel.MCPPath)
+	// A passkey belongs to one address: without one of this host the owner cannot sign in there (review R-10).
+	fmt.Fprintf(stdout, "No passkey for https://%s yet? Once homed runs, create the owner's with: homed admin setup-link "+
+		"(homed also opens its first-run page by itself: homed admin firstrun prints its PIN).\n", rec.Hostname)
 	return 0
 }
 

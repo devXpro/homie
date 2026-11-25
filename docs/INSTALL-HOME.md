@@ -147,6 +147,10 @@ It detects the CPU (amd64, arm64 or armv7), verifies the release checksum and in
 | the data dir | `/var/lib/homie` (mode 0700, owned by `homie`) |
 | the service | `/etc/systemd/system/homie.service`: starts at boot, `Restart=always`, sandboxed (`ProtectSystem=strict`, no new privileges, no capabilities), LAN access kept for discovery and Wake-on-LAN. `cloudflared` runs inside it as `homed`'s child. |
 
+The `homed` command never runs the program as you: every subcommand, `homed version` included, runs as the service
+user through `sudo` (or `runuser` as root). Its own tools come from the system directories only, so nothing the service
+user can write in `/usr/local/lib/homie` ever runs as root or as you.
+
 It starts the service and prints the first-run page's address and PIN.
 
 ```sh

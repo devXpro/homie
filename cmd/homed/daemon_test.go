@@ -27,6 +27,8 @@ import (
 	"github.com/descope/virtualwebauthn"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/devXpro/mcp-gatekeeper/adminsock"
+	"github.com/devXpro/mcp-gatekeeper/auth"
 	"github.com/devXpro/mcp-gatekeeper/core"
 	"github.com/devXpro/mcp-gatekeeper/tunnel/cloudflare"
 
@@ -275,6 +277,7 @@ type browser struct {
 	origin  string
 	client  *http.Client
 	cookies map[string]string
+	consent map[string]any // the last consent screen connect saw (GET /api/oauth/txn/{txn})
 }
 
 func (h *home) browser(host string) *browser {
@@ -420,7 +423,7 @@ func (b *browser) connect(resource string) connector {
 	if code != http.StatusFound || !ok {
 		b.t.Fatalf("authorize: %d %v %s", code, h, raw)
 	}
-	b.json("GET", "/api/oauth/txn/"+txn, nil, 200)
+	b.consent = b.json("GET", "/api/oauth/txn/"+txn, nil, 200)
 	back := b.json("POST", "/api/oauth/txn/"+txn+"/approve", map[string]any{}, 200)
 	u, err := url.Parse(back["redirect_url"].(string))
 	if err != nil {
@@ -544,6 +547,10 @@ func TestGuestEndToEnd(t *testing.T) {
 
 	// The guest's connector sees the fake plugin only, and a call reaches it with the guest's name.
 	guest := bella.connect("https://" + host + "/mcp")
+	// The guest's consent screen names only the fake plugin's tools (review R-4).
+	if tools := consentTools(t, bella); len(tools) == 0 || slices.ContainsFunc(tools, func(n string) bool { return !strings.HasPrefix(n, "fake_") }) {
+		t.Fatalf("the guest's consent screen lists %v", tools)
+	}
 	cs, err := h.mcpSession(guest.access)
 	if err != nil {
 		t.Fatal(err)
@@ -566,6 +573,9 @@ func TestGuestEndToEnd(t *testing.T) {
 
 	// The owner sees every tool.
 	owner := alice.connect("https://" + host + "/mcp")
+	if tools := consentTools(t, alice); !slices.ContainsFunc(tools, func(n string) bool { return strings.HasPrefix(n, "echo_") }) {
+		t.Fatalf("the owner's consent screen lists %v", tools)
+	}
 	ocs, err := h.mcpSession(owner.access)
 	if err != nil {
 		t.Fatal(err)
@@ -1038,4 +1048,115 @@ func TestNoTunnel(t *testing.T) {
 		t.Fatalf("status: %d %s", code, out)
 	}
 	_ = core.ErrNotFound
+}
+
+// consentTools are the tool names on the last consent screen b saw.
+func consentTools(t *testing.T, b *browser) []string {
+	t.Helper()
+	res, _ := b.consent["resource"].(map[string]any)
+	tools, _ := res["tools"].([]any)
+	var out []string
+	for _, tool := range tools {
+		name, _ := tool.(map[string]any)["name"].(string)
+		out = append(out, name)
+	}
+	return out
+}
+
+// A move to another address leaves the owner without a passkey there: `homed cloudflare connect` says how to get one
+// and the first-run page opens again by itself, in named mode too (review R-10). A switch to a quick tunnel revokes
+// every open member and owner invite made on the domain, audited (review R-11).
+func TestAddressChangesAndInvites(t *testing.T) {
+	const host, other = "home.example.com", "other.example.com"
+	h := newHome(t, "  mode: named\n  hostname: "+host+"\n").connected(host).start()
+	waitFor(t, "the tunnel's self-check", func() bool { return h.d.tun.Status().State == "connected" })
+	alice := h.browser(host)
+	alice.register(newDevice(host), tokenOf(t, h.setupLink()), "Alice", "Дом")
+	member := alice.json("POST", "/api/account/invites", map[string]any{"name": "Bella"}, 200)
+	owner := alice.json("POST", "/api/account/invites", map[string]any{"name": "Carol", "role": "owner"}, 200)
+
+	// The page closes once the owner can sign in (its two minutes, here at once).
+	pageOpen := func() bool {
+		h.d.mu.Lock()
+		defer h.d.mu.Unlock()
+		return h.d.firstRun != nil
+	}
+	waitFor(t, "the page to start closing", func() bool {
+		h.d.mu.Lock()
+		defer h.d.mu.Unlock()
+		return h.d.firstRun != nil && h.d.firstRunTimer != nil
+	})
+	h.d.mu.Lock()
+	h.d.firstRunTimer.Reset(time.Millisecond)
+	h.d.mu.Unlock()
+	waitFor(t, "the page to close", func() bool { return !pageOpen() })
+
+	// Another domain: the CLI says to create a passkey there, and the page opens again.
+	h.fake.Set("login-release")
+	code, out, errOut := cli(t, "cloudflare", "connect", other, "--data-dir", h.dir)
+	if code != 0 || !strings.Contains(out, "The owner has no passkey for https://"+other+" yet") ||
+		!strings.Contains(out, "homed admin setup-link") {
+		t.Fatalf("connect %s: %d\n%s\n%s", other, code, out, errOut)
+	}
+	waitFor(t, "the page to reopen for the new domain", pageOpen)
+
+	// To a quick tunnel: the open invites go.
+	for _, args := range [][]string{{"cloudflare", "disconnect"}, {"cloudflare", "quick"}} {
+		if code, out, errOut := cli(t, append(args, "--data-dir", h.dir)...); code != 0 {
+			t.Fatalf("%v: %d\n%s\n%s", args, code, out, errOut)
+		}
+	}
+	ctx := t.Context()
+	accs, err := h.d.st.Accounts().List(ctx)
+	if err != nil || len(accs) != 1 {
+		t.Fatalf("accounts %v %v", accs, err)
+	}
+	// The store lists open invites only: none is left.
+	if invites, err := h.d.st.Invites().ListByAccount(ctx, accs[0].ID); err != nil || len(invites) != 0 {
+		t.Fatalf("open invites after the switch to quick: %+v %v", invites, err)
+	}
+	revoked := map[string]bool{}
+	entries, err := h.d.st.Audit().ListByAccount(ctx, accs[0].ID, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range entries {
+		if e.Action == "account.invite.revoke" && e.Detail["reason"] == "tunnel.quick" {
+			revoked[e.Target] = true
+			n++
+		}
+	}
+	if n != 2 || !revoked[member["id"].(string)] || !revoked[owner["id"].(string)] {
+		t.Fatalf("%d revokes audited, want 2: %+v", n, entries)
+	}
+}
+
+// The access-reset alert names the programs that ran the homed CLI when the gatekeeper recorded them (review R-5),
+// and only the peer otherwise.
+func TestAccessResetNamesWhoRanIt(t *testing.T) {
+	h := newHome(t, "").start()
+	ctx := t.Context()
+	peer := adminsock.Peer{PID: 4242, Exe: "/home/user/.local/bin/homed"}
+	at := h.clock.now()
+	if err := h.d.st.Audit().Append(ctx, core.AuditEntry{At: at, Action: "admin.reset-access", Detail: map[string]string{
+		"peer_pid": "4242", "peer_exe": peer.Exe, "peer_chain": "/bin/zsh (pid 4241) < /usr/bin/login (pid 4240)"}}); err != nil {
+		t.Fatal(err)
+	}
+	h.d.accessReset(ctx, auth.AccessReset{At: at, Peer: peer})
+	hs, err := h.d.st.Settings().Get(ctx)
+	if want := "/home/user/.local/bin/homed (pid 4242), run from /bin/zsh (pid 4241) < /usr/bin/login (pid 4240)"; err != nil ||
+		hs.AccessResetBy != want {
+		t.Fatalf("by = %q (%v), want %q", hs.AccessResetBy, err, want)
+	}
+	// A reset whose entry carries no chain (an older gatekeeper): the peer alone, as before.
+	later := at.Add(time.Minute)
+	if err := h.d.st.Audit().Append(ctx, core.AuditEntry{At: later, Action: "admin.reset-access",
+		Detail: map[string]string{"peer_pid": "4242", "peer_exe": peer.Exe}}); err != nil {
+		t.Fatal(err)
+	}
+	h.d.accessReset(ctx, auth.AccessReset{At: later, Peer: peer})
+	if hs, err := h.d.st.Settings().Get(ctx); err != nil || hs.AccessResetBy != "/home/user/.local/bin/homed (pid 4242)" {
+		t.Fatalf("by without a chain = %q (%v)", hs.AccessResetBy, err)
+	}
 }

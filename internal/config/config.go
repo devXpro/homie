@@ -14,8 +14,9 @@
 // homed.yaml is edited in place: Update rewrites only the top-level sections that changed, so comments and the order
 // of untouched sections survive a `homed cloudflare connect`.
 //
-// MigrateV01 turns a v0.1 data dir into this one: v0.1's relay section goes (its homed.yaml is kept as
-// homed.yaml.v0.1), the relay token file is deleted and a tunnel section is added.
+// MigrateV01 turns a v0.1 data dir into this one: v0.1's relay section goes, and so do the phase-1 sections of a v0.1
+// that never ran (its homed.yaml is kept as homed.yaml.v0.1), the relay token file is deleted and a tunnel section is
+// added.
 package config
 
 import (
@@ -86,6 +87,12 @@ type Config struct {
 	// Relay is v0.1's relay section, read only so that an old file still loads: homed ignores it (with a warning,
 	// HasRelay) and MigrateV01 removes it.
 	Relay any `yaml:"relay,omitempty"`
+	// HomeName, Plugins and People are v0.1's phase-1 sections. v0.1 moved them into its database at its first start,
+	// so only a v0.1 data dir that never ran still has them. They are read only so that such a file still loads: homed
+	// ignores them (HasPhase1) and MigrateV01 removes them, keeping them in homed.yaml.v0.1.
+	HomeName any `yaml:"home_name,omitempty"`
+	Plugins  any `yaml:"plugins,omitempty"`
+	People   any `yaml:"people,omitempty"`
 }
 
 // Tunnel is how homed reaches the internet: cloudflared, run by homed as a child process.
@@ -132,6 +139,10 @@ func (c *Config) ListenAddr() string {
 
 // HasRelay reports whether homed.yaml still has v0.1's relay section, which homed ignores.
 func (c *Config) HasRelay() bool { return c.Relay != nil }
+
+// HasPhase1 reports whether homed.yaml still has v0.1's phase-1 sections (home_name, plugins, people), which homed
+// ignores.
+func (c *Config) HasPhase1() bool { return c.HomeName != nil || c.Plugins != nil || c.People != nil }
 
 // Validate checks the whole config.
 func (c *Config) Validate() error {
@@ -273,7 +284,7 @@ func DefaultDataDir() (string, error) {
 }
 
 // Load reads and validates homed.yaml in dir. A missing file is an empty config. Unknown keys are errors, so a typo
-// does not silently switch something off; v0.1's relay section is the one exception (HasRelay).
+// does not silently switch something off; v0.1's relay and phase-1 sections are the exceptions (HasRelay, HasPhase1).
 func Load(dir string) (*Config, error) {
 	raw, err := readConfig(dir)
 	if err != nil {
@@ -321,14 +332,17 @@ type MigrateResult struct {
 	Backup string
 	// RelayRemoved is true when the relay section was removed from homed.yaml.
 	RelayRemoved bool
+	// Phase1Removed is true when v0.1's phase-1 sections (home_name, plugins, people) were removed from homed.yaml;
+	// they are in the backup.
+	Phase1Removed bool
 	// TokenDeleted is true when the relay token file was deleted.
 	TokenDeleted bool
 }
 
 // MigrateV01 turns a v0.1 data dir into a v0.2 one; homed calls it at every start, before Load, and it is a no-op once
-// done. When homed.yaml has v0.1's relay section:
+// done. When homed.yaml has v0.1's relay section, or its phase-1 sections (a v0.1 data dir that never ran):
 //  1. homed.yaml as it is goes to homed.yaml.v0.1 (0600; an existing copy is kept, never overwritten);
-//  2. homed.yaml is rewritten without the relay and with a tunnel section (mode off), and, when it set no
+//  2. homed.yaml is rewritten without them and with a tunnel section (mode off), and, when it had a relay and set no
 //     setup_listen, with setup_listen 127.0.0.1:8090: the home had a relay, so its first-run page stays off the home
 //     network;
 //  3. the relay token file is deleted (also when homed.yaml had no relay left).
@@ -349,7 +363,7 @@ func MigrateV01(dir string) (MigrateResult, error) {
 	if err != nil {
 		return res, err
 	}
-	if c.HasRelay() {
+	if relay, phase1 := c.HasRelay(), c.HasPhase1(); relay || phase1 {
 		backup := filepath.Join(dir, V01Backup)
 		switch _, err := os.Lstat(backup); {
 		case errors.Is(err, fs.ErrNotExist):
@@ -361,11 +375,11 @@ func MigrateV01(dir string) (MigrateResult, error) {
 			return res, err
 		}
 		err = updateLocked(dir, func(c *Config) error {
-			c.Relay = nil
+			c.Relay, c.HomeName, c.Plugins, c.People = nil, nil, nil, nil
 			if c.Tunnel.Mode == "" {
 				c.Tunnel.Mode = TunnelOff
 			}
-			if c.SetupListen == "" {
+			if relay && c.SetupListen == "" {
 				c.SetupListen = "127.0.0.1:8090"
 			}
 			return nil
@@ -373,7 +387,7 @@ func MigrateV01(dir string) (MigrateResult, error) {
 		if err != nil {
 			return res, err
 		}
-		res.RelayRemoved = true
+		res.RelayRemoved, res.Phase1Removed = relay, phase1
 	}
 	switch err := os.Remove(filepath.Join(dir, relayTokenFile)); {
 	case err == nil:

@@ -75,12 +75,65 @@ func TestLoadIgnoresTheOldRelay(t *testing.T) {
 	}
 }
 
+// v01Phase1 is the homed.yaml of a v0.1 data dir that never ran: the phase-1 sections v0.1 imported at its first
+// start, besides the relay.
+const v01Phase1 = `listen: 127.0.0.1:8080
+home_name: Дом
+plugins:
+  - id: tv
+    command: [/home/user/bin/homie-tv, serve]
+people:
+  - name: Alice
+    role: owner
+relay:
+  domain: relay.example.com
+`
+
+// A v0.1 homed.yaml that still holds the phase-1 sections loads (review R-13), and MigrateV01 removes them, keeping
+// them in the backup; without a relay the first-run page keeps its default.
+func TestMigrateV01Phase1Sections(t *testing.T) {
+	dir := writeSample(t, v01Phase1)
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.HasPhase1() || !c.HasRelay() {
+		t.Fatalf("config = %+v", c)
+	}
+	res, err := MigrateV01(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.RelayRemoved || !res.Phase1Removed || res.Backup == "" {
+		t.Errorf("result = %+v", res)
+	}
+	if got := readFile(t, filepath.Join(dir, V01Backup)); got != v01Phase1 {
+		t.Errorf("backup = %q", got)
+	}
+	out := readFile(t, filepath.Join(dir, FileName))
+	for _, gone := range []string{"home_name", "plugins", "people", "relay"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("homed.yaml keeps %s:\n%s", gone, out)
+		}
+	}
+	if c, err := Load(dir); err != nil || c.HasPhase1() || c.Tunnel.Mode != TunnelOff || c.SetupListen != "127.0.0.1:8090" {
+		t.Errorf("config = %+v, %v", c, err)
+	}
+
+	// Phase-1 sections without a relay: removed, and setup_listen stays unset.
+	dir = writeSample(t, "listen: 127.0.0.1:8080\nhome_name: Дом\n")
+	if res, err := MigrateV01(dir); err != nil || res.RelayRemoved || !res.Phase1Removed {
+		t.Fatalf("= %+v, %v", res, err)
+	}
+	if c, err := Load(dir); err != nil || c.HasPhase1() || c.SetupListen != "" {
+		t.Errorf("config = %+v, %v", c, err)
+	}
+}
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name, yaml, want string
 	}{
 		{"unknown key", "listn: x\n", "field listn not found"},
-		{"phase 1 section", "people: []\n", "field people not found"},
 		{"public listen", "listen: 0.0.0.0:8080\n", "loopback only"},
 		{"setup_listen without port", "setup_listen: 0.0.0.0\n", "missing port"},
 		{"setup_listen bad port", "setup_listen: 0.0.0.0:http\n", "bad port"},
@@ -305,6 +358,7 @@ func TestResolveDataDir(t *testing.T) {
 // An existing dir is never chmodded (a mistaken --data-dir must not lock up a home dir); the platform default dir is
 // homed's own and is tightened.
 func TestResolveDataDirLeavesExistingModes(t *testing.T) {
+	t.Setenv("HOMED_DATA_DIR", "") // the default dir below must not be the one an agent or the service set (review R-9)
 	loose := filepath.Join(t.TempDir(), "shared")
 	if err := os.Mkdir(loose, 0o700); err != nil {
 		t.Fatal(err)

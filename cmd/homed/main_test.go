@@ -117,7 +117,8 @@ func TestCloudflareConnectOffline(t *testing.T) {
 	openURL = func(u string) error { mu.Lock(); defer mu.Unlock(); opened = append(opened, u); return nil }
 	t.Cleanup(func() { openURL = origOpenURL })
 	code, out, errOut := cli(t, "cloudflare", "connect", "Home.Example.com", "--data-dir", dir)
-	if code != 0 || !strings.Contains(out, "https://dash.cloudflare.com/") || !strings.Contains(out, "https://home.example.com/mcp") {
+	if code != 0 || !strings.Contains(out, "https://dash.cloudflare.com/") || !strings.Contains(out, "https://home.example.com/mcp") ||
+		!strings.Contains(out, "homed admin setup-link") {
 		t.Fatalf("connect: %d\n%s\n%s", code, out, errOut)
 	}
 	cfg, err := config.Load(dir)

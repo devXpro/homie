@@ -114,10 +114,20 @@ type Manager struct {
 	conn   *cloudflare.Connector
 	runCtx context.Context // the context of Start; the children live under it
 
+	// switchMu serialises every change of the child: Start, Restart, Quick, Disconnect, Stop and a connect's finish. It
+	// is held from stopping the old supervisor to storing the new one, so two changes at once (a double tap on
+	// reconnect, a reconnect while a connect finishes) never leave a second cloudflared running. mu is taken inside it,
+	// never the other way round.
+	switchMu sync.Mutex
+	// announceMu makes the generation check and its OnState one step, so a URL of a replaced child that passed the
+	// check never reaches OnState after the change that replaced it.
+	announceMu sync.Mutex
+
 	mu        sync.Mutex
 	mode      string
 	hostname  string     // named
 	sup       supervisor // nil while mode is off
+	gen       uint64     // the current supervisor's generation: an OnURL of an older one is ignored
 	startErr  string     // why the child could not start (no cloudflared, no tunnel connected)
 	url       string     // the last public URL announced through OnState
 	job       *ConnectJob
@@ -165,6 +175,9 @@ func New(o Options) (*Manager, error) {
 // connected) is an error, and the status says why; homed then runs without the tunnel. The children run until ctx
 // ends or Stop.
 func (m *Manager) Start(ctx context.Context, mode, hostname string) error {
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
+	m.stopCurrent()
 	m.mu.Lock()
 	m.runCtx = ctx
 	m.mu.Unlock()
@@ -191,7 +204,7 @@ func (m *Manager) Start(ctx context.Context, mode, hostname string) error {
 	}
 }
 
-// failStart records why the child of mode could not start.
+// failStart records why the child of mode could not start; switchMu is held and no supervisor runs.
 func (m *Manager) failStart(mode, hostname string, err error) error {
 	m.mu.Lock()
 	m.mode, m.hostname, m.sup, m.startErr = mode, hostname, nil, err.Error()
@@ -200,20 +213,31 @@ func (m *Manager) failStart(mode, hostname string, err error) error {
 	return fmt.Errorf("tunnel: %w", err)
 }
 
-// run starts a supervisor of mode, replacing the running one. Named mode announces its URL at once; quick mode when
-// cloudflared gives it the host.
-func (m *Manager) run(mode, hostname string) error {
+// stopCurrent stops the running supervisor, if any, and waits for its child; switchMu is held. The generation moves
+// on first, so whatever the old supervisor still announces while it stops is ignored.
+func (m *Manager) stopCurrent() {
 	m.mu.Lock()
 	old := m.sup
 	m.sup = nil
-	ctx := m.runCtx
+	m.gen++
 	m.mu.Unlock()
 	if old != nil {
 		old.Stop()
 	}
+}
+
+// run starts a supervisor of mode, replacing the running one; switchMu is held. Named mode announces its URL at
+// once; quick mode when cloudflared gives it the host.
+func (m *Manager) run(mode, hostname string) error {
+	m.stopCurrent()
+	m.mu.Lock()
+	m.gen++
+	gen, ctx := m.gen, m.runCtx
+	m.mode, m.hostname, m.startErr = mode, hostname, ""
+	m.mu.Unlock()
 	sup, err := cloudflare.NewSupervisor(cloudflare.SupervisorOptions{
 		Mode: cloudflare.Mode(mode), Binary: m.o.Binary, Dir: m.o.Dir, Service: m.o.Service, Probe: m.Probe,
-		OnURL: func(url string) { m.announce(url) }, Log: m.o.ChildLog, Logger: m.log, Clock: m.o.Clock,
+		OnURL: func(url string) { m.announce(gen, url) }, Log: m.o.ChildLog, Logger: m.log, Clock: m.o.Clock,
 	})
 	if err == nil {
 		err = sup.Start(ctx)
@@ -222,18 +246,34 @@ func (m *Manager) run(mode, hostname string) error {
 		return m.failStart(mode, hostname, err)
 	}
 	m.mu.Lock()
-	m.mode, m.hostname, m.sup, m.startErr = mode, hostname, sup, ""
+	m.sup = sup
 	m.mu.Unlock()
 	m.log.Info("the tunnel started", "mode", mode, "hostname", hostname)
 	if mode == ModeNamed {
-		m.announce("https://" + hostname)
+		m.announce(gen, "https://"+hostname)
 	}
 	return nil
 }
 
-// announce tells OnState about a new public URL ("" for none), once per change.
-func (m *Manager) announce(url string) {
+// clearURL announces that the hub has no public URL; switchMu is held.
+func (m *Manager) clearURL() {
 	m.mu.Lock()
+	gen := m.gen
+	m.mu.Unlock()
+	m.announce(gen, "")
+}
+
+// announce tells OnState about a new public URL ("" for none), once per change. It comes from the supervisor of
+// generation gen; a supervisor that is no longer the current one is not heard (it is stopping, or was replaced).
+func (m *Manager) announce(gen uint64, url string) {
+	m.announceMu.Lock()
+	defer m.announceMu.Unlock()
+	m.mu.Lock()
+	if gen != m.gen {
+		m.mu.Unlock()
+		m.log.Debug("ignored a URL of a replaced tunnel child", "url", url)
+		return
+	}
 	changed := url != m.url
 	m.url = url
 	st := m.stateLocked()
@@ -319,13 +359,16 @@ func (m *Manager) Check(ctx context.Context) Status {
 // Restart starts the child again (the admin's reconnect). A quick tunnel gets a new host: every passkey and connector
 // of the old one stops working.
 func (m *Manager) Restart() error {
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
 	m.mu.Lock()
 	mode, hostname := m.mode, m.hostname
 	m.mu.Unlock()
 	switch mode {
 	case ModeNamed, ModeQuick:
 		if mode == ModeQuick {
-			m.announce("") // the old host is gone with the old child
+			m.stopCurrent()
+			m.clearURL() // the old host is gone with the old child
 		}
 		return m.run(mode, hostname)
 	}
@@ -335,6 +378,8 @@ func (m *Manager) Restart() error {
 // Quick switches a hub without a tunnel to a quick tunnel and stores the mode. A hub whose domain is connected keeps
 // it (core.ErrConflict): disconnect it first.
 func (m *Manager) Quick() error {
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
 	m.mu.Lock()
 	mode, busy := m.mode, m.job != nil && m.job.State == JobRunning
 	m.mu.Unlock()
@@ -352,23 +397,31 @@ func (m *Manager) Quick() error {
 	return m.run(ModeQuick, "")
 }
 
-// Disconnect stops the tunnel and stores mode off. The tunnel directory stays, so a later connect of the same domain
-// reuses the tunnel.
+// Disconnect stops the tunnel and stores mode off. A connect that is still running (waiting for the Cloudflare login,
+// say) is cancelled, so it can never bring the hub back onto the internet later. The tunnel directory stays, so a
+// later connect of the same domain reuses the tunnel.
 func (m *Manager) Disconnect() error {
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
 	m.mu.Lock()
-	sup := m.sup
-	m.sup, m.startErr = nil, ""
-	m.mu.Unlock()
-	if sup != nil {
-		sup.Stop()
+	var cancelJob context.CancelFunc
+	if m.job != nil && m.job.State == JobRunning {
+		cancelJob = m.jobCancel
 	}
+	m.startErr = ""
+	m.mu.Unlock()
+	if cancelJob != nil {
+		cancelJob()
+		m.log.Info("the running connect was cancelled by the disconnect")
+	}
+	m.stopCurrent()
 	if err := m.save(ModeOff, ""); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	m.mode, m.hostname = ModeOff, ""
 	m.mu.Unlock()
-	m.announce("")
+	m.clearURL()
 	return nil
 }
 
@@ -385,15 +438,14 @@ func (m *Manager) save(mode, hostname string) error {
 // Stop ends the child; the mode stays.
 func (m *Manager) Stop() {
 	m.mu.Lock()
-	sup, cancel := m.sup, m.jobCancel
-	m.sup = nil
+	cancel := m.jobCancel
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if sup != nil {
-		sup.Stop()
-	}
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
+	m.stopCurrent()
 }
 
 // FindCloudflared returns the cloudflared to run: configured (homed.yaml tunnel.cloudflared: a path, or a name looked

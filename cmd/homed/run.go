@@ -150,7 +150,14 @@ func serve(ctx context.Context, opts runOptions, log *slog.Logger) error {
 		return fmt.Errorf("move %s to v0.2: %w", config.FileName, err)
 	} else if res != (config.MigrateResult{}) {
 		log.Info("moved homed.yaml to v0.2: the relay is gone, the tunnel is off until you connect it",
-			"backup", res.Backup, "relay_removed", res.RelayRemoved, "relay_token_deleted", res.TokenDeleted)
+			"backup", res.Backup, "relay_removed", res.RelayRemoved, "relay_token_deleted", res.TokenDeleted,
+			"phase1_removed", res.Phase1Removed)
+		if res.Phase1Removed {
+			// Only a v0.1 that never ran still had them in homed.yaml (v0.1 imported them at its first start).
+			log.Warn("homed.yaml held v0.1's home_name, plugins and people, which homed no longer reads; they were "+
+				"removed and are kept in "+config.V01Backup+": add the plugins again (homed plugin add, or the admin) "+
+				"and invite the people", "backup", config.V01Backup)
+		}
 	}
 	cfg, err := config.Load(dir)
 	if err != nil {
@@ -370,6 +377,11 @@ func (d *daemon) newTunnel(cfg *config.Config, port int, probe *http.Client) (*t
 		InstanceID: d.instanceID, ProbeClient: probe, ChildLog: childLog, Logger: d.log.With("component", "tunnel"),
 		Clock: d.clock, OnState: d.onTunnelState,
 		Save: func(mode, hostname string) error {
+			if mode == tunnel.ModeQuick {
+				if err := d.revokeInvitesForQuick(context.Background()); err != nil {
+					return fmt.Errorf("revoke the open invites before the quick tunnel: %w", err)
+				}
+			}
 			return config.Update(d.dir, func(c *config.Config) error {
 				c.Tunnel.Mode, c.Tunnel.Hostname = mode, hostname
 				return nil
@@ -379,8 +391,8 @@ func (d *daemon) newTunnel(cfg *config.Config, port int, probe *http.Client) (*t
 }
 
 // onTunnelState follows the public URL: a new stack for it (none without one); the first-run page moves off the home
-// network once a tunnel is configured, and opens again when a quick tunnel's new URL left the owner without a
-// passkey of it (a reconnect).
+// network once a tunnel is configured, and opens again whenever a new URL left the owner without a passkey of it: a
+// quick tunnel's reconnect, or a move to a domain (a passkey belongs to one host; review R-10).
 func (d *daemon) onTunnelState(st tunnel.State) {
 	if d.dev != nil {
 		return
@@ -394,15 +406,15 @@ func (d *daemon) onTunnelState(st tunnel.State) {
 	}
 	go func() { // never on the supervisor's goroutine
 		d.moveFirstRun()
-		if st.Mode != tunnel.ModeQuick || st.URL == "" {
+		if st.URL == "" {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if ready, err := d.ownerReady(ctx); err == nil && !ready {
 			if _, err := d.openFirstRun(); err != nil {
-				d.log.Error("the first-run page did not open for the new quick URL; get a setup link with: homed admin "+
-					"setup-link", "err", err)
+				d.log.Error("the first-run page did not open for the new public URL; get a setup link with: homed admin "+
+					"setup-link", "err", err, "url", st.URL)
 			}
 		}
 	}()
@@ -416,7 +428,7 @@ func (d *daemon) adminSocket() (*adminsock.Server, error) {
 		d.authCommand("reset-access", "wipe the owner's passkeys, sessions, connectors and invites and print a new setup link"),
 		{Name: "firstrun", Summary: "open the first-run page and print its address and PIN", Run: d.cmdFirstRun},
 	}
-	cmds = append(cmds, tunnel.Commands(d.tun, d.auditCLI)...)
+	cmds = append(cmds, tunnel.Commands(d.tun, d.auditCLI, d.ownerReady)...)
 	cmds = append(cmds, d.admin.Commands(d.dir)...)
 	if err := reg.Add(cmds...); err != nil {
 		return nil, err

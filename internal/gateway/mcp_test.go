@@ -367,6 +367,34 @@ func TestResourceAndCatalog(t *testing.T) {
 	if ok, _ := c.Available(ctx, account, "other"); ok {
 		t.Error("another resource is available")
 	}
+	// The consent screen of a viewer lists only the tools they may use (review R-4); without a viewer, all.
+	for _, tc := range []struct {
+		viewer *core.Person
+		want   []string
+	}{
+		{nil, []string{"kettle_boil", "tv_power_on", "tv_status"}},
+		{&core.Person{Role: core.RoleOwner}, []string{"kettle_boil", "tv_power_on", "tv_status"}},
+		{&core.Person{Role: core.RoleMember, Permissions: []string{core.PermissionAll}}, []string{"kettle_boil", "tv_power_on", "tv_status"}},
+		{&core.Person{Role: core.RoleMember, Permissions: []string{"plugin:tv"}}, []string{"tv_power_on", "tv_status"}},
+		{&core.Person{Role: core.RoleMember}, nil},
+	} {
+		vctx := ctx
+		if tc.viewer != nil {
+			vctx = core.WithViewer(ctx, core.Viewer{Person: *tc.viewer})
+		}
+		info, err := c.Resource(vctx, ResourceID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, tool := range info.Tools {
+			got = append(got, tool.Name)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("viewer %+v sees %v, want %v", tc.viewer, got, tc.want)
+		}
+	}
 }
 
 // The owner renames the home: the instructions, the MCP title and the version fingerprint follow at once.

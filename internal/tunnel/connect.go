@@ -35,7 +35,12 @@ type ConnectJob struct {
 	Code      string // a failure a client may act on: CodeDNSExists; empty otherwise
 	StartedAt time.Time
 	EndedAt   time.Time // zero while running
+
+	from string // the mode when the connect began: a connect that finds another one at its end does not switch
 }
+
+// errConnectCancelled is a connect that a disconnect, or homed stopping, cut short: it stores nothing.
+var errConnectCancelled = errors.New("the connect was cancelled: the tunnel was disconnected, or homed stopped")
 
 // Connect starts connecting the owner's domain hostname in the background: the Cloudflare login (Job().LoginURL as
 // soon as cloudflared prints it), the tunnel, the DNS record (replacing a record only with overwriteDNS) and
@@ -53,7 +58,7 @@ func (m *Manager) Connect(hostname string, overwriteDNS bool) (ConnectJob, error
 		return ConnectJob{}, errors.New("tunnel: this manager cannot store homed.yaml")
 	}
 	ctx, cancel := context.WithCancel(m.runCtx)
-	job := &ConnectJob{Hostname: hostname, State: JobRunning, Step: cloudflare.StepLogin, StartedAt: m.now()}
+	job := &ConnectJob{Hostname: hostname, State: JobRunning, Step: cloudflare.StepLogin, StartedAt: m.now(), from: m.mode}
 	m.job, m.jobCancel = job, cancel
 	m.mu.Unlock()
 
@@ -71,7 +76,7 @@ func (m *Manager) Connect(hostname string, overwriteDNS bool) (ConnectJob, error
 		return ConnectJob{}, fmt.Errorf("tunnel: %w: %w", err, core.ErrConflict)
 	}
 	m.log.Info("connecting a domain through Cloudflare", "hostname", hostname)
-	go m.finish(job, flow, cancel)
+	go m.finish(ctx, job, flow, cancel)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return *job, nil
@@ -90,14 +95,14 @@ func (m *Manager) progress(job *ConnectJob) func(cloudflare.Step) {
 }
 
 // finish waits for the flow, then stores the mode and starts the named tunnel.
-func (m *Manager) finish(job *ConnectJob, flow *cloudflare.Flow, cancel context.CancelFunc) {
+func (m *Manager) finish(ctx context.Context, job *ConnectJob, flow *cloudflare.Flow, cancel context.CancelFunc) {
 	defer cancel()
 	rec, err := flow.Wait()
-	if err == nil {
-		err = m.save(ModeNamed, rec.Hostname)
-	}
-	if err == nil {
-		err = m.run(ModeNamed, rec.Hostname)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		err = errConnectCancelled
+	case err == nil:
+		err = m.switchToNamed(ctx, job, rec.Hostname)
 	}
 	m.mu.Lock()
 	job.EndedAt = m.now()
@@ -115,6 +120,28 @@ func (m *Manager) finish(job *ConnectJob, flow *cloudflare.Flow, cancel context.
 		return
 	}
 	m.log.Info("the domain is connected", "hostname", rec.Hostname, "tunnel", rec.ID)
+}
+
+// switchToNamed stores the named mode of a finished connect and starts its tunnel, unless the connect was cancelled
+// (a disconnect) or the mode changed since it began: both are checked under switchMu, so a disconnect that raced the
+// end of the flow still wins.
+func (m *Manager) switchToNamed(ctx context.Context, job *ConnectJob, hostname string) error {
+	m.switchMu.Lock()
+	defer m.switchMu.Unlock()
+	if ctx.Err() != nil {
+		return errConnectCancelled
+	}
+	m.mu.Lock()
+	mode := m.mode
+	m.mu.Unlock()
+	if mode != job.from {
+		return fmt.Errorf("the tunnel changed while connecting (mode %s, was %s); nothing was switched: connect again",
+			mode, job.from)
+	}
+	if err := m.save(ModeNamed, hostname); err != nil {
+		return err
+	}
+	return m.run(ModeNamed, hostname)
 }
 
 // Job returns the running or the last connect job; ok is false when there was none since homed started.

@@ -173,13 +173,19 @@ func (g *Gateway) serve(guard *mcpguard.Guard) http.Handler {
 }
 
 // Resource is the home as the OAuth consent screen shows it: its name, and the assistants' tools.
-func (g *Gateway) Resource() core.ResourceInfo {
+func (g *Gateway) Resource() core.ResourceInfo { return g.resourceFor("*") }
+
+// resourceFor is Resource with the tools of scope only (scopeOf: "*" for all).
+func (g *Gateway) resourceFor(scope string) core.ResourceInfo {
 	s := g.current()
 	out := core.ResourceInfo{ID: ResourceID, Name: s.homeName, Description: "Your home's devices: what the assistant may do for you."}
 	if out.Name == "" {
 		out.Name = "Homie"
 	}
 	for _, t := range s.tools {
+		if !allowed(scope, t.PluginID) {
+			continue
+		}
 		access := "write"
 		if readOnly(t) {
 			access = "read"
@@ -199,10 +205,14 @@ func (g *Gateway) Catalog() core.ResourceCatalog { return catalog{g} }
 
 type catalog struct{ g *Gateway }
 
-// Resource implements core.ResourceCatalog.
-func (c catalog) Resource(_ context.Context, id core.ResourceID) (core.ResourceInfo, error) {
+// Resource implements core.ResourceCatalog. With a viewer in ctx (the consent screen) it lists only the tools the
+// viewer may use, so a guest never learns what else the home has; without one (the resource metadata) every tool.
+func (c catalog) Resource(ctx context.Context, id core.ResourceID) (core.ResourceInfo, error) {
 	if id != ResourceID {
 		return core.ResourceInfo{}, core.ErrNotFound
+	}
+	if v, ok := core.ViewerFrom(ctx); ok {
+		return c.g.resourceFor(scopeOf(v.Person)), nil
 	}
 	return c.g.Resource(), nil
 }

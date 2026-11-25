@@ -247,7 +247,7 @@ What the suite checks:
   platform in `PLATFORMS`: `--no-start` flows (user, modes, owners, unit content, `systemd-analyze verify`, the wrapper
   as root / as `homie` / as an unprivileged user with and without sudo rights, idempotent re-run, update, refusals, a
   foreign file at the command path, files the service user plants in its program dir (a swapped binary or cloudflared,
-  a symlinked `.prev`) never run or written as root, `curl | bash` with templates from the raw URL, `--prefix` with a
+  a symlinked `.prev`; a planted `id`, `sudo`, `runuser` or `env`) never run or written as root or the caller, `curl | bash` with templates from the raw URL, `--prefix` with a
   space, uninstall, purge, the not-root refusal) and, on `SYSTEMD_PLATFORMS`, a real start, the process owner, the
   loaded hardening, UDP broadcast and multicast join from inside the sandbox, restart after exit 75, a no-op re-run keeps
   the PID, update, uninstall.

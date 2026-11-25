@@ -102,6 +102,9 @@ func (s *Server) startJob(q *request, kind, target string, fn jobFunc) (*jobEntr
 		s.mu.Unlock()
 		s.recordAdmin(rec, kind, auditTarget, nil, err)
 		if err == nil && kind == "plugin.remove" {
+			if err := s.dropPluginAccess(rec, target); err != nil {
+				s.log.Error("cannot take the removed plugin's permission from people and invites", "plugin", target, "err", err)
+			}
 			s.events.publish("plugin.removed", map[string]string{"id": target})
 		}
 	}()

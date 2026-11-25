@@ -16,6 +16,10 @@ import (
 // Auditor appends an entry to the admin audit; the commands audit what they change.
 type Auditor func(ctx context.Context, e core.AuditEntry)
 
+// OwnerReady reports whether the home's owner can sign in at the current public URL (a passkey of its host); the
+// connect and quick commands then say how to get one when not. Nil never says it.
+type OwnerReady func(ctx context.Context) (bool, error)
+
 // upWait is how long a command waits for the tunnel to come up before it reports the state as it is.
 var upWait = 45 * time.Second
 
@@ -25,16 +29,20 @@ var upWait = 45 * time.Second
 //	cloudflare quick                              a quick tunnel, for trying (only while no tunnel is configured)
 //	cloudflare status                             the mode, the state and the public and MCP URLs
 //	cloudflare disconnect                         stop the tunnel; the hub is no longer reachable from the internet
-func Commands(m *Manager, audit Auditor) []adminsock.Command {
+func Commands(m *Manager, audit Auditor, ownerReady OwnerReady) []adminsock.Command {
 	if audit == nil {
 		audit = func(context.Context, core.AuditEntry) {}
 	}
 	return []adminsock.Command{
 		{Name: "cloudflare connect", Usage: "<host> [--overwrite-dns]",
 			Summary: "connect your domain through Cloudflare (prints the login link and waits)",
-			Run:     func(ctx context.Context, inv adminsock.Invocation) error { return cmdConnect(ctx, m, audit, inv) }},
+			Run: func(ctx context.Context, inv adminsock.Invocation) error {
+				return cmdConnect(ctx, m, audit, ownerReady, inv)
+			}},
 		{Name: "cloudflare quick", Summary: "start a quick tunnel: a temporary trycloudflare.com link, for trying",
-			Run: func(ctx context.Context, inv adminsock.Invocation) error { return cmdQuick(ctx, m, audit, inv) }},
+			Run: func(ctx context.Context, inv adminsock.Invocation) error {
+				return cmdQuick(ctx, m, audit, ownerReady, inv)
+			}},
 		{Name: "cloudflare status", Summary: "show the tunnel: mode, state, public and MCP addresses",
 			Run: func(_ context.Context, inv adminsock.Invocation) error { return cmdStatus(m, inv) }},
 		{Name: "cloudflare disconnect", Summary: "stop the tunnel; the hub is no longer reachable from the internet",
@@ -76,7 +84,7 @@ var stepText = map[string]string{
 	cloudflare.StepConfig: "Step 4/4: the tunnel's configuration.",
 }
 
-func cmdConnect(ctx context.Context, m *Manager, audit Auditor, inv adminsock.Invocation) error {
+func cmdConnect(ctx context.Context, m *Manager, audit Auditor, ownerReady OwnerReady, inv adminsock.Invocation) error {
 	host, overwrite, err := ParseConnectArgs(inv.Args)
 	if err != nil {
 		return err
@@ -112,7 +120,7 @@ func cmdConnect(ctx context.Context, m *Manager, audit Auditor, inv adminsock.In
 			return fmt.Errorf("the domain was not connected (step %s): %s", j.Step, j.Error)
 		case JobOK:
 			_, _ = fmt.Fprintf(out, "Connected: the tunnel of %s is set up.\n", j.Hostname)
-			return reportUp(ctx, m, out)
+			return reportUp(ctx, m, out, ownerReady)
 		}
 		select {
 		case <-ctx.Done():
@@ -122,8 +130,9 @@ func cmdConnect(ctx context.Context, m *Manager, audit Auditor, inv adminsock.In
 	}
 }
 
-// reportUp waits for the tunnel to come up (or upWait) and prints where the hub is.
-func reportUp(ctx context.Context, m *Manager, out io.Writer) error {
+// reportUp waits for the tunnel to come up (or upWait) and prints where the hub is, and how to get a passkey there when
+// the owner has none of its host yet (a new domain, or a quick tunnel's new address: review R-10).
+func reportUp(ctx context.Context, m *Manager, out io.Writer, ownerReady OwnerReady) error {
 	deadline := time.NewTimer(upWait)
 	defer deadline.Stop()
 	tick := time.NewTicker(200 * time.Millisecond)
@@ -132,6 +141,7 @@ func reportUp(ctx context.Context, m *Manager, out io.Writer) error {
 		st := m.Status()
 		if st.State == string(cloudflare.StateConnected) && st.URL != "" {
 			_, _ = fmt.Fprintf(out, "The hub answers at %s.\nThe MCP address for ChatGPT and Claude: %s%s\n", st.URL, st.URL, MCPPath)
+			passkeyHint(ctx, out, st.URL, ownerReady)
 			return nil
 		}
 		select {
@@ -140,13 +150,27 @@ func reportUp(ctx context.Context, m *Manager, out io.Writer) error {
 		case <-deadline.C:
 			printStatus(out, st)
 			_, _ = fmt.Fprintln(out, "The tunnel is not up yet; follow it with: homed cloudflare status")
+			passkeyHint(ctx, out, st.URL, ownerReady)
 			return nil
 		case <-tick.C:
 		}
 	}
 }
 
-func cmdQuick(ctx context.Context, m *Manager, audit Auditor, inv adminsock.Invocation) error {
+// passkeyHint says how to create the owner's passkey for url when the owner cannot sign in there: a passkey belongs
+// to one host, so the passkeys of the old address do not count at a new one.
+func passkeyHint(ctx context.Context, out io.Writer, url string, ownerReady OwnerReady) {
+	if ownerReady == nil || url == "" {
+		return
+	}
+	if ready, err := ownerReady(ctx); err != nil || ready {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "The owner has no passkey for %s yet (a passkey belongs to one address): create it "+
+		"with: homed admin setup-link (or on the first-run page: homed admin firstrun).\n", url)
+}
+
+func cmdQuick(ctx context.Context, m *Manager, audit Auditor, ownerReady OwnerReady, inv adminsock.Invocation) error {
 	if len(inv.Args) > 0 {
 		return fmt.Errorf("%w: cloudflare quick takes no arguments", adminsock.ErrUsage)
 	}
@@ -156,7 +180,7 @@ func cmdQuick(ctx context.Context, m *Manager, audit Auditor, inv adminsock.Invo
 	audit(ctx, core.AuditEntry{Action: "tunnel.quick", Detail: socketDetail(inv.Peer)})
 	_, _ = fmt.Fprintln(inv.Out, "A quick tunnel is starting. It is for trying: its link changes at every restart of "+
 		"homed, and with it every passkey and connector.")
-	return reportUp(ctx, m, inv.Out)
+	return reportUp(ctx, m, inv.Out, ownerReady)
 }
 
 func cmdStatus(m *Manager, inv adminsock.Invocation) error {

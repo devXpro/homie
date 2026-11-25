@@ -41,7 +41,8 @@ The first screen answers one question: *can ChatGPT and Claude run my home right
   *Connected, but not reachable from outside*, *The connection is stopped*, or *Connect a domain on the home
   computer*. Tap it for the details (**Settings → Connection**).
 - **Needs attention** appears only when something does: the tunnel is down or unreachable, a device plugin is not
-  responding, an update is available, or someone ran `reset-access` on the home box (it names the program that asked).
+  responding, an update is available, or someone ran `reset-access` on the home box (it names the program that asked
+  and the programs that started it, e.g. the terminal).
 - **Devices** lists your plugins (modules) with their state and device count.
 - **Assistants** leads to the Connect page.
 - **Recent** shows the last actions of the assistants: what, who, through which assistant, and how long it took. A red
@@ -74,7 +75,8 @@ Devices are owner-only screens. A member sees the devices they may use, read-onl
 **Devices → Add devices.** *Recommended* lists known modules (the TV plugin first); *Another module from GitHub* takes
 any `owner/repository` that publishes Homie releases. Tap **Find**, check the name, version and source, then
 **Install**. Installing, updating and removing a module ask you to confirm with Face ID or Touch ID if your last
-confirmation is older than five minutes. If a new version fails to start, the previous one comes back by itself.
+confirmation is older than five minutes, and are for the owner who set the home up (see [Co-owners](#co-owners)). If a
+new version fails to start, the previous one comes back by itself.
 
 ### Set up a TV (LG webOS)
 
@@ -133,14 +135,19 @@ their passkey with Face ID. Then they connect ChatGPT or Claude with the same st
 their own admin shows the address and their devices.
 
 Inviting people needs your own domain: in a **quick tunnel** invites are off, because a guest's passkey would die at
-the next restart.
+the next restart. Switching to a quick tunnel also cancels every invite that is still open.
 
 ### Co-owners
 
 A co-owner is for your partner. **Only the owner who set the home up** can invite one (role *Co-owner*). A co-owner
-has every device and no term, can invite and manage members and guests, revoke their connections, and reads the log.
-They cannot change or remove another owner. Changing or removing an owner, and `reset-access`, is for the first owner
-alone.
+has every device and no term, can invite and manage members and guests, revoke their connections, reads the log,
+changes the settings and runs the devices' actions. They cannot change or remove another owner. Changing or removing an
+owner, and `reset-access`, is for the first owner alone.
+
+**Code and the system are for the first owner alone, too.** Installing, updating and removing modules, updating the
+hub and reconnecting the tunnel run code on the home box or change it, so a co-owner does not get these buttons (and
+the hub answers them `403` anyway): a stolen phone of a co-owner can never install a program on your computer. On the
+home box itself, the `homed` commands do everything.
 
 ### Change, extend, revoke
 
@@ -166,9 +173,9 @@ again. Nothing needs to be set up on their side.
 | Section | What you can do |
 |---|---|
 | **Home** | the home's name (the name your family sees in ChatGPT and Claude; it is also the account's name) and the admin's language |
-| **Connection** | the address, how it is connected (own domain or *for trying*), connected since, the outside check (**Check now**) and **Reconnect**, which restarts the tunnel. In quick mode a reconnect gives a **new address**: after it, continue on the home box (the page tells you how) |
+| **Connection** | the address, how it is connected (own domain or *for trying*), connected since, the outside check (**Check now**) and **Reconnect** (the first owner only), which restarts the tunnel. In quick mode a reconnect gives a **new address**: after it, continue on the home box (the page tells you how) |
 | **Connect ChatGPT and Claude** | the Connect page, again |
-| **Updates / About** | the version, *Check for updates* and *What's new*. Updating restarts the hub; the page reloads by itself. |
+| **Updates / About** | the version, *Check for updates* and *What's new*. Updating (the first owner only) restarts the hub; the page reloads by itself. |
 
 Your own passkeys and the places you are signed in are under **People → Passkeys / Sessions**.
 
@@ -226,6 +233,11 @@ Voice works like text does: «Включи телик», «Громкость д
 On your own domain the address never changes. In a **quick tunnel** it changes whenever the hub restarts: the Connect
 page and the first-run page on the home box show the new address with a **Reconnect** button; remove the old
 connector in ChatGPT and Claude and add the new address.
+
+**Moving to another domain** (or from a quick tunnel to your own) is the same: a passkey belongs to one address, so
+`homed cloudflare connect <host>` ends by saying when you have no passkey there yet, and the first-run page on the
+home box opens again by itself. Create your passkey for the new address with `homed admin setup-link`, then add the
+new address to ChatGPT and Claude.
 
 ## When tools change
 
