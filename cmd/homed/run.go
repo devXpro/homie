@@ -358,10 +358,9 @@ func serve(ctx context.Context, opts runOptions, log *slog.Logger) error {
 // newTunnel makes the tunnel manager: cloudflared found by homed.yaml, PATH or next to homed; its output in
 // logs/cloudflared.log; homed.yaml written on a connect, a switch to quick or a disconnect.
 func (d *daemon) newTunnel(cfg *config.Config, port int, probe *http.Client) (*tunnel.Manager, error) {
-	bin, err := tunnel.FindCloudflared(cfg.Tunnel.Cloudflared)
+	bin, err := tunnel.Cloudflared(cfg.Tunnel.Cloudflared)
 	if err != nil {
 		d.log.Warn("cloudflared was not found; the tunnel cannot start", "err", err)
-		bin = "cloudflared"
 	}
 	childLog := tunnel.NewChildLog(filepath.Join(d.dir, config.LogsDir, "cloudflared.log"), func(err error) {
 		d.log.Warn("cannot write cloudflared.log", "err", err)

@@ -418,3 +418,19 @@ func FindCloudflared(configured string) (string, error) {
 	return "", errors.New("cloudflared is not installed: install it (the installer does: install/home.sh), or set " +
 		"tunnel.cloudflared in homed.yaml")
 }
+
+// Cloudflared is FindCloudflared for a daemon that starts anyway. When nothing is found it still returns what to run,
+// with the error: the configured value as it stands, so an explicit tunnel.cloudflared that is missing fails when the
+// tunnel starts and is never swapped for another cloudflared from PATH (a fake one in a test must never fall back to
+// the real one, which would talk to Cloudflare); "cloudflared" when nothing is configured.
+func Cloudflared(configured string) (string, error) {
+	p, err := FindCloudflared(configured)
+	switch {
+	case err == nil:
+		return p, nil
+	case configured != "":
+		return configured, err
+	default:
+		return "cloudflared", err
+	}
+}
