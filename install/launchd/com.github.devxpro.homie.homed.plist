@@ -15,6 +15,10 @@
 	<dict>
 		<key>HOMED_DATA_DIR</key>
 		<string>__DATA_DIR__</string>
+		<!-- A LaunchAgent starts with a bare PATH. homed finds cloudflared (the tunnel it runs as a child process) here:
+		     the installer's own copy next to homed, or Homebrew's. -->
+		<key>PATH</key>
+		<string>__PATH__</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>

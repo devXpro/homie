@@ -53,20 +53,13 @@ jobs:
           npm --prefix web test
           npm --prefix web run build
 
-  site:
+  # Nothing private in a public repo: local paths, private LAN addresses and real MAC addresses (the generic patterns
+  # only; the list of names and domains is kept out of the repository).
+  privacy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Detect site/
-        id: detect
-        run: |
-          if [ -d site/core ]; then echo "present=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/setup-node@v4
-        if: steps.detect.outputs.present == 'true'
-        with:
-          node-version: 22
-      - if: steps.detect.outputs.present == 'true'
-        run: node --test "site/core/*.test.mjs"
+      - run: make privacy
 
   # The plugin template is a module of its own (templates/plugin/go.mod), outside ./... of the jobs above.
   template:
@@ -85,6 +78,8 @@ jobs:
         working-directory: templates/plugin
 
   # install/home.sh in Debian containers on both CPUs, also with systemd as PID 1 (docs/TESTING.md, "Home installers").
+  # cloudflared is a fake there. The lint step also checks the pinned cloudflared version and checksums against the
+  # release metadata published on GitHub and Docker Hub.
   installers-linux:
     strategy:
       fail-fast: false
@@ -95,25 +90,18 @@ jobs:
       - uses: actions/checkout@v4
       - if: matrix.runner == 'ubuntu-latest'
         run: install/test/run.sh lint
+        env:
+          PINS_ONLINE: "1"
+          GITHUB_TOKEN: ${{ github.token }}
       - run: install/test/run.sh linux
         env:
           PLATFORMS: native
           SYSTEMD_PLATFORMS: native
 
-  # install/home.sh on macOS: files in a temp HOME, then real launchd under a test label.
+  # install/home.sh on macOS: files in a temp HOME, a fake brew and a fake launchctl, then real launchd under a test
+  # label.
   installers-mac:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - run: install/test/run.sh mac
-
-  # install/server.sh and the relay stack: Caddy + frps + a real frpc over wss (docs/TESTING.md, "Relay docker smoke test").
-  relay:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - run: shellcheck -x install/server.sh relay/test/run.sh
-      - run: relay/test/run.sh

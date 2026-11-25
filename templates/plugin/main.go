@@ -246,8 +246,8 @@ func newID(plugs []Plug, host string) string {
 	return id
 }
 
-// result is a successful answer. The hub's REST façade (ChatGPT Sites) returns only structuredContent when there is
-// one, so the human text goes into it as "message" too.
+// result is a successful answer. A client may show only structuredContent when there is one, so the human text goes
+// into it as "message" too.
 func result(text string, structured map[string]any) *mcp.CallToolResult {
 	structured["message"] = text
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}, StructuredContent: structured}

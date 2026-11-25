@@ -1,8 +1,8 @@
 name: release
 
-# A `v*` tag publishes everything (docs/progress/T4.2.md): the GitHub release with the homed archives, checksums.txt
-# and the ChatGPT Site bundle, the Homebrew formula (Formula/homie.rb, committed to main) and the multi-arch image
-# ghcr.io/devxpro/homie. Nothing here needs a personal access token.
+# A `v*` tag publishes everything: the GitHub release with the homed archives and checksums.txt, the Homebrew formula
+# (Formula/homie.rb, committed to main; it depends on cloudflared) and the multi-arch image ghcr.io/devxpro/homie (with
+# the pinned cloudflared inside). Nothing here needs a personal access token.
 on:
   push:
     tags: ["v*"]
@@ -23,29 +23,15 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      # Node serves both builds: the admin SPA (`make web`, a GoReleaser before hook) and the Site bundle below.
+      # Node builds the admin SPA (`make web`, a GoReleaser before hook).
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            site/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
-      # The ChatGPT Site bundle, packed like site/release/release.mjs does: the contents of dist/ (the build writes
-      # dist/.openai/hosting.json itself) in a tar.gz whose root is dist/. GoReleaser uploads it as
-      # homie-site_<version>.tar.gz and lists it in checksums.txt. bin/ is gitignored.
-      - name: Build the Site bundle
-        run: |
-          npm --prefix site ci --no-audit --no-fund
-          npm --prefix site run check
-          npm --prefix site run build
-          mkdir -p bin
-          tar -C site -czf bin/homie-site.tar.gz dist
-          tar -tzf bin/homie-site.tar.gz | grep -qx 'dist/.openai/hosting.json'
-          tar -tzf bin/homie-site.tar.gz | grep -qx 'dist/server/index.js'
-
-      # The image only copies the binaries GoReleaser built; qemu is for any RUN step of the Dockerfile on arm.
+      # The image copies the binaries GoReleaser built and the pinned cloudflared; qemu is for the RUN steps of the
+      # Dockerfile on arm.
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4

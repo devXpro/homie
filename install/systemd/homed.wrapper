@@ -1,11 +1,14 @@
 #!/bin/sh
 # Installed by the Homie installer (install/home.sh); rewritten on every update.
-# Runs the homed CLI as the service user `homie` on the service's data directory, so `homed relay connect -` works
-# from any account that may use sudo. The real binary is never run as root: it is writable by the service user.
+# Runs the homed CLI as the service user `homie` on the service's data directory, so `homed cloudflare connect ...`
+# works from any account that may use sudo. The real binary is never run as root: it is writable by the service user.
 REAL=__HOMED_BIN__
 SERVICE_USER=homie
 HOMED_DATA_DIR=/var/lib/homie
 export HOMED_DATA_DIR
+# cloudflared sits next to the real binary; `homed cloudflare ...` looks for it on the PATH, as the service does.
+PATH="${REAL%/*}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
 
 if [ "$(id -un)" = "$SERVICE_USER" ]; then
 	exec "$REAL" "$@"
@@ -15,16 +18,16 @@ if [ "$(id -u)" != 0 ]; then
 	version | --version | -v | help | -h | --help) exec "$REAL" "$@" ;;
 	esac
 	if command -v sudo >/dev/null 2>&1; then
-		exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" "$REAL" "$@"
+		exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$PATH" "$REAL" "$@"
 	fi
 	echo "homed: the hub runs as the user $SERVICE_USER; run this with sudo" >&2
 	exit 1
 fi
 if command -v runuser >/dev/null 2>&1; then
-	exec runuser -u "$SERVICE_USER" -- env HOMED_DATA_DIR="$HOMED_DATA_DIR" "$REAL" "$@"
+	exec runuser -u "$SERVICE_USER" -- env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$PATH" "$REAL" "$@"
 fi
 if command -v sudo >/dev/null 2>&1; then
-	exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" "$REAL" "$@"
+	exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$PATH" "$REAL" "$@"
 fi
 echo "homed: neither runuser nor sudo is installed; run: su -s /bin/sh $SERVICE_USER -c '$REAL ...'" >&2
 exit 1

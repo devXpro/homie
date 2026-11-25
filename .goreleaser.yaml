@@ -52,10 +52,6 @@ archives:
 checksum:
   name_template: checksums.txt
   algorithm: sha256
-  extra_files:
-    # The ChatGPT Site bundle is built by the workflow (site/: npm ci, check, build, pack dist) into bin/ (gitignored).
-    - glob: ./bin/homie-site.tar.gz
-      name_template: "homie-site_{{ .Version }}.tar.gz"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-SNAPSHOT-{{ .ShortCommit }}"
@@ -76,23 +72,22 @@ release:
     name: homie
   # v0.2.0-rc1 and the like become GitHub pre-releases (and are skipped for the formula and the `latest` image tag).
   prerelease: auto
-  extra_files:
-    - glob: ./bin/homie-site.tar.gz
-      name_template: "homie-site_{{ .Version }}.tar.gz"
   footer: |
     ## Install
 
     ```sh
-    # macOS (Homebrew)
+    # macOS (Homebrew; brings cloudflared)
     brew tap devxpro/homie https://github.com/devXpro/homie
     brew install homie
     brew services start homie
 
-    # Docker (NAS, Linux): host networking, see the README
+    # Docker (NAS, Linux): host networking, cloudflared is inside the image; see the README
     docker pull ghcr.io/devxpro/homie:{{ .Version }}
     ```
 
-    Raspberry Pi / Linux: `install/home.sh`. Checksums: `checksums.txt`.
+    Raspberry Pi / Linux, or macOS without Homebrew: `install/home.sh` (it installs cloudflared too).
+    Then connect Cloudflare: `homed cloudflare connect home.example.com` (your own domain) or
+    `homed cloudflare quick` (a temporary link, for trying). Checksums: `checksums.txt`.
 
 # The formula lives in this repository under Formula/ and is committed with the workflow's GITHUB_TOKEN
 # (contents: write): no personal access token and no separate tap repository.
@@ -110,19 +105,24 @@ brews:
       token: "{{ .Env.GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://github.com/devXpro/homie
-    description: "LLM-first home hub: ChatGPT controls your devices through a self-hosted relay"
+    description: "LLM-first home hub: ChatGPT and Claude control your devices through your own Cloudflare tunnel"
     license: MIT
     skip_upload: auto
     commit_author:
       name: github-actions[bot]
       email: 41898282+github-actions[bot]@users.noreply.github.com
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    # cloudflared is the tunnel homed runs as a child process (homebrew-core has it).
+    dependencies:
+      - name: cloudflared
     install: |
       bin.install "homed"
     # Same shape as the LaunchAgent in docs/DEV.md: start at login, keep alive (a hub self-update exits with 75 on
     # purpose and is restarted), 10 s between restarts, one log file.
     service: |
       run [opt_bin/"homed", "run"]
+      # launchd's own PATH is bare; homed finds cloudflared (a formula dependency) in Homebrew's bin.
+      environment_variables PATH: std_service_path_env
       keep_alive true
       restart_delay 10
       log_path var/"log/homie/homed.log"
@@ -130,6 +130,10 @@ brews:
     caveats: |
       Start the hub at login:
         brew services start homie
+      Connect it to the internet through Cloudflare, with your own domain (a login link opens):
+        homed cloudflare connect <host>
+      or, to try it without a domain:
+        homed cloudflare quick
       Then open the setup link it prints:
         homed admin setup-link
       Logs: #{var}/log/homie/homed.log

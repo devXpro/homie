@@ -8,16 +8,30 @@ Routes, the same shapes as github.com:
   /latest                      302 to /tag/<contents of ROOT/LATEST>  (change the file to "publish" a release)
   /download/<tag>/<file>       the release assets
   /raw/<ref>/install/<path>    the files of INSTALL_DIR, like raw.githubusercontent.com
+  /cf/<variant>/<file>         fake cloudflared assets (cloudflared-linux-<arch>, cloudflared-darwin-<arch>.tgz) and the
+                               sha256 files linux.sha256 / darwin.sha256 that go with --cloudflared-sha256.
+                               Variants: new (the pinned version), old (an older one), evil (a tgz that climbs out)
 Every request path is appended to ROOT/requests.log.
 """
 
+import gzip
 import hashlib
 import http.server
 import io
 import os
 import sys
 import tarfile
+import re
 
+def pinned_cloudflared():
+    """The version pinned in install/home.sh, so the fake "new" cloudflared is the one the installer wants."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "..", "home.sh")) as f:
+        m = re.search(r'^readonly CLOUDFLARED_VERSION="([^"]+)"', f.read(), re.M)
+    return m.group(1)
+
+
+PINNED_CLOUDFLARED = pinned_cloudflared()
 PLATFORMS = ["darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64", "linux_armv7"]
 
 # A stand-in for homed: a shell script, so one archive content serves every CPU.
@@ -44,10 +58,29 @@ run)
 		wait $!
 	done
 	;;
+cloudflare)
+	# The CLI the installer calls for --domain / --quick-tunnel. It logs who ran it, on which data dir and which
+	# cloudflared the PATH gives it (the installed one, next to homed or Homebrew's).
+	printf '%s|%s|%s|%s\n' "$*" "$(id -un)" "${HOMED_DATA_DIR:-}" "$(command -v cloudflared || echo none)" \
+		>>"${HOMED_DATA_DIR:-/tmp}/cloudflare.log"
+	cat >/dev/null
+	case "${2:-}" in
+	connect)
+		[ -n "${3:-}" ] || exit 2
+		if [ "$3" = fail.example.com ]; then
+			echo "the login link expired" >&2
+			exit 1
+		fi
+		echo "Open this link and log in to Cloudflare: https://dash.cloudflare.com/login/fake"
+		;;
+	quick | status | disconnect) ;;
+	*) exit 2 ;;
+	esac
+	;;
 admin)
 	if [ "${2:-}" = firstrun ]; then
 		echo "The first-run page is open until 23:59 on:"
-		echo "  http://192.168.0.2:8090/firstrun"
+		echo "  http://192.0.2.2:8090/firstrun"
 		echo "PIN: 1234 5678 (it changes at 23:59)"
 		exit 0
 	fi
@@ -82,6 +115,48 @@ def archive(name, version, wrapped=False, evil=False):
     return buf.getvalue()
 
 
+FAKE_CLOUDFLARED = """#!/bin/sh
+# Fake cloudflared for the install tests.
+case "${1:-}" in
+--version | version) echo "cloudflared version @VERSION@ (built fake)" ;;
+*) exit 2 ;;
+esac
+"""
+
+
+def cloudflared_tgz(version, evil=False):
+    buf = io.BytesIO()
+    # mtime 0 everywhere, so the same input always gives the same bytes (and the same sha256).
+    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as gz:
+        with tarfile.open(fileobj=gz, mode="w") as tf:
+            data = FAKE_CLOUDFLARED.replace("@VERSION@", version).encode()
+            info = tarfile.TarInfo("cloudflared")
+            info.size, info.mode = len(data), 0o755
+            tf.addfile(info, io.BytesIO(data))
+            if evil:
+                info = tarfile.TarInfo("../evil")
+                info.size = 1
+                tf.addfile(info, io.BytesIO(b"x"))
+    return buf.getvalue()
+
+
+def write_cloudflared(root, variant, version, evil=False):
+    d = os.path.join(root, "cf", variant)
+    os.makedirs(d, exist_ok=True)
+    linux = FAKE_CLOUDFLARED.replace("@VERSION@", version).encode()
+    darwin = cloudflared_tgz(version, evil)
+    for a in ("amd64", "arm64", "arm"):
+        with open(os.path.join(d, "cloudflared-linux-" + a), "wb") as f:
+            f.write(linux)
+    for a in ("amd64", "arm64"):
+        with open(os.path.join(d, "cloudflared-darwin-%s.tgz" % a), "wb") as f:
+            f.write(darwin)
+    with open(os.path.join(d, "linux.sha256"), "w") as f:
+        f.write(hashlib.sha256(linux).hexdigest())
+    with open(os.path.join(d, "darwin.sha256"), "w") as f:
+        f.write(hashlib.sha256(darwin).hexdigest())
+
+
 def write_release(root, tag, platforms=PLATFORMS, wrapped=False, evil=False, bad_sums=False):
     version = tag.lstrip("v")
     d = os.path.join(root, "download", tag)
@@ -105,6 +180,9 @@ def build(root):
     write_release(root, "v0.0.4", bad_sums=True)  # the archive does not match checksums.txt
     write_release(root, "v0.0.5", evil=True)  # an entry that climbs out of the directory
     write_release(root, "v0.0.6", platforms=["linux_arm64"])  # no build for the other platforms
+    write_cloudflared(root, "new", PINNED_CLOUDFLARED)
+    write_cloudflared(root, "old", "2026.10.0")
+    write_cloudflared(root, "evil", PINNED_CLOUDFLARED, evil=True)
     with open(os.path.join(root, "LATEST"), "w") as f:
         f.write("v0.0.1\n")
 
@@ -133,21 +211,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 tag = f.read().strip()
             self.reply(302, headers={"Location": "http://%s/tag/%s" % (self.headers.get("Host"), tag)})
             return
-        if path.startswith("/download/"):
-            self.serve_file(os.path.join(self.root, path[1:]))
+        if path.startswith("/download/") or path.startswith("/cf/"):
+            self.serve_file(os.path.join(self.root, path[1:]), self.root)
             return
         if path.startswith("/raw/"):
             parts = path.split("/", 3)  # "", raw, ref, install/...
             if len(parts) == 4 and parts[3].startswith("install/"):
-                self.serve_file(os.path.join(self.install_dir, parts[3][len("install/"):]))
+                self.serve_file(os.path.join(self.install_dir, parts[3][len("install/"):]), self.install_dir)
                 return
         self.reply(404, b"not found\n")
 
     do_HEAD = do_GET
 
-    def serve_file(self, p):
+    def serve_file(self, p, base):
         p = os.path.realpath(p)
-        base = os.path.realpath(self.root if "/download/" in p else self.install_dir)
+        base = os.path.realpath(base)
         if not p.startswith(base + os.sep) or not os.path.isfile(p):
             self.reply(404, b"not found\n")
             return

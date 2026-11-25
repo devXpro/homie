@@ -12,6 +12,8 @@ Type=simple
 User=homie
 Group=homie
 Environment=HOMED_DATA_DIR=/var/lib/homie
+# homed finds cloudflared (the tunnel it runs as a child process, in this same sandbox) next to itself.
+Environment="PATH=__PATH__"
 WorkingDirectory=/var/lib/homie
 ExecStart=__HOMED_BIN__ run
 # A hub update from the admin replaces the binary and exits with status 75 on purpose; Restart=always starts the new
@@ -22,8 +24,9 @@ TimeoutStopSec=30
 UMask=0077
 
 # Hardening. The hub needs the LAN as it is (SSDP multicast, UDP broadcast for Wake-on-LAN, ARP table), so there is no
-# network isolation at all (no private network namespace, no IP address filter). Plugins are child processes and
-# inherit all of this.
+# network isolation at all (no private network namespace, no IP address filter). Plugins and cloudflared are child
+# processes and inherit all of this: cloudflared needs outbound TCP/UDP (AF_INET, AF_INET6, already allowed) and writes
+# only under /var/lib/homie/tunnel (inside ReadWritePaths).
 NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=

@@ -4,6 +4,8 @@
 # Installs the home hub (homed) from a GitHub release and runs it as a service:
 #   macOS                 a LaunchAgent in your login session
 #   Linux / Raspberry Pi  a systemd service under the system user homie (needs root)
+# It also installs cloudflared, which homed starts as a child process to reach the internet through Cloudflare (see
+# "cloudflared" below), and can connect your domain: --domain HOST, or --quick-tunnel to try without a domain.
 #
 #   macOS:  curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash
 #   Linux:  curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash
@@ -24,8 +26,22 @@ readonly UNIT_NAME="homie.service"
 readonly UNIT_PATH="/etc/systemd/system/$UNIT_NAME"
 readonly WRAPPER_MARK="Installed by the Homie installer"
 
+# cloudflared: ONE pinned release. Every download is checked against the sha256 below before it is installed; bump the
+# version and all the values together (install/test/run.sh pins checks that Dockerfile and Dockerfile.dev agree).
+# Source of the values: the "digest" of each asset in https://api.github.com/repos/cloudflare/cloudflared/releases/tags/
+# <version> (the release notes list the same SHA256s). macOS prefers Homebrew when it is installed; Linux and a Mac
+# without Homebrew use these files, put next to homed. Re-running this installer updates cloudflared the same way.
+readonly CLOUDFLARED_VERSION="2026.11.2"
+readonly CLOUDFLARED_BASE_DEFAULT="https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION"
+readonly CLOUDFLARED_SHA_DARWIN_AMD64="6153d9ec629174882a3adbff2f7dc5a24b4f3bdd7ccc38eaa84fba26eb890311"
+readonly CLOUDFLARED_SHA_DARWIN_ARM64="f6d58eeec91ad1ec5fd1f7e4a587303772929b2625be5d24068033851c36ff55"
+readonly CLOUDFLARED_SHA_LINUX_AMD64="56f13335143ec0e22772963290683a84a04114a35ec64cbc794a4d39ff9bb8cf"
+readonly CLOUDFLARED_SHA_LINUX_ARM64="04a7b7f08bce85d56b26ffe1fdbfbb21a074495a363d16f0783c40e25b5c5281"
+readonly CLOUDFLARED_SHA_LINUX_ARM="d219494581180764c6d2454409691bb06879d01b43cdeae12476070a7e4e4762"
+
 RELEASE_BASE="${HOMIE_RELEASE_BASE:-$RELEASE_BASE_DEFAULT}"
 RAW_BASE="${HOMIE_RAW_BASE:-$RAW_BASE_DEFAULT}"
+CLOUDFLARED_BASE="$CLOUDFLARED_BASE_DEFAULT"
 
 VERSION=""
 PREFIX=""
@@ -35,6 +51,9 @@ YES=0
 NO_START=0
 DRY_RUN=0
 ALLOW_HTTP=0
+DOMAIN=""
+QUICK=0
+CF_SHA_OVERRIDE=""
 OS=""
 ARCH=""
 LABEL="$DEFAULT_LABEL"
@@ -45,7 +64,18 @@ ARCHIVE_SHA=""
 TMP_DIR=""
 BIN_SRC=""
 
-# Set by write_file and install_binary when something changed on disk.
+# cloudflared: the asset of this platform, its pinned sha256, the verified file, and where the installed one is.
+CF_ASSET=""
+CF_SHA=""
+CF_SRC=""
+CF_BIN=""
+# How it gets installed on this run: brew, download, or none (--dry-run only reads).
+CF_VIA=""
+# What the Cloudflare connect did: none, named, quick or failed.
+CONNECT_STATE="none"
+
+# Set by write_file and install_binary when something changed on disk. BIN_CHANGED covers homed and cloudflared: a
+# changed binary means a restart; the caller resets it to 0 before installing.
 FILE_CHANGED=0
 BIN_CHANGED=0
 
@@ -57,6 +87,10 @@ DATA_DIR=""
 PLIST_PATH=""
 LOG_DIR=""
 LOG_FILE=""
+CF_BIN=""
+# The PATH the service runs with, so that homed finds cloudflared; BREW_BIN is Homebrew's bin dir on a Mac that has it.
+SERVICE_PATH=""
+BREW_BIN=""
 
 info() { printf '%s\n' "$*" >&2; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -80,17 +114,24 @@ Installs the Homie hub (homed) and starts it as a service. Run it again to updat
   --version vX.Y.Z   install this release. Default: the latest release.
   --prefix DIR       macOS: install the binary as DIR/bin/homed (default: ~/Library/Application Support/homie).
                      Linux: DIR/bin/homed is the command, DIR/lib/homie/homed the program (default: /usr/local).
-  --no-start         install the files only; do not touch launchd or systemd.
+  --domain HOST      after the service starts, connect your own domain through Cloudflare (it opens a Cloudflare
+                     login link; the domain's zone must be on your Cloudflare account), for example home.example.com.
+  --quick-tunnel     after the service starts, use a temporary Cloudflare quick tunnel instead: no domain, no account,
+                     the link changes at every restart ("for trying"). Cannot be combined with --domain.
+  --no-start         install the files only; do not touch launchd or systemd (no connect either).
   --dry-run          show which release and archive would be installed; change nothing.
-  --uninstall        stop the service and remove it and the program. The data is kept unless --purge.
-  --purge            with --uninstall: also delete the data (people, passkeys, keys, paired devices, logs)
-                     and, on Linux, the user homie.
+  --uninstall        stop the service and remove it and the program (cloudflared too, unless Homebrew owns it).
+                     The data is kept unless --purge.
+  --purge            with --uninstall: also delete the data (people, passkeys, tunnel credentials, paired devices,
+                     logs) and, on Linux, the user homie.
   --yes              do not ask questions (uninstall and purge ask first).
   -h, --help         show this help.
 
 Tests only:
   --release-base URL   release server instead of https://github.com/devXpro/homie/releases
   --allow-http         allow a release server without TLS
+  --cloudflared-base URL   download cloudflared from URL/<asset> instead of the pinned GitHub release
+  --cloudflared-sha256 H   the sha256 to expect instead of the pinned one (for the fake cloudflared of the tests)
   --os OS --arch ARCH  pretend to be darwin|linux and amd64|arm64|armv7
   --label LABEL        macOS: the LaunchAgent label (the real one is com.github.devxpro.homie.homed)
 EOF
@@ -108,6 +149,15 @@ parse_args() {
 			[[ $# -ge 2 ]] || die "--prefix needs a value"
 			PREFIX="$2"
 			shift 2
+			;;
+		--domain)
+			[[ $# -ge 2 ]] || die "--domain needs a value"
+			DOMAIN="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+			shift 2
+			;;
+		--quick-tunnel)
+			QUICK=1
+			shift
 			;;
 		--no-start)
 			NO_START=1
@@ -138,6 +188,16 @@ parse_args() {
 			ALLOW_HTTP=1
 			shift
 			;;
+		--cloudflared-base)
+			[[ $# -ge 2 ]] || die "--cloudflared-base needs a value"
+			CLOUDFLARED_BASE="${2%/}"
+			shift 2
+			;;
+		--cloudflared-sha256)
+			[[ $# -ge 2 ]] || die "--cloudflared-sha256 needs a value"
+			CF_SHA_OVERRIDE="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+			shift 2
+			;;
 		--os)
 			[[ $# -ge 2 ]] || die "--os needs a value"
 			OS="$2"
@@ -167,6 +227,18 @@ parse_args() {
 	if [[ "$PURGE" -eq 1 && "$UNINSTALL" -eq 0 ]]; then
 		die "--purge only goes with --uninstall"
 	fi
+	if [[ -n "$DOMAIN" && "$QUICK" -eq 1 ]]; then
+		die "use either --domain HOST or --quick-tunnel, not both"
+	fi
+	if [[ -n "$DOMAIN" || "$QUICK" -eq 1 ]] && [[ "$UNINSTALL" -eq 1 ]]; then
+		die "--domain and --quick-tunnel go with an install, not with --uninstall"
+	fi
+	if [[ -n "$DOMAIN" ]]; then
+		valid_host "$DOMAIN" || die "--domain must be a host name such as home.example.com, got '$DOMAIN'"
+	fi
+	if [[ -n "$CF_SHA_OVERRIDE" && ! "$CF_SHA_OVERRIDE" =~ ^[0-9a-f]{64}$ ]]; then
+		die "--cloudflared-sha256 must be 64 hex digits"
+	fi
 	if [[ -n "$VERSION" ]]; then
 		VERSION="v${VERSION#v}"
 		valid_tag "$VERSION" || die "--version must look like v1.2.3, got '$VERSION'"
@@ -177,6 +249,11 @@ parse_args() {
 	http://*) [[ "$ALLOW_HTTP" -eq 1 ]] || die "the release server must use https (--allow-http is for tests)" ;;
 	*) die "the release server must be an https URL, got '$RELEASE_BASE'" ;;
 	esac
+	case "$CLOUDFLARED_BASE" in
+	https://*) ;;
+	http://*) [[ "$ALLOW_HTTP" -eq 1 ]] || die "the cloudflared server must use https (--allow-http is for tests)" ;;
+	*) die "the cloudflared server must be an https URL, got '$CLOUDFLARED_BASE'" ;;
+	esac
 }
 
 # ---------- helpers ----------
@@ -184,6 +261,12 @@ parse_args() {
 valid_tag() {
 	local re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 	[[ "$1" =~ $re ]]
+}
+
+# valid_host H: a plain lower-case DNS name with at least two labels (no scheme, port, path or IP address).
+valid_host() {
+	local re='^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$'
+	[[ "${#1}" -le 253 && "$1" =~ $re ]]
 }
 
 # safe_path P: absolute, no "..", and only characters that need no quoting in a plist, a unit or sed.
@@ -279,6 +362,7 @@ set_paths() {
 		BIN_DIR="$PREFIX/bin"
 		LIB_DIR="$BIN_DIR"
 		HOMED_BIN="$BIN_DIR/homed"
+		CF_BIN="$BIN_DIR/cloudflared"
 		PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
 		LOG_DIR="$HOME/Library/Logs/homie"
 		LOG_FILE="$LOG_DIR/homed.log"
@@ -289,6 +373,7 @@ set_paths() {
 		BIN_DIR="$PREFIX/bin"
 		LIB_DIR="$PREFIX/lib/homie"
 		HOMED_BIN="$LIB_DIR/homed"
+		CF_BIN="$LIB_DIR/cloudflared"
 	fi
 	[[ "$PREFIX" == /* ]] || die "--prefix must be an absolute path"
 	safe_path "$PREFIX" || die "--prefix may only contain letters, digits, spaces and . _ / @ + , = - (got '$PREFIX')"
@@ -367,6 +452,155 @@ download_release() {
 	info "Release $TAG: $("$BIN_SRC" version 2>/dev/null | head -n 1)"
 }
 
+# ---------- cloudflared ----------
+
+# cloudflared_pick: sets CF_ASSET and CF_SHA for this platform (the pinned values, or the test override).
+cloudflared_pick() {
+	case "$OS/$ARCH" in
+	darwin/amd64)
+		CF_ASSET="cloudflared-darwin-amd64.tgz"
+		CF_SHA="$CLOUDFLARED_SHA_DARWIN_AMD64"
+		;;
+	darwin/arm64)
+		CF_ASSET="cloudflared-darwin-arm64.tgz"
+		CF_SHA="$CLOUDFLARED_SHA_DARWIN_ARM64"
+		;;
+	linux/amd64)
+		CF_ASSET="cloudflared-linux-amd64"
+		CF_SHA="$CLOUDFLARED_SHA_LINUX_AMD64"
+		;;
+	linux/arm64)
+		CF_ASSET="cloudflared-linux-arm64"
+		CF_SHA="$CLOUDFLARED_SHA_LINUX_ARM64"
+		;;
+	linux/armv7)
+		CF_ASSET="cloudflared-linux-arm"
+		CF_SHA="$CLOUDFLARED_SHA_LINUX_ARM"
+		;;
+	*) die "there is no cloudflared build for $OS/$ARCH" ;;
+	esac
+	[[ -z "$CF_SHA_OVERRIDE" ]] || CF_SHA="$CF_SHA_OVERRIDE"
+}
+
+# cloudflared_current: the first line of `cloudflared --version` of the installed copy at CF_BIN (nothing when there is
+# none). On Linux it is the service user who runs it, never root: the program dir belongs to that user.
+cloudflared_current() {
+	[[ -x "$CF_BIN" ]] || return 0
+	if [[ "$OS" == "linux" ]]; then
+		getent passwd "$SERVICE_USER" >/dev/null || return 0
+		as_service_user "$CF_BIN" --version 2>/dev/null | head -n 1 || true
+	else
+		"$CF_BIN" --version 2>/dev/null | head -n 1 || true
+	fi
+}
+
+# cloudflared_current_ok: the installed copy is the pinned version.
+cloudflared_current_ok() {
+	local line
+	line="$(cloudflared_current)"
+	[[ "$line " == *"version $CLOUDFLARED_VERSION "* ]]
+}
+
+# cloudflared_download: downloads the pinned asset, checks its sha256 and sets CF_SRC to the cloudflared binary.
+cloudflared_download() {
+	local dir="$TMP_DIR/cloudflared" got out entry
+	fetch "$CLOUDFLARED_BASE/$CF_ASSET" "$TMP_DIR/$CF_ASSET"
+	got="$(sha256_of "$TMP_DIR/$CF_ASSET")"
+	[[ "$got" == "$CF_SHA" ]] || die "checksum mismatch for $CF_ASSET (expected $CF_SHA, got $got); nothing was installed"
+	info "Checksum ok: $CF_ASSET"
+	if [[ "$OS" == "darwin" ]]; then
+		out="$(tar -tzf "$TMP_DIR/$CF_ASSET")" || die "$CF_ASSET is not a valid tar.gz"
+		while IFS= read -r entry; do
+			case "$entry" in
+			/* | ../* | */../* | */..) die "unsafe path in $CF_ASSET: $entry" ;;
+			*) ;;
+			esac
+		done <<<"$out"
+		mkdir -p "$dir"
+		tar -xzf "$TMP_DIR/$CF_ASSET" -C "$dir"
+		CF_SRC="$(find "$dir" -type f -name cloudflared | head -n 1)"
+		[[ -n "$CF_SRC" && -f "$CF_SRC" ]] || die "$CF_ASSET has no cloudflared binary"
+		chmod 755 "$CF_SRC"
+		"$CF_SRC" --version >/dev/null 2>&1 ||
+			die "the downloaded cloudflared does not run on this system ($OS/$ARCH); nothing was installed"
+	else
+		# Root does not run this file; the service user does, after it is installed (linux_install_cloudflared).
+		CF_SRC="$TMP_DIR/$CF_ASSET"
+		chmod 755 "$CF_SRC"
+	fi
+}
+
+# cloudflared_prepare: before anything is installed. Decides how cloudflared gets here (Homebrew on a Mac that has it,
+# else the pinned download), downloads and verifies it, and sets SERVICE_PATH. CF_SRC stays empty when nothing is to
+# be installed from a file (Homebrew, or the pinned version is already there).
+cloudflared_prepare() {
+	local prefix=""
+	cloudflared_pick
+	CF_SRC=""
+	CF_VIA="download"
+	if [[ "$OS" == "darwin" ]] && have brew; then
+		CF_VIA="brew"
+		prefix="$(brew --prefix 2>/dev/null || true)"
+		if [[ -n "$prefix" ]] && safe_path "$prefix/bin"; then
+			BREW_BIN="$prefix/bin"
+		fi
+	fi
+	if [[ "$OS" == "darwin" ]]; then
+		SERVICE_PATH="$BIN_DIR${BREW_BIN:+:$BREW_BIN}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	else
+		SERVICE_PATH="$LIB_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	fi
+	[[ "$DRY_RUN" -eq 0 && "$CF_VIA" == "download" ]] || return 0
+	if cloudflared_current_ok; then
+		info "cloudflared $CLOUDFLARED_VERSION is already installed."
+		return 0
+	fi
+	cloudflared_download
+}
+
+# mac_cloudflared_brew: installs or upgrades cloudflared with Homebrew. Fails when brew does not leave a working one.
+mac_cloudflared_brew() {
+	local before="" after=""
+	[[ -n "$BREW_BIN" ]] || return 1
+	if brew list --versions cloudflared >/dev/null 2>&1; then
+		before="$("$BREW_BIN/cloudflared" --version 2>/dev/null | head -n 1 || true)"
+		brew upgrade cloudflared >&2 || warn "brew upgrade cloudflared failed; keeping the installed version"
+	else
+		brew install cloudflared >&2 || return 1
+	fi
+	[[ -x "$BREW_BIN/cloudflared" ]] || return 1
+	after="$("$BREW_BIN/cloudflared" --version 2>/dev/null | head -n 1)" || return 1
+	[[ -n "$after" ]] || return 1
+	# The running homed keeps the old cloudflared as its child until it restarts.
+	[[ "$before" == "$after" ]] || BIN_CHANGED=1
+}
+
+mac_install_cloudflared() {
+	if [[ "$CF_VIA" == "brew" ]]; then
+		if mac_cloudflared_brew; then
+			# An earlier pinned copy would shadow it in the service's PATH.
+			rm -f -- "$CF_BIN" "$CF_BIN.prev"
+			info "cloudflared: $("$BREW_BIN/cloudflared" --version 2>/dev/null | head -n 1) (Homebrew)"
+			return 0
+		fi
+		warn "Homebrew could not install cloudflared; using the pinned download instead"
+		CF_VIA="download"
+		cloudflared_current_ok || cloudflared_download
+	fi
+	if [[ -n "$CF_SRC" ]]; then
+		install_binary "$CF_SRC" "$CF_BIN"
+	fi
+	info "cloudflared: $(cloudflared_current)"
+}
+
+linux_install_cloudflared() {
+	if [[ -n "$CF_SRC" ]]; then
+		linux_install_binary "$CF_SRC" "$CF_BIN"
+	fi
+	cloudflared_current_ok || die "the installed cloudflared does not run on this system (or is not $CLOUDFLARED_VERSION): $CF_BIN"
+	info "cloudflared: $(cloudflared_current)"
+}
+
 # ---------- files ----------
 
 SCRIPT_ASSET_DIR=""
@@ -410,7 +644,6 @@ write_file() {
 # same rollback point the hub's own updater leaves.
 install_binary() {
 	local src="$1" dest="$2" tmp
-	BIN_CHANGED=0
 	if [[ -f "$dest" ]] && cmp -s -- "$src" "$dest"; then
 		chmod 755 "$dest"
 		return 0
@@ -431,17 +664,18 @@ install_binary() {
 # or a swapped binary left there would act with root's rights on the next update.
 as_service_user() { (cd / && runuser -u "$SERVICE_USER" -- "$@"); }
 
-# linux_install_binary: install_binary for Linux, done by the service user; the archive comes in on stdin.
+# linux_install_binary SRC DEST: install_binary for Linux, done by the service user; the file comes in on stdin. Used for
+# homed and for cloudflared, which both live in the program dir.
 linux_install_binary() {
-	BIN_CHANGED=0
-	if as_service_user cmp -s - "$HOMED_BIN" <"$BIN_SRC"; then
+	local src="$1" dest="$2"
+	if as_service_user cmp -s - "$dest" <"$src"; then
 		return 0
 	fi
 	BIN_CHANGED=1
 	# shellcheck disable=SC2016 # $1 belongs to the inner shell
 	as_service_user sh -c 'set -e; tmp="$1.new.$$"; cat >"$tmp"; chmod 755 "$tmp"
 		if [ -f "$1" ]; then cp -p -- "$1" "$1.prev" 2>/dev/null || true; fi
-		mv -f -- "$tmp" "$1"' sh "$HOMED_BIN" <"$BIN_SRC" || die "cannot install $HOMED_BIN"
+		mv -f -- "$tmp" "$1"' sh "$dest" <"$src" || die "cannot install $dest"
 }
 
 installed_version() {
@@ -490,12 +724,14 @@ mac_install() {
 
 	mkdir -p "$LOG_DIR" "$(dirname "$PLIST_PATH")" "$DATA_DIR"
 	chmod 700 "$DATA_DIR"
+	BIN_CHANGED=0
 	install_binary "$BIN_SRC" "$HOMED_BIN"
+	mac_install_cloudflared
 
 	tmpl="$TMP_DIR/plist.tmpl"
 	fetch_asset "launchd/$DEFAULT_LABEL.plist" "$tmpl"
 	sed -e "s|__LABEL__|$LABEL|g" -e "s|__HOMED_BIN__|$HOMED_BIN|g" -e "s|__DATA_DIR__|$DATA_DIR|g" \
-		-e "s|__LOG_FILE__|$LOG_FILE|g" "$tmpl" >"$TMP_DIR/plist"
+		-e "s|__LOG_FILE__|$LOG_FILE|g" -e "s|__PATH__|$SERVICE_PATH|g" "$tmpl" >"$TMP_DIR/plist"
 	if have plutil; then
 		plutil -lint "$TMP_DIR/plist" >/dev/null || die "the generated LaunchAgent is not a valid plist (this is a bug)"
 	fi
@@ -506,6 +742,7 @@ mac_install() {
 
 	if [[ "$NO_START" -eq 1 ]]; then
 		info "Not started (--no-start). To start it: launchctl bootstrap $(launchd_domain) '$PLIST_PATH'"
+		connect_later_hint "'$HOMED_BIN'"
 		return 0
 	fi
 	mac_start "$plist_changed" "$fresh"
@@ -539,11 +776,12 @@ mac_start() {
 }
 
 mac_next_steps() {
-	local fresh="$1"
+	local fresh="$1" h="'$HOMED_BIN'"
 	info ""
 	if [[ "$fresh" -eq 1 ]]; then
 		show_first_run env "HOMED_DATA_DIR=$DATA_DIR" "$HOMED_BIN"
 	fi
+	connect_cloudflare
 	cat >&2 <<EOF
 
 Local Network permission. macOS asks ONCE whether homed may find devices on your local network, the first time a
@@ -552,12 +790,10 @@ offline: turn homed on in System Settings > Privacy & Security > Local Network, 
   launchctl kickstart -k $(launchd_domain)/$LABEL
 
 Next steps (homed is not on your PATH, so the commands use its full path):
-  1. Connect the relay with the code that server.sh printed. It goes through stdin, never through the command line:
-       '$HOMED_BIN' relay connect -
-     then paste the code and press Enter.
+$(tunnel_step "$h")
   2. Open the admin and create your passkey (Touch ID):
-       '$HOMED_BIN' admin setup-link
-     It prints a one-time link. Or open the first-run page: '$HOMED_BIN' admin firstrun
+       $h admin setup-link
+     It prints a one-time link. Or open the first-run page: $h admin firstrun
   3. In the admin, Devices > + adds the TV plugin.
 
 Logs:      tail -f '$LOG_FILE'
@@ -565,9 +801,9 @@ Restart:   launchctl kickstart -k $(launchd_domain)/$LABEL
 Homebrew:  an alternative to this installer, not an addition to it (use one of the two):
              brew tap devxpro/homie https://github.com/devXpro/homie && brew install homie
              brew services start homie
-           The hub's self-update (Settings > Updates) replaces the binary in the Cellar, and the next brew upgrade
-           puts the brew version back, so with brew update through brew.
-Update:    run this installer again (the data is kept), or use Settings > Updates in the admin
+           (the formula brings cloudflared with it). The hub's self-update (Settings > Updates) replaces the binary in
+           the Cellar, and the next brew upgrade puts the brew version back, so with brew update through brew.
+Update:    run this installer again (the data is kept; cloudflared is updated too), or use Settings > Updates
 Uninstall: bash home.sh --uninstall   (add --purge to delete the data too)
 EOF
 }
@@ -579,14 +815,16 @@ mac_uninstall() {
 		launchctl bootout "$(launchd_domain)/$LABEL" || true
 		wait_until 15 agent_unloaded || warn "launchd still lists $LABEL"
 	fi
-	rm -f -- "$PLIST_PATH" "$HOMED_BIN" "$HOMED_BIN.prev"
+	# Our own cloudflared copy goes too; one that Homebrew installed stays (it may serve other things).
+	rm -f -- "$PLIST_PATH" "$HOMED_BIN" "$HOMED_BIN.prev" "$CF_BIN" "$CF_BIN.prev"
 	rmdir "$BIN_DIR" 2>/dev/null || true
 	if [[ "$PURGE" -eq 1 ]]; then
-		confirm "Delete ALL data in $DATA_DIR (people, passkeys, access keys, paired devices)?" || die "aborted"
+		confirm "Delete ALL data in $DATA_DIR (people, passkeys, tunnel credentials, paired devices)?" || die "aborted"
 		if [[ "$DATA_DIR" == "$HOME/Library/Application Support/homie" ]]; then
 			rm -rf -- "$DATA_DIR" "$LOG_DIR"
 		fi
-		info "Removed homed and its data. Keychain items (such as homie-key) are not touched."
+		info "Removed homed and its data. Keychain items are not touched. The Cloudflare tunnel and its DNS record stay in"
+		info "your Cloudflare account: remove them there if you will not use them again."
 	else
 		info "Removed homed. The data in $DATA_DIR is kept; add --purge to delete it."
 	fi
@@ -643,7 +881,9 @@ linux_install() {
 	fi
 
 	linux_user_and_dirs
-	linux_install_binary
+	BIN_CHANGED=0
+	linux_install_binary "$BIN_SRC" "$HOMED_BIN"
+	linux_install_cloudflared
 
 	wrapper_tmpl="$TMP_DIR/homed.wrapper.tmpl"
 	fetch_asset "systemd/homed.wrapper" "$wrapper_tmpl"
@@ -652,13 +892,14 @@ linux_install() {
 
 	unit_tmpl="$TMP_DIR/unit.tmpl"
 	fetch_asset "systemd/homie.service" "$unit_tmpl"
-	sed -e "s|__HOMED_BIN__|$HOMED_BIN|g" -e "s|__LIB_DIR__|$LIB_DIR|g" "$unit_tmpl" >"$TMP_DIR/unit"
+	sed -e "s|__HOMED_BIN__|$HOMED_BIN|g" -e "s|__LIB_DIR__|$LIB_DIR|g" -e "s|__PATH__|$SERVICE_PATH|g" "$unit_tmpl" >"$TMP_DIR/unit"
 	write_file "$TMP_DIR/unit" "$UNIT_PATH" 644
 	unit_changed="$FILE_CHANGED"
 	info "Installed $HOMED_BIN ($(installed_version)), the command $wrapper and the unit $UNIT_PATH"
 
 	if [[ "$NO_START" -eq 1 ]]; then
 		info "Not started (--no-start). To start it: systemctl daemon-reload && systemctl enable --now $UNIT_NAME"
+		connect_later_hint homed
 		return 0
 	fi
 	linux_start "$unit_changed" "$fresh"
@@ -690,25 +931,25 @@ linux_next_steps() {
 	if [[ "$fresh" -eq 1 ]]; then
 		show_first_run "$BIN_DIR/homed"
 	fi
+	connect_cloudflare
 	cat >&2 <<EOF
 
 The hub runs as the user $SERVICE_USER with its data in $DATA_DIR. The command homed runs the CLI as that user
-(it uses sudo; "sudo -u $SERVICE_USER homed ..." works as well).
+(it uses sudo; "sudo -u $SERVICE_USER homed ..." works as well). cloudflared is installed next to the hub
+($CF_BIN) and homed starts it itself.
 
 Next steps:
-  1. Connect the relay with the code that server.sh printed. It goes through stdin, never through the command line:
-       homed relay connect -
-     then paste the code and press Enter.
+$(tunnel_step homed)
   2. Open the admin and create your passkey. From any browser:
        homed admin setup-link
      It prints a one-time link (valid 15 minutes). Or open the first-run page of the home network:
        homed admin firstrun
-     It prints the address (port 8090 on this machine) and the PIN. Once the relay is connected the page is
+     It prints the address (port 8090 on this machine) and the PIN. Once a Cloudflare tunnel is connected the page is
      only reachable from this machine itself.
   3. In the admin, Devices > + adds the TV plugin.
 
 Status:    systemctl status homie        Logs: journalctl -u homie -f
-Update:    run this installer again (the data is kept), or use Settings > Updates in the admin
+Update:    run this installer again (the data is kept; cloudflared is updated too), or use Settings > Updates
 Uninstall: curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash -s -- --uninstall
            (add --purge to delete the data and the user too)
 EOF
@@ -726,16 +967,17 @@ linux_uninstall() {
 	if [[ -f "$BIN_DIR/homed" ]] && grep -qF "$WRAPPER_MARK" "$BIN_DIR/homed" 2>/dev/null; then
 		rm -f -- "$BIN_DIR/homed"
 	fi
-	rm -f -- "$HOMED_BIN" "$HOMED_BIN.prev"
+	rm -f -- "$HOMED_BIN" "$HOMED_BIN.prev" "$CF_BIN" "$CF_BIN.prev"
 	rmdir "$LIB_DIR" 2>/dev/null || true
 	if [[ "$PURGE" -eq 1 ]]; then
-		confirm "Delete ALL data in $DATA_DIR and the user $SERVICE_USER (people, passkeys, access keys, paired devices)?" ||
+		confirm "Delete ALL data in $DATA_DIR and the user $SERVICE_USER (people, passkeys, tunnel credentials, paired devices)?" ||
 			die "aborted"
 		rm -rf -- "$LINUX_DATA_DIR"
 		if getent passwd "$SERVICE_USER" >/dev/null; then
 			userdel "$SERVICE_USER" 2>/dev/null || warn "could not delete the user $SERVICE_USER"
 		fi
-		info "Removed homed, its data and the user $SERVICE_USER."
+		info "Removed homed, its data and the user $SERVICE_USER. The Cloudflare tunnel and its DNS record stay in your"
+		info "Cloudflare account: remove them there if you will not use them again."
 	else
 		info "Removed homed. The data in $DATA_DIR and the user $SERVICE_USER are kept; add --purge to delete them."
 	fi
@@ -757,6 +999,71 @@ show_first_run() {
 		i=$((i + 1))
 	done
 	return 0
+}
+
+# cloudflare_cli ARGS...: runs `homed cloudflare ARGS` as the service sees things: its data dir and a PATH that finds the
+# installed cloudflared. stdin is closed, so a script piped into bash (curl | bash) is never read by it.
+cloudflare_cli() {
+	if [[ "$OS" == "darwin" ]]; then
+		env "HOMED_DATA_DIR=$DATA_DIR" "PATH=$SERVICE_PATH" "$HOMED_BIN" cloudflare "$@" </dev/null
+	else
+		as_service_user env "HOMED_DATA_DIR=$DATA_DIR" "PATH=$SERVICE_PATH" "$HOMED_BIN" cloudflare "$@" </dev/null
+	fi
+}
+
+cloudflare_ready() { cloudflare_cli status >/dev/null 2>&1; }
+
+# connect_cloudflare: --domain / --quick-tunnel, run once the service is up. A failure leaves the install in place, says
+# how to retry and makes the installer exit with an error at the end (CONNECT_STATE=failed).
+connect_cloudflare() {
+	[[ -n "$DOMAIN" || "$QUICK" -eq 1 ]] || return 0
+	# homed opens its admin socket a moment after it starts.
+	wait_until 20 cloudflare_ready || true
+	info ""
+	if [[ -n "$DOMAIN" ]]; then
+		info "Connecting $DOMAIN through Cloudflare: open the login link below and pick the zone of that domain."
+		if cloudflare_cli connect "$DOMAIN"; then CONNECT_STATE="named"; else CONNECT_STATE="failed"; fi
+	else
+		info "Starting a Cloudflare quick tunnel (for trying; the link changes at every restart)."
+		if cloudflare_cli quick; then CONNECT_STATE="quick"; else CONNECT_STATE="failed"; fi
+	fi
+}
+
+# connect_later_hint CMD: with --no-start nothing runs, so say what to do once the service is started.
+connect_later_hint() {
+	if [[ -n "$DOMAIN" ]]; then
+		info "Cloudflare is not connected (--no-start). After the service is running: $1 cloudflare connect $DOMAIN"
+	elif [[ "$QUICK" -eq 1 ]]; then
+		info "Cloudflare is not connected (--no-start). After the service is running: $1 cloudflare quick"
+	fi
+}
+
+# tunnel_step CMD: the "1." of the next steps, by what the connect did. CMD is how to run homed.
+tunnel_step() {
+	case "$CONNECT_STATE" in
+	named)
+		printf '  1. Cloudflare: connected. Your home answers at https://%s (the MCP address for ChatGPT and Claude\n' "$DOMAIN"
+		printf '     is https://%s/mcp).\n' "$DOMAIN"
+		;;
+	quick)
+		printf '  1. Cloudflare quick tunnel: running, for trying only. Its link changes at every restart; see it in the\n'
+		printf '     admin or with: %s cloudflare status\n' "$1"
+		printf '     To move to your own domain: %s cloudflare connect home.example.com\n' "$1"
+		;;
+	failed)
+		printf '  1. Cloudflare: the connect did NOT finish. homed is installed and running; try again with\n'
+		if [[ -n "$DOMAIN" ]]; then
+			printf '       %s cloudflare connect %s\n' "$1" "$DOMAIN"
+		else
+			printf '       %s cloudflare quick\n' "$1"
+		fi
+		;;
+	*)
+		printf '  1. Connect Cloudflare (the admin offers the same on its first-run page):\n'
+		printf '       %s cloudflare connect home.example.com     your own domain, on your Cloudflare account\n' "$1"
+		printf '       %s cloudflare quick                        a temporary link, no domain, for trying\n' "$1"
+		;;
+	esac
 }
 
 # ---------- main ----------
@@ -791,10 +1098,13 @@ main() {
 	TMP_DIR="$(mktemp -d)"
 	resolve_tag
 	pick_archive
+	cloudflared_prepare
 	info "Platform $OS/$ARCH, release $TAG, archive $ARCHIVE"
 	if [[ "$DRY_RUN" -eq 1 ]]; then
 		printf 'release=%s\narchive=%s\nurl=%s\nsha256=%s\nbinary=%s\n' \
 			"$TAG" "$ARCHIVE" "$RELEASE_BASE/download/$TAG/$ARCHIVE" "$ARCHIVE_SHA" "$HOMED_BIN"
+		printf 'cloudflared=%s\ncloudflared_via=%s\ncloudflared_url=%s\ncloudflared_sha256=%s\ncloudflared_binary=%s\n' \
+			"$CLOUDFLARED_VERSION" "$CF_VIA" "$CLOUDFLARED_BASE/$CF_ASSET" "$CF_SHA" "$CF_BIN"
 		return 0
 	fi
 	download_release
@@ -803,6 +1113,7 @@ main() {
 	else
 		linux_install
 	fi
+	[[ "$CONNECT_STATE" != "failed" ]] || die "homed is installed and running, but the Cloudflare connect did not finish (see above)"
 }
 
 main "$@"
