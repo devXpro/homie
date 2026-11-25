@@ -1,7 +1,7 @@
 github.com/descope/virtualwebauthn v1.0.5 h1:fMXji5UMepJC51Ge6d4v5IAjiJQRKmXE9hlo/B9SczQ=
 github.com/descope/virtualwebauthn v1.0.5/go.mod h1:lLCfN+DpCM3iisM4bCILZlFEWkC1Zo7ZgsxC45CUapI=
-github.com/devXpro/mcp-gatekeeper v0.1.1-0.20261125103212-43a37e275bb9 h1:tamYjMMKI7OgwteuNYFQ4szpqueETHJ9HMlQtoRgoM4=
-github.com/devXpro/mcp-gatekeeper v0.1.1-0.20261125103212-43a37e275bb9/go.mod h1:LBEwhQsS568pOUf9FBO8Jbh0jrXMkPmFwbTcQ0ZMRMA=
+github.com/devXpro/mcp-gatekeeper v0.2.0 h1:DO0YVrLtpVASj9PPs30z2gNZuTZM22r6tFOXfEtuw5E=
+github.com/devXpro/mcp-gatekeeper v0.2.0/go.mod h1:LBEwhQsS568pOUf9FBO8Jbh0jrXMkPmFwbTcQ0ZMRMA=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
 github.com/fxamacker/cbor/v2 v2.9.4 h1:xwjVlxEMR3S605oUlgBjKLTTeGFciYPGYCtF/35LKGo=
