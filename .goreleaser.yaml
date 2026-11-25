@@ -1,5 +1,5 @@
-# GoReleaser v2 (tested with v2.20). Run by .github/workflows/release.yml on a `v*` tag; docs/progress/T4.2.md has the
-# asset names, and a local dry run is `goreleaser release --snapshot --clean` (nothing is published in snapshot mode).
+# GoReleaser v2 (tested with v2.20). Run by .github/workflows/release.yml on a `v*` tag; the asset names are
+# below, and a local dry run is `goreleaser release --snapshot --clean` (nothing is published in snapshot mode).
 #
 # Asset contract (PLAN §5.1, read by internal/install): homed_<version>_<os>_<arch>.tar.gz with <version> WITHOUT the
 # "v", 32-bit ARM spelled armv7, the binary `homed` at the archive root, and checksums.txt ("<sha256>  <name>").
@@ -141,7 +141,7 @@ brews:
       assert_match "homed", shell_output("#{bin}/homed version")
 
 # linux/amd64, linux/arm64 and linux/arm/v7 images from the binaries built above. The build context holds
-# <os>/<arch>[/<variant>]/homed next to the Dockerfile, see docs/progress/T4.2.md for the Dockerfile contract.
+# <os>/<arch>[/<variant>]/homed next to the Dockerfile (the Dockerfile copies it from there).
 dockers_v2:
   - id: homed
     ids:
