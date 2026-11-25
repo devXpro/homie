@@ -19,7 +19,8 @@
 # work there. On a Mac use the Homebrew formula or install/home.sh; Docker is for a Linux box (a NAS, a Pi).
 #
 # The hub runs as an unprivileged user (uid 10001) and keeps all its state in the volume /data (mode 0700). With a
-# bind mount instead of a named volume, give that directory to uid 10001 (chown 10001:10001 DIR) or pass --user.
+# bind mount instead of a named volume, give that directory to uid 10001 and make it its own
+# (chown 10001:10001 DIR && chmod 700 DIR), or pass --user: the hub refuses a data directory others can read.
 # Plugins you install in the admin live in the volume too. The hub's own binary is root-owned and read-only here, so
 # "Settings > Updates" cannot replace it: update the container with `docker pull` and a new `docker run`.
 # cloudflared (the tunnel homed runs as a child process). ONE pinned release, the same as install/home.sh; bump the
