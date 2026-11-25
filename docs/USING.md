@@ -1,31 +1,31 @@
 # Using Homie
 
-A tour of the admin, then the part that matters most: connecting ChatGPT so the family can talk to the home.
+A tour of the admin, then the part that matters most: connecting ChatGPT and Claude so the family can talk to the
+home, and inviting the family.
 
-The admin lives at **`https://<your domain>/admin`** and works the same on a phone (bottom tab bar) and a computer
-(sidebar). It speaks English and Russian, follows the system's dark or light mode, and has no password: you sign in
-with a passkey — Face ID, Touch ID or your device's screen lock. The screenshots below are from a real home called
-«Мой шалаш», in Russian.
+The admin lives at **`https://<your host>/`** (for example `https://home.example.com/`) and works the same on a phone
+(bottom tab bar) and a computer (sidebar). It speaks English and Russian, follows the system's dark or light mode, and
+has no password: you sign in with a passkey — Face ID, Touch ID or your device's screen lock. The screenshots below
+are from a demo home called «Дом», in Russian.
 
 - [Sign in](#sign-in)
 - [Home](#home)
 - [Devices](#devices) — add a plugin, set up a TV, run actions
 - [Activity](#activity)
-- [Settings](#settings) — passkeys, access keys, the server, updates
-- [Connect ChatGPT](#connect-chatgpt) — a ChatGPT Site, "Always allow", voice
-- [A family member](#a-family-member)
+- [People](#people) — invites with devices and a term, co-owners, extend, revoke
+- [Settings](#settings) — the home's name, the connection, updates
+- [Connect ChatGPT and Claude](#connect-chatgpt-and-claude) — one address, "Always allow", voice
 - [When tools change](#when-tools-change)
 
 ## Sign in
 
-<img src="images/01-login-phone-dark.webp" width="280" alt="The sign-in screen: a single Sign in button with Face ID">
+Open `https://<your host>/` and tap **Sign in**. Your device asks for Face ID or Touch ID; that is all. A session
+lasts up to 7 days, or 12 hours without use.
 
-Open `https://<your domain>/admin` and tap **Sign in**. Your device asks for Face ID or Touch ID; that is all. A
-session lasts up to 7 days, or 12 hours without use.
-
-The very first passkey can only be created from the home box itself — the first-run page on your home network or
-`homed admin setup-link` in a terminal there (see [INSTALL-HOME.md](INSTALL-HOME.md#first-run-create-your-passkey)).
-Passkeys live in iCloud Keychain (or your password manager), so the one you made on the Mac also works on your iPhone.
+The very first passkey can only be created from the home box itself — the first-run page, or `homed admin setup-link`
+in a terminal there (see [INSTALL-HOME.md](INSTALL-HOME.md#first-run-create-your-passkey)). Passkeys live in iCloud
+Keychain (or your password manager), so the one you made on the Mac also works on your iPhone. A person you invite makes
+their own.
 
 ## Home
 
@@ -34,22 +34,26 @@ Passkeys live in iCloud Keychain (or your password manager), so the one you made
   <img src="images/20-home-phone-light.webp" width="260" alt="Home tab on a phone, light">
 </p>
 
-The first screen answers one question: *can ChatGPT run my home right now?*
+The first screen answers one question: *can ChatGPT and Claude run my home right now?*
 
-- **The status card.** Green *Online — ChatGPT can run your home* when the relay is up and the outside check
-  passes. Otherwise it says what is wrong: *Reconnecting to the server*, *Check your home internet and the server*,
-  *Connected, but not reachable from outside*, or *Connect a server in Settings*. Tap it for the details.
-- **Needs attention** appears only when something does: the server is unreachable, a plugin is not responding, or an
-  update is available for a plugin or for Homie itself.
+- **The status card.** Green *ChatGPT and Claude can run your home* when the tunnel is up and the outside check
+  passes. Otherwise it says what is wrong: *Connecting to Cloudflare*, *Check the internet on the home computer*,
+  *Connected, but not reachable from outside*, *The connection is stopped*, or *Connect a domain on the home
+  computer*. Tap it for the details (**Settings → Connection**).
+- **Needs attention** appears only when something does: the tunnel is down or unreachable, a device plugin is not
+  responding, an update is available, or someone ran `reset-access` on the home box (it names the program that asked).
 - **Devices** lists your plugins (modules) with their state and device count.
-- **Recent** shows the last actions: what, who, through which path, and how long it took. A red mark is a failure.
+- **Assistants** leads to the Connect page.
+- **Recent** shows the last actions of the assistants: what, who, through which assistant, and how long it took. A red
+  mark is a failure.
+
+In **quick mode** a banner says the address is *for trying* and offers "Move to my own domain" (the command to run on
+the home box).
 
 ## Devices
 
 <p>
-  <img src="images/30-devices-phone-dark.webp" width="260" alt="Devices tab">
-  <img src="images/44-device-sheet-phone-dark.webp" width="260" alt="A TV's sheet with its actions">
-  <img src="images/48-run-progress-phone-dark.webp" width="260" alt="Pairing a TV: press OK on the remote">
+  <img src="images/44-run-progress-phone-dark.webp" width="260" alt="Pairing a TV: press OK on the remote">
 </p>
 
 Each kind of device is a **module** (a plugin). Open one to see:
@@ -58,10 +62,12 @@ Each kind of device is a **module** (a plugin). Open one to see:
 |---|---|
 | **Devices** | the module's devices and their state (on, off, offline, paired…). The state refreshes when you open the page. Tap a device for the actions that apply to it. |
 | **Actions** | setup actions only you see: find, add, pair, rename, remove. Each opens a short form; long ones show progress. |
-| **What it does in ChatGPT** | the commands ChatGPT can use, in plain words. **Try without ChatGPT** runs one right here. |
-| **Maintenance** | version and update, the module's log, restart, turn off (ChatGPT stops seeing it), remove. |
+| **What it does in ChatGPT and Claude** | the commands the assistants can use, in plain words. **Try without an assistant** runs one right here. |
+| **Maintenance** | version and update, the module's log, restart, turn off (the assistants stop seeing it), remove. |
 
-<img src="images/40-module-desktop-dark.webp" alt="The TV module on a desktop: devices, actions and what it does in ChatGPT">
+<img src="images/42-module-desktop-dark.webp" alt="The TV module on a desktop: devices, actions and what it does in the assistants">
+
+Devices are owner-only screens. A member sees the devices they may use, read-only.
 
 ### Add a plugin
 
@@ -82,7 +88,7 @@ switched on:
    from the TV.
 4. Tap the TV → **Pair a TV**. The TV shows a prompt: **press OK on the remote** within two minutes. The admin shows
    the countdown.
-5. **What it does in ChatGPT → Turn TV on → Try without ChatGPT.** If the TV turns on, ChatGPT can do it too.
+5. **What it does → Turn TV on → Try without an assistant.** If the TV turns on, the assistants can do it too.
 
 ### Actions with progress
 
@@ -92,127 +98,137 @@ you when it is done. **Cancel** stops it.
 
 ## Activity
 
-<img src="images/60-activity-phone-dark.webp" width="280" alt="Activity: a log of every action">
+<img src="images/50-activity-phone-dark.webp" width="280" alt="Activity: every assistant call, who made it and through which assistant">
 
-Every tool call through every path — ChatGPT, the admin, the terminal — plus sign-ins and security events. The
-segments switch between **ChatGPT**, **All** and **Failures**; **Filters** narrow it by person, module, path and
-kind. Tap an entry for the arguments (secrets are redacted), the result and how long it took. Entries are kept for
-180 days.
+The **Журнал** tab lists every tool call: who asked, through ChatGPT, Claude, the admin or the terminal, and how it
+ended. The segments switch between **Assistants**, **All** and **Failures**; **Filters** narrow it by person, device
+and path. Tap an entry for the arguments (secrets are redacted), the result and how long it took. Members see only
+their own calls. Sign-ins, invites, revokes and other admin actions are the *Changes and sign-ins* log under
+**People**.
+
+## People
+
+<p>
+  <img src="images/60-people-phone-dark.webp" width="260" alt="People: owners, a guest until a date, an expired guest with Extend, a pending invite">
+  <img src="images/61-invite-phone-dark.webp" width="260" alt="The invite sheet: name, role, devices and term">
+  <img src="images/64-member-detail-phone-dark.webp" width="260" alt="A guest's details: devices, term, connections">
+</p>
+
+Everyone in the home signs in with **their own passkey** and connects **their own** ChatGPT or Claude account to the
+same address. Nobody shares a key or a password.
+
+### Invite a person
+
+**People → Invite to the home.** Enter the name they will have in the home, then choose:
+
+- **Role.** *Member*, or *Co-owner* (only the owner who set the home up sees this; see below).
+- **Devices.** *All devices* (including ones added later), or *Only selected*: tick the plugins this person may use. A
+  person who may use no devices sees no tools at all.
+- **Term.** *Forever*, *1 day*, *3 days*, *Week*, *Month*, or *Until a date…* (at most one year). A term ends at the
+  end of the chosen day, in the time zone of the device that made the invite.
+
+Tap **Create invite**. You get a one-time link and a QR code, valid for 24 hours: send the link, or show the QR code.
+The link is burned the moment someone uses it. They open it on their phone, name themselves if they want, and create
+their passkey with Face ID. Then they connect ChatGPT or Claude with the same steps as below, and the Connect page of
+their own admin shows the address and their devices.
+
+Inviting people needs your own domain: in a **quick tunnel** invites are off, because a guest's passkey would die at
+the next restart.
+
+### Co-owners
+
+A co-owner is for your partner. **Only the owner who set the home up** can invite one (role *Co-owner*). A co-owner
+has every device and no term, can invite and manage members and guests, revoke their connections, and reads the log.
+They cannot change or remove another owner. Changing or removing an owner, and `reset-access`, is for the first owner
+alone.
+
+### Change, extend, revoke
+
+Tap a person to see their devices, term and **connections** (each ChatGPT or Claude connection they made).
+
+- **Change access** — different devices, a different term. Giving *more* (more devices, a later end, no end) asks for
+  Face ID once more; giving less never does.
+- **Disconnect** a connection — that assistant stops working at once; the person can connect it again.
+- **Close access now** — the term ends right now. The person stays in the list, their history stays, and their passkey
+  is kept; they simply cannot sign in or use any connection.
+- **Remove from the home** — for good: their passkeys, sessions and connections are deleted.
+
+<img src="images/65-member-extend-phone-dark.webp" width="260" alt="Extending an expired guest's access">
+
+When a term runs out, the person stays in the list, greyed, with the note *access ended*, and an **Extend**
+(«Продлить») button. Tap it, pick a new term (and devices), confirm with your passkey, and the same connections work
+again. Nothing needs to be set up on their side.
 
 ## Settings
 
-<img src="images/70-settings-phone-dark.webp" width="280" alt="Settings">
+<img src="images/73-connection-phone-dark.webp" width="260" alt="Settings → Connection: the address, how it is connected, the outside check">
 
 | Section | What you can do |
 |---|---|
-| **Your name** | how you appear in the activity log |
-| **Home** | the home's name (the name your family sees in ChatGPT), the admin's language, dark / light / match system |
-| **Security → Passkeys** | add a passkey on another device, rename or remove one. The last one cannot be removed. |
-| **Security → Where you're signed in** | every session; sign out on this device or everywhere else |
-| **Connection → Server** | the relay address, connected since, the outside check (*Check now*), and *Update the server code* after you rotated the token on the server |
-| **ChatGPT access → Access keys** | create a key for a ChatGPT Site (shown once — save it right away), see when each was last used, revoke one |
-| **About** | the version, *Check for updates* and *What's new*. Updating restarts the hub; the page reloads by itself. |
+| **Home** | the home's name (the name your family sees in ChatGPT and Claude; it is also the account's name) and the admin's language |
+| **Connection** | the address, how it is connected (own domain or *for trying*), connected since, the outside check (**Check now**) and **Reconnect**, which restarts the tunnel. In quick mode a reconnect gives a **new address**: after it, continue on the home box (the page tells you how) |
+| **Connect ChatGPT and Claude** | the Connect page, again |
+| **Updates / About** | the version, *Check for updates* and *What's new*. Updating restarts the hub; the page reloads by itself. |
+
+Your own passkeys and the places you are signed in are under **People → Passkeys / Sessions**.
 
 Lost a phone? On the home box: `homed admin reset-access` removes every passkey and session and prints a new setup
-link. Access keys (ChatGPT's access) survive a reset.
+link. The assistants' connections are not touched; remove the ones you do not trust under **People**.
 
-## Connect ChatGPT
+## Connect ChatGPT and Claude
 
-Each person talks to the home through **their own ChatGPT account**, with a private ChatGPT **Site** that becomes a
-plugin there, named after your home. The Site is a thin proxy: the tools and their descriptions come from the hub,
-the Site forwards the calls with that person's access key.
+The whole home is **one address**: `https://<your host>/mcp`. Add it once per assistant account. Every person who
+connects signs in on your Homie with their passkey and taps **Allow**, so the assistant gets a token for that person
+only, limited to their devices and term.
 
-You need:
+<img src="images/30-connect-phone-dark.webp" width="260" alt="The Connect page with the address and the ChatGPT and Claude buttons">
 
-- a **Mac** with Node 22+, `git`, `npm` and the [Codex CLI](https://github.com/openai/codex) (the release script uses
-  Codex to publish the Site, and the macOS Keychain for the key);
-- a ChatGPT plan with Sites;
-- your home connected (the status card is green).
+Open **Connect** (Home → *Connect ChatGPT and Claude*): copy the address, then the page's buttons and numbered steps
+lead you through the assistant's own menus (they change names from time to time; the idea stays the same).
 
-### 1. Create an access key
+### ChatGPT
 
-**Settings → ChatGPT access → Access keys → Create a key**, label it *ChatGPT Site*, copy it. Store it in the
-Keychain of the Mac you publish from (the command asks for the key, so it never lands in your shell history):
-
-```sh
-security add-generic-password -U -s homie-key -a "$USER" -w
-```
-
-If that Mac is the home box, one command does both and never shows the key:
-
-```sh
-homed key new --label "ChatGPT Site" --keychain homie-key
-```
-
-### 2. Publish your Site
-
-```sh
-git clone https://github.com/devXpro/homie.git
-node homie/site/release/release.mjs --login                     # sign Codex in to YOUR ChatGPT account (device code)
-HOME_API_URL=https://home.example.com \
-  node homie/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash
-```
-
-- `--title` is the name ChatGPT shows for the plugin — your home's name. `--slug` is the Site's unique address name.
-- The first run creates the Site, builds it on your Mac, sets `HOME_API_URL` and the key (as a secret) and publishes.
-  The address is remembered; later runs need no `HOME_API_URL`.
-- `--dry-run` builds everything without touching your account; `--check` shows the live plugin's tools as ChatGPT
-  sees them. All options: [site/README.md](../site/README.md).
-
-### 3. Connect it in ChatGPT
-
-1. In ChatGPT: **Plugins → Created by you**, find your home, **Connect**.
-2. Ask for something in **text** first: "Turn on the TV". When ChatGPT asks for permission, choose **Always allow**.
-3. Start a **new chat**: a chat keeps the tools it started with.
+1. Open ChatGPT's connectors (apps) and add a **custom connector**. Custom connectors may need a plan that offers them
+   and its developer mode.
+2. Paste the address and name it after your home.
+3. It opens your Homie: sign in with Face ID or Touch ID and tap **Allow**.
+4. Ask for something in **text** first: "Turn on the TV". When ChatGPT asks for permission, choose **Always allow**.
+5. Start a **new chat**: a chat keeps the tools it started with.
 
 **Why "Always allow" matters.** Without it ChatGPT asks for approval on the screen before every action that changes
 something. In voice mode there is no screen to approve on, so the action silently does not happen. Choose it once, in
 text, before your first voice session.
 
-### 4. Voice
+### Claude
 
-Voice works with the plugin like text does: «Включи телик», «Громкость двадцать», «Переключи на HDMI 2», «Выключи
-телик». Tips:
+1. Open Claude's connectors, choose **Add custom connector**, paste the address and name it after your home.
+2. **Connect**, sign in with Face ID or Touch ID and allow the access.
+3. In a chat, turn the connector on in the tools menu.
+
+### Voice
+
+Voice works like text does: «Включи телик», «Громкость двадцать», «Переключи на HDMI 2», «Выключи телик». Tips:
 
 - Name devices the way you say them: *Living room TV*, *Desk lamp*. One TV? Then just "the TV".
-- For short, voice-friendly answers, create a ChatGPT project and give it instructions like:
+- For short, voice-friendly answers, create a project and give it instructions like:
 
   ```
   I talk to you by voice, often on the move. Answer in one or two sentences unless I ask for details.
-  For anything about the devices at home use the home plugin with as few calls as possible.
+  For anything about the devices at home use the home connector with as few calls as possible.
   Do it when I ask, then confirm in one short sentence what was done.
-  If the plugin says the home is offline, say so plainly and do not retry more than once.
+  If the connector says it cannot reach the home, say so plainly and do not retry more than once.
   ```
-- "The home hub is offline right now" means what it says: the home box is asleep or without internet.
+- "Cannot reach the home" means what it says: the home box is asleep, or without internet. See
+  [TROUBLESHOOTING.md](TROUBLESHOOTING.md#the-assistant-says-it-cannot-reach-the-home).
 
-## A family member
+### When the address changes
 
-**Today.** Every person needs their own Site in their own ChatGPT account (a personal plan cannot share a Site's
-plugin). Create a separate access key for them (label it with their name), then publish their Site from your Mac with
-a **profile**, which keeps their Codex login and key apart from yours:
-
-```sh
-security add-generic-password -U -s homie-key-tanya -a "$USER" -w          # paste THEIR key
-node homie/site/release/release.mjs --profile tanya --login                   # they approve the code on THEIR phone
-node homie/site/release/release.mjs --profile tanya --title "Наш дом" --slug nash-dom
-```
-
-They approve the device code with **their** ChatGPT account (the script refuses and signs out if it sees yours), then
-connect the plugin, choose **Always allow** and start a new chat — steps 3 and 4 above. Their calls appear in Activity
-under the key's person (today, the owner) with the key's label.
-
-**Coming in phase 3: invites.** **People → Invite** makes a single-use link with a QR code. The family member opens it
-on their phone, creates their own passkey, connects ChatGPT in a guided step and chooses *Always allow* — no terminal,
-no Mac. Each person gets their own name in Activity and their own set of modules.
+On your own domain the address never changes. In a **quick tunnel** it changes whenever the hub restarts: the Connect
+page and the first-run page on the home box show the new address with a **Reconnect** button; remove the old
+connector in ChatGPT and Claude and add the new address.
 
 ## When tools change
 
-ChatGPT keeps its own snapshot of a plugin's tools. After you install a module, update one, or change the home's name,
-republish each person's Site settings so ChatGPT re-reads them:
-
-```sh
-node homie/site/release/release.mjs --title "Мой шалаш" --slug moy-shalash --settings-only
-node homie/site/release/release.mjs --profile tanya --title "Наш дом" --slug nash-dom --settings-only
-```
-
-The refresh is not instant (about ten minutes). `--check` shows the tools ChatGPT sees now; a new chat picks them up.
+An assistant keeps its own snapshot of a connector's tools. After you install a module, update one, or change the
+home's name, start a **new chat**; if a tool still does not show up, disconnect the connector in the assistant's
+settings and connect it again.

@@ -14,13 +14,12 @@
 </p>
 
 <p align="center">
-  <b>LLM-first home hub: ChatGPT runs your home — by voice — through a relay you own.</b>
+  <b>LLM-first home hub: ChatGPT and Claude run your home — by voice — through a Cloudflare Tunnel you own.</b>
 </p>
 
 <p align="center">
   <a href="docs/QUICKSTART.md">Quick start</a> ·
-  <a href="docs/INSTALL-SERVER.md">Server</a> ·
-  <a href="docs/INSTALL-HOME.md">Home</a> ·
+  <a href="docs/INSTALL-HOME.md">Install</a> ·
   <a href="docs/USING.md">Using it</a> ·
   <a href="docs/PLUGINS.md">Write a plugin</a> ·
   <a href="docs/README.md">All docs</a>
@@ -28,34 +27,36 @@
 
 ---
 
-You say **«Включи телик»** to ChatGPT on your phone. A second later the living-room TV is on.
+You say **«Включи телик»** to ChatGPT or Claude on your phone. A second later the living-room TV is on.
 
-Homie is the small piece in between: a hub at home that turns your devices into tools ChatGPT can call, a relay on
-a server you own that gives the hub a public HTTPS address, and a beautiful admin to set it all up with Face ID.
+Homie is the small piece in between: a hub at home that turns your devices into tools the assistants can call, a
+Cloudflare Tunnel that gives the hub a public HTTPS address on your own domain with nothing to rent and nothing to open,
+and a beautiful admin to set it all up with Face ID.
 
 ## Why
 
 - **The assistant is the interface.** No dashboards to build, no entity database, no automation YAML. Ask in plain
   words; the hub does exactly that and says so in one sentence.
-- **Light.** One Go binary at home with the admin built in, small enough for a Raspberry Pi. The server side
-  is Caddy and frps — two containers, no database.
-- **Fast.** A persistent `wss` channel from home to the relay: no polling, no cloud round-trips through a vendor.
-- **Self-hosted, end to end.** Your domain, your server, your home box. No Homie account, no telemetry, no
-  third-party tunnel that terminates your TLS.
+- **Light.** One Go binary at home with the admin built in, small enough for a Raspberry Pi. No server to run, no
+  database to install.
+- **One address for the whole home.** Add `https://home.example.com/mcp` once as a connector in ChatGPT and once in
+  Claude, and everyone you invite does the same with their own passkey.
+- **Self-hosted, with one outside dependency.** Your domain, your home box. No Homie account, no telemetry. The only
+  party in the middle is Cloudflare (it terminates TLS for your domain: [what that means](docs/SECURITY.md)).
 - **No Home Assistant bloat.** If all you want is "talk to my TV", you should not have to run a platform.
-- **Voice via ChatGPT.** Each family member gets their own private plugin in their own ChatGPT account, named after
-  your home — and it works in voice mode.
+- **Guests that expire.** An invite picks which devices a person may use and for how long; when the term ends, the
+  access ends everywhere, and one tap extends it.
 
 ## Features
 
-- 🎙️ **ChatGPT, chat and voice** — a private ChatGPT Site per person; tools and descriptions come from the hub
+- 🎙️ **ChatGPT and Claude, chat and voice** — one OAuth connector per person; the tools and their descriptions come from the hub
 - 🔐 **Passkeys only** — Face ID / Touch ID sign-in, step-up confirmation for dangerous actions, no passwords at all
-- 🛰️ **Your own relay** — one command on any Docker VPS; standalone or behind your existing Caddy, nginx or Traefik
-- 🏠 **Zero router setup** — the home box dials out over 443; no port forwarding, no static IP
+- ☁️ **Cloudflare Tunnel** — your own domain (a named tunnel, made for you in one login) or a quick tunnel to try it in minutes
+- 🏠 **Zero router setup** — the home box dials out; no port forwarding, no static IP
+- 👨‍👩‍👧 **People** — one-time invites with devices and a term (a day, a week, until a date, forever), co-owners, revoke per person or per connection
 - 🧩 **Plugins** — one executable per device family, any language, MCP over stdio; install from GitHub in the admin
 - 📱 **iPhone-grade admin** — dark and light, phone and desktop, English and Russian, progress for long actions
 - 🧾 **Activity log** — every call from every path, who asked and how long it took; secrets redacted
-- 🔑 **Per-person access keys** — hashed at rest, scoped to the plugins each person may use, revocable in a tap
 - ⬆️ **Safe updates** — verified releases, automatic rollback for plugins, self-update for the hub
 - 📦 **Runs anywhere at home** — macOS, Raspberry Pi, any Linux, or a NAS with Docker
 
@@ -64,29 +65,29 @@ a server you own that gives the hub a public HTTPS address, and a beautiful admi
 <table>
   <tr>
     <td width="33%"><img src="docs/images/20-home-phone-dark.webp" alt="Home, dark"></td>
-    <td width="33%"><img src="docs/images/48-run-progress-phone-dark.webp" alt="Pairing a TV with progress"></td>
+    <td width="33%"><img src="docs/images/44-run-progress-phone-dark.webp" alt="Pairing a TV with progress"></td>
     <td width="33%"><img src="docs/images/20-home-phone-light.webp" alt="Home, light"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Home: is ChatGPT able to run it right now?</sub></td>
+    <td align="center"><sub>Home: can the assistants run it right now?</sub></td>
     <td align="center"><sub>Pairing a TV: “Press OK on the TV remote”</sub></td>
     <td align="center"><sub>Light mode follows your system</sub></td>
   </tr>
   <tr>
-    <td colspan="3"><img src="docs/images/40-module-desktop-dark.webp" alt="The TV module on a desktop"></td>
+    <td colspan="3"><img src="docs/images/42-module-desktop-dark.webp" alt="The TV module on a desktop"></td>
   </tr>
   <tr>
-    <td colspan="3" align="center"><sub>A module on the desktop: its devices, setup actions, and what it can do in ChatGPT</sub></td>
+    <td colspan="3" align="center"><sub>A module on the desktop: its devices, setup actions, and what it can do in ChatGPT and Claude</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/images/60-activity-phone-dark.webp" alt="Activity"></td>
-    <td><img src="docs/images/70-settings-phone-dark.webp" alt="Settings"></td>
-    <td><img src="docs/images/01-login-phone-dark.webp" alt="Sign in with Face ID"></td>
+    <td><img src="docs/images/61-invite-phone-dark.webp" alt="Inviting a person with devices and a term"></td>
+    <td><img src="docs/images/30-connect-phone-dark.webp" alt="The one address for ChatGPT and Claude"></td>
+    <td><img src="docs/images/50-activity-phone-dark.webp" alt="Activity"></td>
   </tr>
   <tr>
+    <td align="center"><sub>Invite: devices and a term</sub></td>
+    <td align="center"><sub>Connect: one address, two assistants</sub></td>
     <td align="center"><sub>Activity: every action, who and how</sub></td>
-    <td align="center"><sub>Settings: passkeys, keys, server, updates</sub></td>
-    <td align="center"><sub>Sign in: just Face ID</sub></td>
   </tr>
 </table>
 
@@ -96,70 +97,64 @@ More in the [admin tour](docs/USING.md).
 
 ```mermaid
 flowchart LR
-    subgraph chatgpt["ChatGPT"]
-        V["🎙️ Voice / chat"] --> S["Your home's Site<br/>(private plugin)"]
+    subgraph assistants["ChatGPT and Claude"]
+        V["🎙️ Voice / chat"]
     end
-    subgraph server["Relay server — yours"]
-        C["Caddy<br/>TLS"] --> F["frps"]
+    subgraph cf["Cloudflare"]
+        E["Edge · TLS<br/>your domain"]
     end
     subgraph home["Home box"]
-        H["homed<br/>hub · admin · passkeys · audit"] --> P1["homie-tv"]
+        T["cloudflared<br/>(child of homed)"] --> H
+        H["homed<br/>hub · admin · passkeys · OAuth · activity"] --> P1["homie-tv"]
         H --> P2["your plugin"]
     end
-    S -->|"HTTPS + access key"| C
-    F <-.->|"one wss channel,<br/>opened from home"| H
+    V -->|"https://home.example.com/mcp<br/>OAuth token"| E
+    T <-.->|"outbound tunnel,<br/>opened from home"| E
     P1 -->|"LAN"| TV["📺 LG TV"]
     P2 -->|"LAN"| D["…"]
 ```
 
 **One request, end to end:**
 
-1. You say *"turn on the TV"*; ChatGPT calls `tv_power_on` on your home's Site.
-2. The Site sends `POST https://home.example.com/api/v1/tools/tv_power_on` with your access key.
-3. Caddy terminates TLS; frps passes the request down the channel your home box opened.
-4. `homed` checks the key, your scopes and the rate limit, calls the TV plugin over stdio and writes the audit entry.
+1. You say *"turn on the TV"*; the assistant calls `tv_power_on` on your home's connector.
+2. It sends `POST https://home.example.com/mcp` with your OAuth token.
+3. Cloudflare terminates TLS and passes the request down the tunnel your home box opened.
+4. `homed` checks the token, your devices and term and the rate limit, calls the TV plugin over stdio and writes the
+   activity entry.
 5. `homie-tv` wakes the TV with Wake-on-LAN and waits until it answers; *"Living room TV is on."* travels back.
 
-If the home box is offline, the relay answers with a "home is offline" page and ChatGPT says so plainly. More:
-[Architecture](docs/ARCHITECTURE.md).
+If the home box is off, the assistant says it cannot reach the home. More: [Architecture](docs/ARCHITECTURE.md).
 
 ## Quick start
 
-You need a small Linux VPS with Docker, a domain, and a box at home that stays on.
+You need a box at home that stays on, and — for the permanent setup — a domain whose DNS is on Cloudflare (a free
+account is enough). No server.
 
-**Server — 5 minutes.** Point an A record (DNS only) at the VPS, then:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/server.sh \
-  | sudo bash -s -- --domain home.example.com
-```
-
-It gets a certificate, starts the relay and prints a **connect code** (`ghr1.…`). Keep it secret.
-
-**Home — 5 minutes.** On a Mac, a Raspberry Pi or any Linux box:
+On a Mac, a Raspberry Pi or any Linux box:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash        # macOS
-curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash   # Raspberry Pi / Linux
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | bash -s -- --domain home.example.com        # macOS
+curl -fsSL https://raw.githubusercontent.com/devXpro/homie/main/install/home.sh | sudo bash -s -- --domain home.example.com   # Raspberry Pi / Linux
 ```
 
-Open the first-run address it prints on your phone, type the PIN, paste the connect code, and create your passkey
-with Face ID. Then **Devices → Add devices** in the admin at `https://home.example.com/admin`.
+It installs the hub and `cloudflared`, starts the service, and prints a Cloudflare login link: sign in, pick your
+domain's zone, and Homie creates the tunnel and the DNS record. Then `homed admin setup-link` prints a one-time link
+for your passkey (Face ID), and the admin's **Connect** page shows the address to add in ChatGPT and Claude. To just
+try it without a domain, use `--quick-tunnel` instead of `--domain …` (a temporary address, for you alone).
 
-Homebrew, Docker for a NAS, connecting ChatGPT and voice: **[the full quick start](docs/QUICKSTART.md)**.
+Homebrew, Docker for a NAS, connecting the assistants and voice: **[the full quick start](docs/QUICKSTART.md)**.
 
 ## Guides
 
 | | |
 |---|---|
-| 🚀 [Quick start](docs/QUICKSTART.md) | server, home and ChatGPT in three five-minute blocks |
-| 🛰️ [Install the relay server](docs/INSTALL-SERVER.md) | DNS, the installer, standalone or behind your proxy, firewall, token rotation |
-| 🏠 [Install the home hub](docs/INSTALL-HOME.md) | Mac, Raspberry Pi, Linux, NAS; installer, Homebrew, Docker, source; first run |
-| 📱 [Using Homie](docs/USING.md) | the admin tour, setting up a TV, connecting ChatGPT, voice, family |
+| 🚀 [Quick start](docs/QUICKSTART.md) | home and the assistants, step by step |
+| 🏠 [Install the home hub](docs/INSTALL-HOME.md) | Mac, Raspberry Pi, Linux, NAS; installer, Homebrew, Docker, source; Cloudflare; first run; upgrading from v0.1 |
+| 📱 [Using Homie](docs/USING.md) | the admin tour, setting up a TV, connecting ChatGPT and Claude, voice, inviting people |
 | 🧩 [Writing a plugin](docs/PLUGINS.md) | a 15-minute tutorial and the full protocol reference |
 | 🏛️ [Architecture](docs/ARCHITECTURE.md) | components, flows, trust boundaries, design choices |
 | 🔐 [Security model](docs/SECURITY.md) | every secret, what it unlocks, who can see what |
-| 🩺 [Troubleshooting](docs/TROUBLESHOOTING.md) | offline home, certificates, passkeys, TVs that do not wake |
+| 🩺 [Troubleshooting](docs/TROUBLESHOOTING.md) | the tunnel, 524, quick-tunnel limits, passkeys, TVs that do not wake |
 | ❓ [FAQ](docs/FAQ.md) | the short answers |
 | 📚 [All docs](docs/README.md) | including the admin API, development and testing |
 
@@ -189,34 +184,31 @@ mcp.AddTool(s, &mcp.Tool{
 
 - **Passkeys only** for the admin (WebAuthn, verified at home), with a fresh Face ID / Touch ID for dangerous actions.
   The first passkey can only be created from the home box itself.
-- **Access keys** for ChatGPT are stored as SHA-256 hashes, scoped per person, rate-limited and revocable.
-- **The hub listens on loopback only** and is reached solely through the channel it opened itself.
-- **The relay server terminates TLS** and is trusted like your domain: run it on a server you control, without a
-  TLS-terminating CDN. Its token is a secret; rotate it with one command.
-- **Plugins are trusted code** running as the hub's user; they never see callers' keys and are not network-reachable.
-- **Every action is audited**, with secret-looking arguments redacted.
+- **OAuth for the assistants**: a token per person and connection, hashed at rest, limited to the person's devices and
+  term, revocable in a tap. Sign-in, OAuth and access checks are the public
+  [MCP Gatekeeper](https://github.com/devXpro/mcp-gatekeeper).
+- **The hub listens on loopback only** and is reached solely through the tunnel it opened itself.
+- **Cloudflare terminates TLS** for your domain and can read the traffic, like any proxy in front of a site: protect the
+  account (2FA). Quick tunnels are for trying and have no account behind them.
+- **Plugins are trusted code** running as the hub's user; they never see callers' tokens and are not network-reachable.
+- **Every action is logged**, with secret-looking arguments redacted.
 
 The full model: **[SECURITY.md](docs/SECURITY.md)**. Found a problem? Open an issue without details and ask for a
 private channel.
 
 ## Status and roadmap
 
-Homie is young and used every day in one family. What works today:
+Homie is young and used every day in one family. What works today (v0.2):
 
-- ✅ Relay server: installer, standalone and behind-proxy modes, offline page
-- ✅ Hub: REST façade and MCP endpoint, access keys, audit, plugin host, embedded relay client
+- ✅ Hub: the MCP endpoint with OAuth for ChatGPT and Claude, activity log, plugin host
+- ✅ Cloudflare: your own domain in one login, or a quick tunnel to try; `cloudflared` as the hub's child
+- ✅ People: invites with devices and a term, co-owners, extend and revoke
 - ✅ Admin: passkeys, first run, devices with actions and progress, activity, settings, updates
 - ✅ Plugins: `pluginkit`, install from GitHub with rollback; **homie-tv** for LG webOS
-- ✅ ChatGPT: a private Site per person (path B), voice
 
 Next:
 
-- ⏳ **People and invites (phase 3)** — invite family members with a link: their own passkey, their own name in the
-  log, their own set of devices, their ChatGPT Site published from the admin
-- ⏳ **Path A** — a custom MCP connector added by URL, with an OAuth 2.1 server in the hub
 - ⏳ **More plugins** — smart plugs and lights first; newer LG firmware (`wss://:3001`)
-
-The detailed plan: [docs/PLAN.md](docs/PLAN.md).
 
 ## Development
 
@@ -227,8 +219,8 @@ make lint     # golangci-lint v2
 make e2e      # Playwright against a real homed
 ```
 
-Go 1.26 (the `go` command fetches go1.26.11 by itself) and Node 22+. Running a development hub without a relay:
-[DEV.md](docs/DEV.md); every test suite: [TESTING.md](docs/TESTING.md).
+Go 1.26 (the `go` command fetches go1.26.11 by itself) and Node 22+. Running a development hub without a tunnel, or
+with a fake cloudflared: [DEV.md](docs/DEV.md); every test suite: [TESTING.md](docs/TESTING.md).
 
 ## License
 

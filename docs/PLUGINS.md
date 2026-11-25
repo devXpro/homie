@@ -21,7 +21,7 @@ the official [go-sdk](https://github.com/modelcontextprotocol/go-sdk) v1.8.0. Th
 
 ```mermaid
 flowchart LR
-    G["ChatGPT<br/>(assistant tools)"] --> H
+    G["ChatGPT and Claude<br/>(assistant tools)"] --> H
     A["Admin UI and CLI<br/>(every tool)"] --> H
     H["homed<br/>auth · scopes · audit · forms"] -->|"MCP over stdio"| P["your plugin<br/>tools + state"]
     P -->|"LAN, cloud API, serial…"| D["devices"]
@@ -32,7 +32,7 @@ Schema for its arguments. Three kinds matter:
 
 | Kind | Who sees it | Example | Marked with |
 |---|---|---|---|
-| **Assistant tool** | ChatGPT, the admin, the CLI | `tv_power_on`, `plug_switch` | nothing (the default) |
+| **Assistant tool** | ChatGPT, Claude, the admin, the CLI | `tv_power_on`, `plug_switch` | nothing (the default) |
 | **Admin tool** | only the admin and the CLI | `tv_pair`, `plug_add` | `pluginkit.Admin` |
 | **Inventory tool** | everyone; the admin draws the device list from it | `tv_list`, `plug_list` | `pluginkit.Inventory` |
 
@@ -196,8 +196,7 @@ func result(text string, structured map[string]any) *mcp.CallToolResult {
 }
 ```
 
-The `message` matters: the hub's REST façade, which ChatGPT Sites call, returns only the structured content when a
-tool has one.
+The `message` is a good habit: a client may read either the text or the structured content, so the sentence is in both.
 
 ### 7. The admin tool, with progress
 
@@ -207,7 +206,7 @@ mcp.AddTool(s, pluginkit.I18n(pluginkit.Admin(pluginkit.Timeout(&mcp.Tool{
 	Title:       "Add a plug",
 	Description: "Adds the Shelly Gen2+ plug at a LAN address and reads its model. The plug must be powered.",
 	InputSchema: object(map[string]any{
-		"host": map[string]any{"type": "string", "description": "The plug's IPv4 address, e.g. 192.168.1.30."},
+		"host": map[string]any{"type": "string", "description": "The plug's IPv4 address, e.g. 192.0.2.30."},
 		"name": map[string]any{"type": "string", "description": "What people call it, e.g. Desk lamp."},
 	}, "host"),
 	Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false)},
@@ -218,7 +217,7 @@ mcp.AddTool(s, pluginkit.I18n(pluginkit.Admin(pluginkit.Timeout(&mcp.Tool{
 }), h.add)
 ```
 
-- `pluginkit.Admin` hides it from ChatGPT: setting things up is not a voice job.
+- `pluginkit.Admin` hides it from the assistants: setting things up is not a voice job.
 - `pluginkit.Timeout` raises the hub's call timeout (default 30 s, maximum 300 s). Pairing flows that wait for a
   button press use 180 s.
 - `pluginkit.I18n` adds the Russian title, description and field labels the admin shows. Assistants always get the
@@ -282,14 +281,14 @@ homed plugin add --data-dir $W/data --id plug -- "$PWD/bin/homie-plug" serve
 homed run --data-dir $W/data --listen 127.0.0.1:8080 --setup-listen 127.0.0.1:8090 \
   --dev-origin http://localhost:8080 &
 homed tool list --data-dir $W/data
-homed tool call --data-dir $W/data plug_add '{"host":"192.168.1.30","name":"Desk lamp"}'
+homed tool call --data-dir $W/data plug_add '{"host":"192.0.2.30","name":"Desk lamp"}'
 homed tool call --data-dir $W/data plug_switch '{"on":true}'
 ```
 
 Flags of `homed plugin add` go **before** `--`; everything after it is your command. `homed tool call` prints progress
 to stderr while the tool runs, then the text and the structured result; a tool that ran and failed exits with status 1.
-`--dev-origin` runs the hub without a relay, with passkeys for `localhost`, so the admin works at
-`http://localhost:8080/admin` after `homed admin setup-link --data-dir $W/data`. More in [DEV.md](DEV.md).
+`--dev-origin` runs the hub without a tunnel, with passkeys for `localhost`, so the admin works at
+`http://localhost:8080/` after `homed admin setup-link --data-dir $W/data`. More in [DEV.md](DEV.md).
 
 ### 11. Release
 
@@ -312,12 +311,12 @@ homie-plugin.json
 
 ### 12. Install it from the admin
 
-Open `https://<your domain>/admin` → **Devices** → **Add devices** → **Another module from GitHub**, type
+Open `https://<your host>/` → **Devices** → **Add devices** → **Another module from GitHub**, type
 `YOUR-NAME/homie-plug`, **Find**. The admin shows the title, version, description and homepage from your manifest. Tap
 **Install** (and confirm with Face ID or Touch ID when asked). The plugin appears under Devices; run *Add a plug* from its
-**Actions**, and say "turn on the desk lamp" to ChatGPT.
+**Actions**, and say "turn on the desk lamp" to ChatGPT or Claude.
 
-A new tool or a changed description reaches ChatGPT after the person's Site is republished (see
+A new tool or a changed description reaches an assistant in a new chat (see
 [USING.md](USING.md#when-tools-change)).
 
 That is the whole loop. The rest of this page is reference.
@@ -524,15 +523,15 @@ Without the keyword the hub guesses (a required string property named like the p
 
 ### Calls
 
-- Every `tools/call` carries request `_meta` `{"homie/caller":"<person name>","homie/via":"site|mcp|admin|cli"}`.
+- Every `tools/call` carries request `_meta` `{"homie/caller":"<person name>","homie/via":"chatgpt|claude|admin|cli"}`.
   Log it if useful; **never trust it for security**.
 - The hub validates the arguments against `inputSchema` before an admin or CLI call reaches the plugin.
 - Results:
   - text content: short, English, human ("Living room TV is on.");
-  - optional `structuredContent`. The REST façade for ChatGPT Sites answers with the structured content alone when
-    there is one (else `{"text": "<text>"}`), so repeat the sentence in it, e.g. as `message`;
+  - optional `structuredContent`; repeat the sentence in it, e.g. as `message`;
   - a tool that ran but failed (device unreachable, not paired) returns `isError: true` with a text that says what to
-    do ("The TV did not wake up. Turn on Mobile TV On in the TV settings."); the façade answers `422` with that text;
+    do ("The TV did not wake up. Turn on Mobile TV On in the TV settings."); the assistant gets that text as a failed
+    result, and the admin API answers `422 tool_failed` with it;
   - a JSON-RPC error means the call could not run at all: bad arguments, an internal error.
 - When the hub's timeout expires it sends `notifications/cancelled`; stop the work when your context is cancelled.
 

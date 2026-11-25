@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="title desc">
   <title id="title">Homie</title>
-  <desc id="desc">Homie: your home, by voice. ChatGPT talks to a self-hosted relay, the relay to the home hub, the hub to your devices.</desc>
+  <desc id="desc">Homie: your home, by voice. ChatGPT and Claude reach the home hub through a Cloudflare Tunnel, and the hub talks to your devices.</desc>
   <defs>
     <radialGradient id="glowBlue" cx="0.12" cy="0" r="0.75">
       <stop offset="0" stop-color="#0A84FF" stop-opacity="0.16"/>
@@ -68,7 +68,7 @@
     <g transform="translate(248 262)">
       <rect width="160" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.9" stroke="#3C3C43" stroke-opacity="0.12"/>
       <circle cx="18" cy="18" r="4.5" fill="#8E8E93" fill-opacity="1"/>
-      <text x="32" y="23">Your own relay</text>
+      <text x="32" y="23">Your domain</text>
     </g>
     <g transform="translate(418 262)">
       <rect width="116" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.9" stroke="#3C3C43" stroke-opacity="0.12"/>
@@ -82,7 +82,7 @@
     </g>
   </g>
 
-  <!-- Request path: ChatGPT → relay → homed → TV -->
+  <!-- Request path: ChatGPT → Cloudflare → homed → TV -->
   <g stroke="#3C3C43" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round" stroke-dasharray="1 7" fill="none">
     <path d="M782 196 H838"/>
     <path d="M922 196 H978"/>
@@ -90,7 +90,7 @@
   </g>
   <g class="mono" font-size="11.5" fill="#3C3C43" fill-opacity="0.6" text-anchor="middle">
     <text x="810" y="180">https</text>
-    <text x="950" y="180">wss·443</text>
+    <text x="950" y="180">tunnel</text>
     <text x="1090" y="180">stdio</text>
   </g>
   <circle class="pulse" r="9" fill="#30D158" fill-opacity="0.55" filter="url(#soft)">
@@ -114,7 +114,7 @@
       <rect class="bar b5" x="15" y="-6" width="5" height="12" rx="2.5"/>
     </g>
   </g>
-  <!-- Relay -->
+  <!-- Cloudflare -->
   <g transform="translate(880 196)">
     <rect x="-36" y="-36" width="72" height="72" rx="20" fill="#8E8E93"/>
     <rect x="-36" y="-36" width="72" height="72" rx="20" fill="url(#sheen)"/>
@@ -147,7 +147,7 @@
 
   <g font-size="15" font-weight="500" fill="#3C3C43" fill-opacity="0.78" text-anchor="middle">
     <text x="740" y="262">ChatGPT</text>
-    <text x="880" y="262">Relay</text>
+    <text x="880" y="262">Cloudflare</text>
     <text x="1020" y="262">homed</text>
     <text x="1160" y="262">Devices</text>
   </g>

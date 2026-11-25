@@ -1,12 +1,14 @@
 # Security model
 
-What each part of Homie can see and do, what it trusts, and what follows from that. Phase 2 state: the relay, the
-hub with its admin and passkeys, person keys, plugins over stdio, the plugin installer and the first-run page.
+What each part of Homie can see and do, what it trusts, and what follows from that. This is the model of v0.2: the
+hub with the sign-in and access control of [MCP Gatekeeper](https://github.com/devXpro/mcp-gatekeeper), a Cloudflare
+Tunnel to the internet, guests with terms, plugins over stdio, the plugin installer and the first-run page. The
+gatekeeper's own review notes are in its [docs/security](https://github.com/devXpro/mcp-gatekeeper/tree/main/docs/security).
 
 ```
-ChatGPT / a Site ──https──▶ relay server (Caddy: TLS ends here) ──▶ frps ◀──wss── homed (127.0.0.1) ──stdio──▶ plugins ──LAN──▶ devices
-the admin (browser) ──https──▶ the same relay ──▶ homed: /admin, /api/admin (passkeys, sessions)
-a browser on the home LAN ──http──▶ homed's first-run page (while the home has no owner with a passkey)
+ChatGPT / Claude ──https──▶ Cloudflare (TLS ends here) ◀══ outbound tunnel ══ cloudflared ──▶ homed (127.0.0.1) ──stdio──▶ plugins ──LAN──▶ devices
+the admin (browser) ──https──▶ the same edge ──▶ homed: /, /api/home, /api/account (passkeys, sessions)
+a browser on the home LAN ──http──▶ homed's first-run page (only while the home has no tunnel, then on the home box itself)
 the home box's terminal ──unix socket──▶ homed (the CLI: the owner, no passkey needed)
 ```
 
@@ -14,153 +16,212 @@ the home box's terminal ──unix socket──▶ homed (the CLI: the owner, no
 
 | Secret | Where it lives | Who holds it | What it unlocks |
 |---|---|---|---|
-| Person key (`ghk_…`) | Only its SHA-256 in `homed.db`; the key itself in the person's ChatGPT Site settings (or the macOS Keychain) | The person's Site | The assistant tools of the plugins that person may use, through the REST façade and `/mcp`. |
-| Relay token | `relay-token` (0600) in the home data dir; `token` (0600) on the server; inside the connect code | The home box and the server | Registering the domain on frps, i.e. **being** the home as seen from the internet. |
-| Passkeys | The admin's devices (iCloud Keychain, a phone); public keys in `homed.db` | Each person | Signing in to the admin, and a fresh assertion (step-up) for dangerous actions. |
-| Session cookie `__Host-homie_session` | The browser; only its SHA-256 in `homed.db` | The signed-in browser | The admin as that person, for 12 h idle / 7 days, without step-up. |
-| Setup link (`…/admin/setup#t=…`) | Shown once (CLI or first-run page); only its SHA-256 in `homed.db` | Whoever has the link | Registering a passkey for the owner (or creating the owner): the admin. Single use, 15 min (CLI) or 3 min (first-run page). |
-| First-run PIN and cookie `homie_firstrun` | homed's memory; the PIN on homed's terminal or from `homed admin firstrun` | The person at the home box | The first-run page: storing the first relay code, and making a setup link. |
-| The local socket `homed.sock` | The data dir (0600, own uid checked) | The OS user that runs homed | Everything: the whole admin API without passkeys, setup links, `reset-access`. |
+| OAuth access token (about one hour) and refresh token (30 days) | Only their SHA-256 in `homie.db`; the tokens themselves in the person's ChatGPT or Claude | The person's assistant | The tools the person's permissions allow, through `/mcp`, until the term ends or the connection is revoked. |
+| Passkeys | The person's devices (iCloud Keychain, a phone); public keys in `homie.db` | Each person | Signing in to the admin, approving a connector on the consent page, and a fresh assertion (step-up) for dangerous actions. |
+| Session cookie `__Host-homie_session` | The browser; only its SHA-256 in `homie.db` | The signed-in browser | The admin as that person, for 12 h idle / 7 days, without step-up. |
+| Setup link (`…/setup#t=…`) | Shown once (CLI or first-run page); only its SHA-256 in `homie.db` | Whoever has the link | Registering the owner's passkey. Single use, 15 min (CLI) or 3 min (first-run page). |
+| Invite link (`…/join#t=…`) | Shown once in the admin; only its SHA-256 in `homie.db` | The person it was made for | Creating that person's passkey, with the devices and term the owner chose. Single use, 24 h. |
+| First-run PIN and cookie `homie_firstrun` | homed's memory; the PIN on homed's terminal or from `homed admin firstrun` | The person at the home box | The first-run page: connecting Cloudflare and making a setup link. |
+| Tunnel credentials (`tunnel/credentials.json`) | The data dir (`0600`) | The home box | Running the named tunnel, i.e. **being** the home as seen from your domain. |
+| Cloudflare account | Cloudflare | You | The domain's DNS, the tunnel, and everything Cloudflare can see. Not stored by Homie: the login link is used once and the account certificate is deleted. |
+| The local socket `homed.sock` | The data dir (`0600`, own uid checked) | The OS user that runs homed | Everything: the admin commands without passkeys, setup links, `reset-access`. |
 | TV client key | `tvs.json` in the homie-tv plugin data dir | homie-tv | Controlling that TV over the LAN. |
 
-### The relay token is as powerful as the person keys
+## The trust model: Cloudflare in the middle
 
-Anyone with the relay token (or the connect code, which contains it) can log in to frps and register the domain
-whenever the home box is not connected — when it sleeps, reboots or loses its network. From then on:
+Cloudflare terminates TLS for your domain, so it **can read every request and response**: bearer tokens, tool
+arguments and results, session cookies, the admin's pages and setup links in flight. This is the price of reaching a
+home with no open port and no server of yours. What follows:
 
-- every request the Sites send, **bearer person keys included**, reaches them instead of the home;
-- they can serve their own pages on the home's origin (`https://<domain>`), e.g. a fake admin login (see "A
-  compromised relay" below for what that can leave behind);
-- the real home box cannot register the domain again until they disconnect (frps keeps the first registration).
+- **It cannot sign in as you.** A passkey assertion is verified at home and bound to the host name, so Cloudflare
+  cannot forge one and cannot, on its own, perform a step-up action.
+- **It can still do damage while a session is open**: steal a live session cookie or an unused setup link, serve
+  modified admin pages, or capture and replay an access token. Whoever controls your Cloudflare account (or the DNS of
+  the domain) controls what answers on the host. Protect that account with two-factor authentication and treat it as
+  part of the home's security. Homie v0.2 has no other way onto the internet: if you do not accept this trade, do not
+  expose the hub (see the [FAQ](FAQ.md#what-does-cloudflare-see)).
+- **The tunnel credentials only run the tunnel.** They do not open the Cloudflare account. If they leak, delete the
+  tunnel in the Cloudflare dashboard and connect again (`homed cloudflare connect <host>` makes a new one).
+- **Client addresses come from Cloudflare.** `cloudflared` connects to the hub on `127.0.0.1`, so the hub trusts the
+  `CF-Connecting-IP` header **only from loopback peers** and listens on loopback only. A local process of the same
+  user could still spoof it; that process is trusted anyway (below).
+- **A quick tunnel gives Cloudflare the same view** and has no account behind it. Whether it sets `CF-Connecting-IP`
+  is not documented; if it does not, the hub falls back to the connection's address, which makes the rate limits
+  shared (acceptable for "trying") and logs it once at warn level.
 
-So keep the token and the connect code as secret as the person keys: never paste them into a chat or a ticket, and
-give the code only on stdin — `homed relay connect -` refuses a code on the command line, where it would land in the
-shell history and the process list. **Rotate** the token (`install/server.sh --rotate-token`, then
-`homed relay connect -` at home) whenever it may have leaked. After a suspected leak, also issue new person keys
-(`homed key new` / `homed key revoke`), since they may have been captured.
+### Quick mode
 
-What a token holder still cannot do: open TCP or UDP listeners on the relay (`allowPorts` only offers frps's own,
-taken port; see `docs/RELAY.md`), reach the home box (it accepts no inbound connections), forge a passkey assertion,
-or read anything stored at home.
+A **quick tunnel** (`homed cloudflare quick`, or "Try without a domain") is Cloudflare's service for testing. Homie
+treats it as exactly that:
 
-## The relay server
+- **Owner only.** Invites are off (`409 quick_mode`): a guest's passkey would die at the next restart.
+- **The address changes at every start of cloudflared**, so at every restart of the hub. `trycloudflare.com` is on the
+  Public Suffix List, so the passkey's relying party is the full random host. The previous address's passkeys, sessions
+  and connectors stop counting; the hub answers `421` on the old Host and reopens the first-run page **on the home
+  box** for a new setup link for the same owner ("a passkey per address, always from the home box").
+- **Cloudflare's limits:** up to 200 requests in flight, no Server-Sent Events (the admin polls instead), no uptime
+  guarantee, for testing and development.
+- The UI labels it «для пробы» / "for trying". Moving to your own domain is `homed cloudflare connect <host>`.
 
-- **TLS ends at the server.** Caddy holds the certificate, so the server (and whoever runs it) can read every request
-  and response: person keys in `Authorization` headers, tool arguments and results, session cookies, admin pages and
-  setup links in flight. Run the relay on a server you control, and do not put a CDN that terminates TLS in front of
-  it.
-- **It holds no home secrets.** No person keys (only what passes through), no passkeys, no plugins, no database. Its
-  only secret is the relay token.
-- **Passkeys are verified at home.** The server cannot forge an assertion, so it cannot perform a step-up action on
-  its own. It can, however, serve modified pages on the origin while an admin uses it: a compromised relay server is
-  a compromised admin session, and the admin trusts the server operator as much as the domain.
-- **Client addresses come from Caddy.** homed sees every public request from `127.0.0.1` (frpc). For rate limits and
-  the audit it takes the second-to-last `X-Forwarded-For` hop: the one Caddy appended (Caddy replaces any
-  `X-Forwarded-For` a client sends), followed by the one frps appended (Caddy's own address). Values further left come
-  from the client and are never used. This holds for the shipped Caddy setup (and the nginx and Traefik snippets in
-  `relay/snippets`); a CDN or another proxy in front of Caddy would make every client look like that proxy.
-- frps publishes no port; it is reachable only from Caddy (or your proxy) inside the docker network.
+## Guests, terms and co-owners
 
-### A compromised relay
+People are owners (the superadmin and co-owners) or members. Members are what an invite creates.
 
-A relay server (or a relay token holder, while the home is offline) that served the origin can leave things behind
-that outlive its own cleanup:
+- **An invite** is one link, valid 24 hours, burned on first use; the guest then has their **own passkey**. The owner
+  picks **which devices** (all, or the ticked ones) and **how long** (forever, 1 day, 3 days, a week, a month, or until
+  a date; at most one year). The ids are stored with the invite and copied to the person when it is redeemed, in the
+  same transaction.
+- **A term is enforced everywhere**, with the same refusal as a disabled person:
 
-- **Year-long cached files.** The admin's hashed assets (`/admin/assets/…`) are sent `Cache-Control: immutable` for a
-  year. A tampered copy served under a real asset name stays in the browser's cache, and the genuine `index.html`
-  keeps loading it after the relay is clean again.
-- **A service worker.** The admin registers none, but the origin allows same-origin workers (`worker-src 'self'`);
-  one installed by a hostile relay keeps intercepting the origin's requests in that browser.
-- **Stolen secrets.** Setup links and session cookies that passed through it, person keys sent by the Sites.
+  | Place | After the term |
+  |---|---|
+  | the admin session | refused and deleted; signing in says "your access has ended" |
+  | the consent page | refused; nothing is written |
+  | code exchange and refresh | `invalid_grant` |
+  | an access token | ends no later than the term |
+  | every `/mcp` call | `401 invalid_token`, the same bytes as a disabled person |
 
-Recovery, on every device that opened the admin while the relay may have been hostile: **clear the site's data**
-(Safari on iPhone: Settings → Apps → Safari → Advanced → Website Data → remove the domain; Safari on a Mac: Settings →
-Privacy → Manage Website Data; Chrome: the lock icon → Site settings → Delete data). Then, on the home box:
-
-1. `homed admin reset-access` — deletes every passkey and session (see its scope below) and prints a new setup link;
-2. rotate the relay token (`install/server.sh --rotate-token`, then `homed relay connect -`);
-3. issue new person keys and revoke the old ones (`homed key new`, `homed key revoke`), and update the Sites.
-
-The admin's pages carry `Strict-Transport-Security` (a year) next to their strict CSP, so a browser that has seen the
-admin never talks to the domain over plain http again; Caddy may add its own.
+  A term never deletes the connection: when the owner extends it («Продлить»), the same connectors work again.
+- **Permissions are enforced by Homie.** The gatekeeper stores `all` or `plugin:<id>` and validates them against the
+  installed plugins; the gateway filters `tools/list` and refuses calls outside them, so a guest never sees another
+  device's tools. A person with no permissions sees nothing.
+- **Revoking.** Per connection (the assistant's connection stops at once), per person now («Закрыть доступ сейчас»:
+  the term is set to now, history stays), or for good (remove: passkeys, sessions, grants and tokens are deleted).
+  Widening access (a later end, no end, more devices) needs a fresh passkey; narrowing never does.
+- **Known gap.** A token issued before an "end access now" is refused by the gate at once, but it counts against the
+  address's failure limit until it expires (at most an hour).
+- **Co-owners.** Only the **superadmin** can invite another owner, and only into the same home. A co-owner has every
+  device and no term, invites and manages members and guests, revokes their connections and reads the audit. Changing
+  or removing an owner (or the superadmin), or resetting access, is the superadmin's alone: a co-owner gets `403`. Nobody
+  can remove the last superadmin.
+- **What a member sees.** Their own devices, connections and activity, and nothing of anyone else's.
 
 ## The hub (`homed`)
 
-- **Loopback only.** It listens on `127.0.0.1` (or `localhost`); other addresses are refused. The relay client forwards
-  to `127.0.0.1:<port>`. A Host allowlist (the relay domain and the hub's own loopback address) answers anything else
-  with 421, which is the DNS-rebinding guard. The listener reads a request's headers within 10 s and the whole
-  request, body included (1 MiB at most), within 2 minutes; idle keep-alive connections close after 2 minutes. There is
-  no write timeout, because the admin's event stream and long tool calls (up to 300 s) keep their answers open.
-- **Person keys.** 32 random bytes, stored as SHA-256 hex, compared in constant time. Each person sees only the
-  assistant tools of the plugins they may use; a hidden tool and a missing one both answer 404. 120 calls per minute
-  per key. A revoked key stops working before the admin answers, and every rebuild of the key set reads the store and
-  swaps under one lock, so a reload that started before a revoke cannot bring the key back.
+- **Loopback only.** The public listener is `127.0.0.1:<port>`; other addresses are refused. `cloudflared` forwards
+  to it. A Host allowlist (the current public host and the hub's own loopback address) answers anything else with
+  `421`, which is also the DNS-rebinding guard. Every answer carries `X-Homie-Instance` for the tunnel self-check. The
+  listener reads headers within 10 s and the whole request, body included (1 MiB at most), within 2 minutes.
+- **One door.** Exactly `/mcp`, behind the gatekeeper's `MiddlewareFor("home")` (`/mcp/<anything>` is 404), with at
+  most 8 requests in flight per person and 120 calls per minute per connection. A token made for another resource is
+  refused.
 - **Names.** Person, home and passkey names are 1–40 characters with no control characters, line breaks, quotes,
   backslashes or backticks; the home name goes into the assistants' instructions as a quoted string.
-- **Audit.** Every tool call through every surface and every admin action is logged, kept 180 days (pruned at start
-  and daily). Argument values of keys matching `(?i)(token|key|secret|password|pin|code)` become `"[redacted]"`.
-  Schema-validation errors quote the rejected values, so the audit keeps only "invalid arguments" for them; the caller
-  still gets the full message. Failed sign-ins, step-ups, registrations and passkey additions are logged with the
-  client's address, as are setup links and relay codes from the first-run page.
-- **A bad plugin tool cannot take the API down.** A tool whose schema the MCP server refuses is skipped with a warning
-  when the plugin lists it and again when the gateway builds its tool set; the plugin's other tools keep working.
-- **Local admin socket.** `<data_dir>/homed.sock`, 0600, and homed accepts only connections from its own OS user
-  (peer credentials). Whoever can open it is the hub's owner: it serves the whole admin API (every tool, admin ones
-  included) without a key, a cookie or step-up, makes setup links (`homed admin setup-link`), shows the first-run PIN
-  (`homed admin firstrun`), resets access, and is the only way to install an older release.
-- **Data dir.** Created 0700. Secret files in it are 0600, and `relay-token` is refused when group or others can read
-  it. homed never changes the mode of an existing directory it did not create (a mistaken `--data-dir ~` must not lock
-  up a home directory); it only tightens its platform default dir and warns about any other dir open to others.
-- **One instance per data dir.** `homed run` holds an `flock` on `<data_dir>/.homed.lock` for its whole life; a second
-  one is refused and never touches the first one's socket.
-- **Toolchain.** Both repos pin a patched Go toolchain (`toolchain` in go.mod) and CI runs `govulncheck`; a known
-  vulnerability reachable from the code fails the build.
+- **Activity and audit.** Every tool call through every path lands in the **activity** log, with its arguments (values
+  of keys matching `(?i)(token|key|secret|password|pin|code)` become `"[redacted]"`), duration and result. Admin
+  actions (`plugin.install`, `settings.update`, `tunnel.connect`, `firstrun.link`, …), sign-ins, invites and revokes are
+  in the gatekeeper's **audit**. Schema-validation errors quote the rejected values, so the log keeps only "invalid
+  arguments" for them.
+- **A bad plugin tool cannot take the API down.** A tool whose schema the MCP server refuses is skipped with a
+  warning; the plugin's other tools keep working.
+- **Data dir.** Created `0700`. Secret files in it are `0600`, and so are the SQLite file and its `-wal`/`-shm`.
+  homed never changes the mode of an existing directory it did not create (a mistaken `--data-dir ~` must not lock up
+  a home directory); it only tightens its platform default dir and warns about any other dir open to others.
+- **One instance per data dir.** `homed run` holds an `flock` on `<data_dir>/.homed.lock` for its whole life.
+- **Toolchain.** Both repos pin a patched Go toolchain and CI runs `govulncheck`; a known vulnerability reachable from
+  the code fails the build.
+
+## `cloudflared`, the child process
+
+- **Where it comes from.** The installer puts it next to `homed`: Homebrew's formula on a Mac that has Homebrew, else
+  a pinned release whose SHA-256 is pinned in `install/home.sh`. A mismatch installs nothing. In Docker it is copied
+  from a pinned image (amd64, arm64) or a pinned binary (arm/v7).
+- **How it runs.** As a child of `homed`, as the same OS user, with a private empty `HOME` inside `tunnel/` (so a
+  `~/.cloudflared/config.yml` of the user can never change or block it), a minimal environment (the `PATH` of its own
+  directory) and **no secret on its command line**: named mode reads `tunnel/credentials.json`, quick mode needs none.
+  It is restarted with a backoff of 1 to 60 seconds when it exits.
+- **Connecting a domain.** The Cloudflare login link is used once; the account certificate it yields is deleted when the
+  tunnel and the DNS record exist, so only the tunnel's own credentials stay. The DNS step refuses to replace an
+  existing record unless you pass `--overwrite-dns` (or tick the confirmation on the first-run page).
+- **On Linux** it runs inside the same systemd sandbox as `homed` (`ProtectSystem=strict`, writes only under
+  `/var/lib/homie`); the unit's hardening was not loosened for it.
+- Its output goes to `logs/cloudflared.log` (`0600`, rotated).
 
 ## The admin: passkeys, sessions, step-up
 
-- **Passkeys only.** The relying party ID is the relay domain and the only origin is `https://<domain>`; every
-  ceremony needs user verification (Face ID, Touch ID) and a discoverable credential. Assertions are verified at
-  home; a signature counter that goes backwards is refused.
-- **The relying party is the relay domain.** A relay change to a new domain is done on the home box only (the web
-  accepts a code for the current domain, a token rotation). Passkeys of the old domain can no longer sign in: they do
-  not count as the owner's passkeys (the first-run page opens again) nor as the "last passkey" that may not be
-  removed; `homed admin reset-access` then gives a new setup link.
+- **Passkeys only.** The relying party ID is the hub's public host, **not** its parent domain: a parent domain would
+  let any other site under it ask for Homie's passkeys. Every ceremony needs user verification (Face ID, Touch ID) and
+  a discoverable credential. A signature counter that goes backwards is refused.
+- **A new host means new passkeys.** The relying party is fixed to the host the passkey was made on. Moving to
+  another domain (or a quick tunnel getting a new address) leaves the old passkeys unusable: they do not count as the
+  owner's, the first-run page opens again, and `homed admin reset-access` gives a new setup link.
 - **Sessions.** `__Host-homie_session` (`Secure; HttpOnly; SameSite=Strict`), stored as a hash, 12 h idle and 7 days
-  absolute. Every mutating request needs `X-Homie: 1`, and a present `Origin` must be `https://<domain>` and a
-  present `Sec-Fetch-Site` `same-origin`.
-- **Step-up.** Installing, updating or removing plugins, updating the hub, creating or revoking keys, adding or
-  removing passkeys and changing the relay need a passkey assertion no older than 5 minutes. **Signing in and
-  registering count as step-up**: right after either, a stolen session cookie is as good as a fresh assertion for 5
-  minutes. A setup link is therefore as powerful as a step-up session.
-- **Rate limits.** Each endpoint class has its own buckets: auth/token and registration per client address and in
-  total; sign-in begins and failed finishes per client address with no shared bucket; step-up and adding a passkey per
-  session. Anonymous traffic cannot spend the owner's sign-in (from another address) or a signed-in owner's step-up.
-  Requests without a client address (loopback, development) have a bucket of their own.
+  absolute. Every mutating request needs `X-Homie: 1`, and a present `Origin` must be the public origin and a present
+  `Sec-Fetch-Site` `same-origin`.
+- **Step-up.** Installing, updating or removing plugins, updating the hub, reconnecting the tunnel and widening a
+  person's access need a passkey assertion no older than 5 minutes. **Signing in and registering count as step-up**:
+  right after either, a stolen session cookie is as good as a fresh assertion for 5 minutes. A setup link is therefore
+  as powerful as a step-up session.
+- **Rate limits.** Each endpoint class has its own buckets: sign-in and registration per client address and in total;
+  step-up per session; the admin API 600 requests a minute per session. Anonymous traffic cannot spend the owner's
+  sign-in or step-up.
+- **Erasing the home from the web is refused.** `DELETE /api/account` answers `403`; the home is not deletable from a
+  browser.
 
 ## Setup links, the first-run page and reset-access
 
-- **Setup links** carry a 32-byte random token in the URL fragment (never in Caddy's or frps's logs, or a Referer).
-  They work once; a new one revokes the older ones. A link from `homed admin setup-link` lives 15 minutes, one from the
+- **Setup links** carry a 32-byte random token in the URL fragment (never in Cloudflare's logs or a Referer). They
+  work once; a new one revokes the older ones. A link from `homed admin setup-link` lives 15 minutes, one from the
   first-run page 3 minutes. Whoever opens a link first becomes, or adds a passkey to, the owner.
-- **The first-run page is plain HTTP on the home network.** Anyone who can watch the LAN traffic (shared Wi-Fi, a
-  hostile device on it) can read the PIN, the page's cookie and the setup link as they pass, and use the link before
-  you do. What limits it:
-  - it runs only while no owner has a passkey, and closes 30 minutes after it opened; `homed admin firstrun` opens it
+- **The first-run page is plain HTTP on the home box.** Anyone who can watch the LAN traffic can read the PIN, the
+  page's cookie and the setup link as they pass, and use the link before you do. What limits it:
+  - it runs only while no owner can sign in, and closes 30 minutes after it opened; `homed admin firstrun` opens it
     again;
-  - it listens on the home network (`0.0.0.0:8090`) only while homed has no relay yet — the step that may need another
-    device; with a relay it listens on `127.0.0.1:8090`, the home box itself;
+  - it listens on the home network (`0.0.0.0:8090`) only while no tunnel is configured, the step that may need
+    another device. Once a tunnel is configured, it listens on `127.0.0.1:8090`, the home box itself;
   - the PIN has 8 digits, changes every 10 minutes and after every issued link, and is printed only to a terminal
     (never to homed's log under launchd or systemd); one device gets 5 wrong PINs per 10 minutes, and 20 wrong PINs
     from anyone close the page until `homed admin firstrun` or a restart;
-  - links it issues live 3 minutes; every link and relay code is logged and audited with the device's LAN address;
-  - it never replaces a relay that is configured (409); that is done on the home box or with step-up in the admin.
+  - links it issues live 3 minutes and are audited (`firstrun.link`);
+  - it answers `421` to any public Host name (DNS rebinding), and its POSTs need `X-Homie` and the same origin.
 
-  On a network you do not trust, skip the page: run `homed admin setup-link` in a terminal on the home box and open
-  the link there.
+  On a network you do not trust, skip the page: run `homed cloudflare connect <host>` and `homed admin setup-link` in a
+  terminal on the home box and open the link there.
 - **`homed admin reset-access`** (socket only) deletes every passkey and every session of every person, revokes every
-  unused setup link and invite, and prints a new setup link for the owner. It does **not** touch person keys (the
-  Sites keep working), the relay token, plugins or the audit log: after a compromise, rotate those as well (see "A
-  compromised relay").
+  unused setup link and invite, and prints a new setup link for the owner. After a compromise also remove the
+  connections of the assistants and, if the tunnel credentials may have leaked, make a new tunnel (see "A compromised
+  Cloudflare account" below).
+
+### A compromised Cloudflare account or tunnel
+
+Anyone who controls the host can serve pages on the home's origin, and may leave things behind that outlive their own
+cleanup:
+
+- **Year-long cached files.** The admin's hashed assets are sent `Cache-Control: immutable` for a year. A tampered copy
+  served under a real asset name stays in the browser's cache.
+- **A service worker.** The admin registers none, but the origin allows same-origin workers; one installed by a hostile
+  edge keeps intercepting the origin's requests in that browser.
+- **Stolen secrets.** Setup links, session cookies and access tokens that passed through it.
+
+Recovery, on every device that opened the admin while the account may have been hostile: **clear the site's data**
+(Safari on iPhone: Settings → Apps → Safari → Advanced → Website Data → remove the host; Safari on a Mac: Settings →
+Privacy → Manage Website Data; Chrome: the lock icon → Site settings → Delete data). Then, on the home box:
+
+1. Secure the Cloudflare account, and delete the tunnel in its dashboard if the credentials may have leaked;
+2. `homed cloudflare connect <host>` to make a new tunnel;
+3. `homed admin reset-access` — deletes every passkey and session and prints a new setup link;
+4. in **People**, remove the people and connections you do not recognise, and add the assistants' connections again.
+
+The admin's pages carry `Strict-Transport-Security` (a year) next to their strict CSP.
+
+## The admin socket on a desktop (macOS)
+
+The socket `homed.sock` is `0600` in a `0700` directory, and homed accepts only connections of its own OS user (peer
+credentials). Whoever can open it is the hub's owner: it makes setup links and resets access.
+
+On **Linux** the hub runs as a dedicated user (`homie`), so another user's malware cannot reach the socket. On
+**macOS** it runs as **you**, in your login session. A program of your own user could therefore also use the socket —
+but a same-user program can already replace the `homed` binary in the data dir, read `homie.db` and the TV keys, and
+read the tunnel credentials, so hardening the socket alone would buy little. What Homie does instead is *detection*:
+
+- the audit and the log record the **process id and executable path** of whoever asked for `setup-link` or
+  `reset-access`;
+- a `reset-access` raises an **"access was reset"** alert in the admin's Home screen (kept for 7 days), naming the
+  program that asked;
+- the boundary is documented: on a Mac that is not yours alone, do not run Homie as an account that others use.
+
+A dedicated macOS user for the daemon would be a real boundary, but needs `sudo` at install and has unverified
+side effects on the Local Network permission; it is not part of v0.2.
 
 ## Plugins
 
@@ -168,14 +229,14 @@ Plugins are separate executables that the hub starts with a minimal environment 
 does and does not isolate:
 
 - **A plugin runs as the same OS user as homed. It is fully trusted.** It can read everything that user can:
-  `homed.db` (key hashes, sessions, the audit log), **`relay-token`**, the admin socket, other plugins' data dirs, the
+  `homie.db` (hashes, sessions, the audit log), the tunnel credentials, the admin socket, other plugins' data dirs, the
   user's files and, on a Mac, Keychain items that user can open without a prompt. Install only plugins whose authors
-  you trust as much as the hub itself. Their per-plugin data dir (`HOMIE_DATA_DIR`, 0700) is for tidiness, not a
+  you trust as much as the hub itself. Their per-plugin data dir (`HOMIE_DATA_DIR`, `0700`) is for tidiness, not a
   sandbox.
-- Plugins never receive the callers' keys, and they are not reachable from the network through the hub: the hub talks
-  to them over stdio only. They may make their own network connections (homie-tv talks to TVs on the LAN).
-- The request `_meta` `homie/caller` and `homie/via` are informational; plugins must not base security
-  decisions on them.
+- Plugins never receive the callers' tokens, and they are not reachable from the network through the hub: the hub
+  talks to them over stdio only. They may make their own network connections (homie-tv talks to TVs on the LAN).
+- The request `_meta` `homie/caller` and `homie/via` (`chatgpt`, `claude`, `admin`, `cli`) are informational; plugins
+  must not base security decisions on them.
 
 ### Installing from GitHub
 
@@ -188,14 +249,13 @@ does and does not isolate:
   written through it with `O_EXCL` (no link followed). Modes become 0755 or 0644.
 - **The manifest is the author's text.** Its homepage is shown only when it is an `https` link, and next to the source
   link (always `https://github.com/<repo>`), never instead of it.
-- **No downgrades from the web.** An update to a release older than the installed one — also a "latest" that points
-  back, e.g. after a newer release was pulled — is refused; only the local socket can ask for it, with an explicit
-  `allowDowngrade`. One install, update or removal at a time per plugin.
+- **No downgrades from the web.** An update to a release older than the installed one is refused; only the local
+  socket can ask for it, with an explicit `--allow-downgrade`. One install, update or removal at a time per plugin.
 
 ## The home LAN (homie-tv)
 
 - LG webOS 3.x speaks SSAP over plain `ws://` on port 3000, so the TV client key travels **in clear** on the LAN;
-  anyone who can sniff the LAN can capture it and control the TV. See `homie-tv/docs/families/lg-webos.md`.
+  anyone who can sniff the LAN can capture it and control the TV.
 - Discovery fetches the UPnP description only from the IP that answered the SSDP search and follows no redirects; the
   SSAP websocket dial follows no redirects either.
 - Wake-on-LAN packets are broadcast on the LAN; they carry only the TV's MAC address.
@@ -203,4 +263,4 @@ does and does not isolate:
 ## Reporting a problem
 
 Open a GitHub issue without details for anything that could be abused, and ask for a private channel; do not post
-tokens, keys or connect codes anywhere.
+tokens, keys or setup links anywhere.
