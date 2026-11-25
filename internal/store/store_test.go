@@ -342,42 +342,6 @@ func TestTransactionsSpanBothSchemas(t *testing.T) {
 	}
 }
 
-func TestLinkTTL(t *testing.T) {
-	ctx := context.Background()
-	st, _ := newTestStore(t)
-	if err := st.Accounts().Create(ctx, core.Account{ID: "acc_a", Name: "Дом", CreatedAt: epoch}); err != nil {
-		t.Fatal(err)
-	}
-	invite := func(ctx context.Context, kind core.InviteKind, hash string) core.Invite {
-		t.Helper()
-		inv := core.Invite{ID: "inv_" + hash, TokenHash: []byte(hash), Kind: kind, CreatedAt: epoch, ExpiresAt: epoch.Add(15 * time.Minute)}
-		if kind == core.InviteMember {
-			inv.AccountID, inv.CreatedBy = "acc_a", "per_alice"
-		}
-		if err := st.Invites().Create(ctx, inv); err != nil {
-			t.Fatal(err)
-		}
-		got, err := st.Invites().Peek(ctx, []byte(hash), epoch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got
-	}
-	short := WithLinkTTL(ctx, 3*time.Minute)
-	if got := invite(short, core.InviteSetup, "a"); !got.ExpiresAt.Equal(epoch.Add(3 * time.Minute)) {
-		t.Errorf("setup link under WithLinkTTL ends %v", got.ExpiresAt)
-	}
-	if got := invite(ctx, core.InviteSetup, "b"); !got.ExpiresAt.Equal(epoch.Add(15 * time.Minute)) {
-		t.Errorf("setup link without it ends %v", got.ExpiresAt)
-	}
-	if got := invite(short, core.InviteMember, "c"); !got.ExpiresAt.Equal(epoch.Add(15 * time.Minute)) {
-		t.Errorf("a member invite was clipped: %v", got.ExpiresAt)
-	}
-	if got := invite(WithLinkTTL(ctx, time.Hour), core.InviteSetup, "d"); !got.ExpiresAt.Equal(epoch.Add(15 * time.Minute)) {
-		t.Errorf("a longer TTL extended the link: %v", got.ExpiresAt)
-	}
-}
-
 // Every audit entry with an actor carries the actor's name, whichever package writes it.
 func TestAuditNamesTheActor(t *testing.T) {
 	ctx := context.Background()

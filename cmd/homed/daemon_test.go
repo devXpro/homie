@@ -926,8 +926,8 @@ func TestQuickHostChange(t *testing.T) {
 	}
 	second := tunneltest.QuickHost(2)
 	waitFor(t, "the new quick URL", func() bool { return h.d.publicHost() == second })
-	if ready, _ := ownerReady(t.Context(), h.d.st, second); ready {
-		t.Fatal("the old URL's passkey counts at the new one")
+	if ready, err := h.d.ownerReady(t.Context()); err != nil || ready {
+		t.Fatalf("the old URL's passkey counts at the new one (ready %v, err %v)", ready, err)
 	}
 	if code, _, _ := alice.do("GET", "/api/me", nil); code != http.StatusMisdirectedRequest {
 		t.Fatalf("the old host: %d", code)

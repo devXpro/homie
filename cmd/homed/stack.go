@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -210,41 +209,14 @@ func (notConnected) RegisterRoutes(mux *http.ServeMux) {
 }
 
 // ownerReady reports whether the home's superadmin has a usable passkey of the current public URL: then nothing needs
-// the first-run page. False while there is no public URL.
+// the first-run page. False while there is no public URL. The current stack's auth answers for its own relying party,
+// so a passkey of an old URL does not count, which is how a quick tunnel's new URL reopens the first-run page.
 func (d *daemon) ownerReady(ctx context.Context) (bool, error) {
 	s := d.stack.Load()
 	if s == nil {
 		return false, nil
 	}
-	return ownerReady(ctx, d.st, s.site.RPID)
-}
-
-// ownerReady reports whether an enabled superadmin has a passkey of relying party rpID. A passkey's relying party is
-// in its stored credential (package auth's format, {"rpId":…}); one of an old URL cannot sign in here and does not
-// count, which is how a quick tunnel's new URL reopens the first-run page.
-func ownerReady(ctx context.Context, st gkstore.Store, rpID string) (bool, error) {
-	sas, err := superadmins(ctx, st)
-	if err != nil {
-		return false, err
-	}
-	for _, p := range sas {
-		if p.DisabledAt != nil {
-			continue
-		}
-		pks, err := st.Passkeys().ListByPerson(ctx, p.ID)
-		if err != nil {
-			return false, err
-		}
-		for _, pk := range pks {
-			var c struct {
-				RPID string `json:"rpId"`
-			}
-			if json.Unmarshal(pk.Data, &c) == nil && c.RPID == rpID {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
+	return s.auth.SuperadminCanSignIn(ctx)
 }
 
 // superadmins returns the superadmins of every account.

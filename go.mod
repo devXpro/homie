@@ -6,7 +6,7 @@ toolchain go1.26.11
 
 require (
 	github.com/descope/virtualwebauthn v1.0.5
-	github.com/devXpro/mcp-gatekeeper v0.1.1-0.20261125085512-0079cea67146
+	github.com/devXpro/mcp-gatekeeper v0.1.1-0.20261125102207-994399174f72
 	github.com/google/jsonschema-go v0.4.3
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0

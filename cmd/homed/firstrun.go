@@ -11,7 +11,6 @@ import (
 	"github.com/devXpro/mcp-gatekeeper/core"
 
 	"github.com/devXpro/homie/internal/firstrun"
-	"github.com/devXpro/homie/internal/store"
 	"github.com/devXpro/homie/internal/tunnel"
 )
 
@@ -186,13 +185,13 @@ func (h firstRunHome) OwnerExists(ctx context.Context) (bool, error) {
 	return len(sas) > 0, err
 }
 
-// SetupLink is auth's in-process setup link of the current public URL, stored to live at most ttl.
+// SetupLink is auth's in-process setup link of the current public URL, living at most ttl.
 func (h firstRunHome) SetupLink(ctx context.Context, ttl time.Duration) (string, error) {
 	s := h.d.stack.Load()
 	if s == nil {
 		return "", errors.New("the home has no public URL yet")
 	}
-	url, _, err := s.auth.IssueSetupLink(store.WithLinkTTL(ctx, ttl))
+	url, _, err := s.auth.IssueSetupLinkTTL(ctx, ttl)
 	return url, err
 }
 
