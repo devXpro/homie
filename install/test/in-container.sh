@@ -101,27 +101,72 @@ check_files() { # VERSION
 	fi
 }
 
+# The tools the wrapper itself runs. The service user plants look-alikes of them in its program dir (see plant_tools).
+readonly PLANTED_TOOLS="id sudo runuser env"
+# Not sticky, so root, tester and homie can each create their own canary file in it (fs.protected_regular).
+readonly CANARY_DIR="/tmp/homie-planted.d"
+
+# plant_tools: the service user drops id, sudo, runuser and env into its program dir, first on the CLI's PATH. Each one
+# leaves a canary named TOOL.USER and then runs the real tool, so everything keeps working. A canary of any user but
+# homie means root or the caller ran a file the service user wrote (v0.1.1's rule, review R-2).
+plant_tools() {
+	local t real
+	rm -rf "$CANARY_DIR"
+	install -d -m 0777 "$CANARY_DIR"
+	for t in $PLANTED_TOOLS; do
+		real="$(command -v "$t")" || fail "no $t in the image"
+		# shellcheck disable=SC2016 # $1 belongs to the inner shell
+		runuser -u homie -- sh -c 'cat >"$1.x" && chmod 755 "$1.x" && mv -f "$1.x" "$1"' sh "$LIB/$t" <<EOF
+#!/bin/sh
+touch "$CANARY_DIR/$t.\$(/usr/bin/id -un)"
+exec $real "\$@"
+EOF
+	done
+}
+
+# check_planted: no planted tool ran as anyone but homie, and the plant was live (homed, as homie, ran the planted id).
+check_planted() {
+	local t foreign
+	foreign="$(find "$CANARY_DIR" -type f ! -name '*.homie' -printf '%f ')"
+	[[ -z "$foreign" ]] || fail "files the service user planted ran as someone else: $foreign"
+	pass "the planted $PLANTED_TOOLS never ran as root or as the caller"
+	assert_file "$CANARY_DIR/id.homie"
+	pass "the plant was live: homed, as homie, found the planted id on its PATH"
+	for t in $PLANTED_TOOLS; do
+		runuser -u homie -- rm -f "$LIB/$t"
+	done
+	rm -rf "$CANARY_DIR"
+}
+
 check_wrapper() {
 	step "the homed command"
+	plant_tools
 	run_capture "$CMD_PATH" env
 	assert_eq "$OUT" "homie $DATA" "root runs the CLI as homie on the service data dir"
+	run_capture env PATH="$LIB:/usr/sbin:/usr/bin:/sbin:/bin" "$CMD_PATH" env
+	assert_eq "$OUT" "homie $DATA" "root with the program dir on its own PATH: the same"
 	run_capture runuser -u homie -- "$CMD_PATH" env
 	assert_eq "$OUT" "homie $DATA" "homie itself runs it directly"
 	run_capture as_tester "$CMD_PATH version"
-	assert_eq "$OUT" "homed $(cat /tmp/expect-version)" "an unprivileged user can run 'homed version'"
+	assert_eq "$OUT" "homed $(cat /tmp/expect-version)" "a user with sudo rights can run 'homed version'"
 	run_capture as_tester "$CMD_PATH env"
 	assert_eq "$OUT" "homie $DATA" "an unprivileged user with sudo rights runs the CLI as homie"
 	# `homed cloudflare ...` must find the installed cloudflared whoever runs it (the fake logs what the PATH gave it).
 	rm -f "$DATA/cloudflare.log"
 	expect_ok "root: homed cloudflare status" "$CMD_PATH" cloudflare status </dev/null
 	expect_ok "sudoer: homed cloudflare status" as_tester "$CMD_PATH cloudflare status </dev/null"
+	expect_ok "homie: homed cloudflare status" runuser -u homie -- "$CMD_PATH" cloudflare status </dev/null
 	assert_eq "$(cut -d"|" -f2- "$DATA/cloudflare.log" | sort -u)" "homie|$DATA|$CF_PATH" "the CLI runs as homie and finds $CF_PATH"
 	rm -f "$DATA/cloudflare.log"
 	rm -f /etc/sudoers.d/tester
 	run_capture as_tester "$CMD_PATH env </dev/null"
 	[[ "$RC" -ne 0 ]] || fail "a user without sudo rights must not get the CLI"
 	pass "a user without sudo rights is refused"
+	run_capture as_tester "$CMD_PATH version </dev/null"
+	[[ "$RC" -ne 0 ]] || fail "'homed version' must not run the service user's binary as a user without sudo rights"
+	pass "a user without sudo rights is refused 'homed version' too (the binary never runs as the caller)"
 	setup_tester
+	check_planted
 }
 
 nostart() {

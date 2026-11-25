@@ -1,33 +1,35 @@
 #!/bin/sh
 # Installed by the Homie installer (install/home.sh); rewritten on every update.
 # Runs the homed CLI as the service user `homie` on the service's data directory, so `homed cloudflare connect ...`
-# works from any account that may use sudo. The real binary is never run as root: it is writable by the service user.
+# works from any account that may use sudo. Nothing the service user can write runs as anyone else: the real binary
+# and its dir belong to `homie`, so this wrapper takes its own tools (id, sudo, runuser, env) from the system dirs only
+# and hands the program dir to the real binary alone, after the switch to `homie`.
 REAL=__HOMED_BIN__
 SERVICE_USER=homie
 HOMED_DATA_DIR=/var/lib/homie
 export HOMED_DATA_DIR
-# cloudflared sits next to the real binary; `homed cloudflare ...` looks for it on the PATH, as the service does.
-PATH="${REAL%/*}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
+# The service's PATH (homie.service): cloudflared sits next to the real binary, and `homed cloudflare ...` looks for it
+# on the PATH, as the service does.
+SERVICE_PATH="${REAL%/*}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 if [ "$(id -un)" = "$SERVICE_USER" ]; then
-	exec "$REAL" "$@"
+	exec env PATH="$SERVICE_PATH" "$REAL" "$@"
 fi
+# Every other caller, `homed version` included, goes through the switch: the real binary never runs as the caller.
 if [ "$(id -u)" != 0 ]; then
-	case "${1:-}" in
-	version | --version | -v | help | -h | --help) exec "$REAL" "$@" ;;
-	esac
 	if command -v sudo >/dev/null 2>&1; then
-		exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$PATH" "$REAL" "$@"
+		exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$SERVICE_PATH" "$REAL" "$@"
 	fi
 	echo "homed: the hub runs as the user $SERVICE_USER; run this with sudo" >&2
 	exit 1
 fi
 if command -v runuser >/dev/null 2>&1; then
-	exec runuser -u "$SERVICE_USER" -- env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$PATH" "$REAL" "$@"
+	exec runuser -u "$SERVICE_USER" -- env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$SERVICE_PATH" "$REAL" "$@"
 fi
 if command -v sudo >/dev/null 2>&1; then
-	exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$PATH" "$REAL" "$@"
+	exec sudo -u "$SERVICE_USER" env HOMED_DATA_DIR="$HOMED_DATA_DIR" PATH="$SERVICE_PATH" "$REAL" "$@"
 fi
 echo "homed: neither runuser nor sudo is installed; run: su -s /bin/sh $SERVICE_USER -c '$REAL ...'" >&2
 exit 1
