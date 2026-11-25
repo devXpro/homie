@@ -99,7 +99,7 @@ func newServer(st *Store, dev Device) *mcp.Server {
 		Title:       "Add a plug",
 		Description: "Adds the Shelly Gen2+ plug at a LAN address and reads its model. The plug must be powered.",
 		InputSchema: object(map[string]any{
-			"host": map[string]any{"type": "string", "description": "The plug's IPv4 address, e.g. 192.168.1.30."},
+			"host": map[string]any{"type": "string", "description": "The plug's IPv4 address, e.g. 192.0.2.30."},
 			"name": map[string]any{"type": "string", "description": "What people call it, e.g. Desk lamp."},
 		}, "host"),
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false)},
@@ -180,7 +180,7 @@ func (h *handlers) switchPlug(ctx context.Context, req *mcp.CallToolRequest, in 
 func (h *handlers) add(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, any, error) {
 	host := strings.TrimSpace(in.Host)
 	if host == "" || strings.ContainsAny(host, "/?#@ ") {
-		return failure("Give the plug's address on the home network, e.g. 192.168.1.30."), nil, nil
+		return failure("Give the plug's address on the home network, e.g. 192.0.2.30."), nil, nil
 	}
 	// Tell the admin what is happening; a no-op when an assistant calls (no progress token).
 	_ = pluginkit.Progress(ctx, req, 1, 2, "Checking the plug at "+host,

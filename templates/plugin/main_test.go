@@ -150,11 +150,11 @@ func TestAddSwitchList(t *testing.T) {
 		t.Fatalf("switch before add: %+v", r)
 	}
 
-	r := f.call(t, "plug_add", map[string]any{"host": "192.168.1.30", "name": "Desk lamp"}, "t1")
+	r := f.call(t, "plug_add", map[string]any{"host": "192.0.2.30", "name": "Desk lamp"}, "t1")
 	if r.isError || r.text != "Desk lamp is added." || r.data["message"] != r.text {
 		t.Fatalf("add: %+v", r)
 	}
-	if p := <-f.progress; p.ProgressToken != "t1" || p.Message != "Checking the plug at 192.168.1.30" {
+	if p := <-f.progress; p.ProgressToken != "t1" || p.Message != "Checking the plug at 192.0.2.30" {
 		t.Errorf("progress: %+v", p)
 	}
 
@@ -178,8 +178,8 @@ func TestFailures(t *testing.T) {
 	if r := f.call(t, "plug_add", map[string]any{"host": "offline.invalid"}, nil); !r.isError || !strings.Contains(r.text, "No Shelly plug") {
 		t.Errorf("add offline: %+v", r)
 	}
-	f.call(t, "plug_add", map[string]any{"host": "192.168.1.30", "name": "Desk lamp"}, nil)
-	f.call(t, "plug_add", map[string]any{"host": "192.168.1.31", "name": "Kettle"}, nil)
+	f.call(t, "plug_add", map[string]any{"host": "192.0.2.30", "name": "Desk lamp"}, nil)
+	f.call(t, "plug_add", map[string]any{"host": "192.0.2.31", "name": "Kettle"}, nil)
 	if r := f.call(t, "plug_switch", map[string]any{"on": false}, nil); !r.isError || !strings.Contains(r.text, "Kettle (plug-2)") {
 		t.Errorf("ambiguous switch: %+v", r)
 	}

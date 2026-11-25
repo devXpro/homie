@@ -152,7 +152,7 @@ func toolByName(tools []hub.Tool, name string) hub.Tool {
 	return hub.Tool{}
 }
 
-var roman = hub.Caller{Person: "Roman", Via: "cli"}
+var alice = hub.Caller{Person: "Alice", Via: "cli"}
 
 func TestListingAndAudiences(t *testing.T) {
 	h, _ := newHost(t, fastTiming, fake())
@@ -219,7 +219,7 @@ func TestInvalidNamesSkipped(t *testing.T) {
 			t.Errorf("invalid tool %q was not skipped", n)
 		}
 	}
-	if _, err := h.Call(t.Context(), roman, "other_tool", nil); !errors.Is(err, hub.ErrUnknownTool) {
+	if _, err := h.Call(t.Context(), alice, "other_tool", nil); !errors.Is(err, hub.ErrUnknownTool) {
 		t.Errorf("calling a skipped tool: err = %v, want ErrUnknownTool", err)
 	}
 }
@@ -229,7 +229,7 @@ func TestCall(t *testing.T) {
 	waitUp(t, h, "fake")
 	ctx := t.Context()
 
-	res, err := h.Call(ctx, roman, "fake_echo", json.RawMessage(`{"text":"hi"}`))
+	res, err := h.Call(ctx, alice, "fake_echo", json.RawMessage(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,26 +237,26 @@ func TestCall(t *testing.T) {
 	if err := json.Unmarshal(res.Structured, &structured); err != nil {
 		t.Fatalf("structured %s: %v", res.Structured, err)
 	}
-	if res.Text != "hi" || res.IsError || structured["caller"] != "Roman" || structured["via"] != "cli" {
+	if res.Text != "hi" || res.IsError || structured["caller"] != "Alice" || structured["via"] != "cli" {
 		t.Errorf("fake_echo = %+v, structured %v", res, structured)
 	}
 
-	res, err = h.Call(ctx, roman, "fake_fail", nil)
+	res, err = h.Call(ctx, alice, "fake_fail", nil)
 	if err != nil || !res.IsError || res.Text != "The fake device is unreachable." {
 		t.Errorf("fake_fail = %+v, %v; want IsError with text and nil err", res, err)
 	}
 
-	if res, err := h.Call(ctx, roman, "fake_list", nil); err != nil || res.Text != "one device" || res.Structured != nil {
+	if res, err := h.Call(ctx, alice, "fake_list", nil); err != nil || res.Text != "one device" || res.Structured != nil {
 		t.Errorf("fake_list = %+v, %v", res, err)
 	}
 
 	for _, name := range []string{"fake_nope", "nope_x", "", "fake"} {
-		if _, err := h.Call(ctx, roman, name, nil); !errors.Is(err, hub.ErrUnknownTool) {
+		if _, err := h.Call(ctx, alice, name, nil); !errors.Is(err, hub.ErrUnknownTool) {
 			t.Errorf("Call(%q) err = %v, want ErrUnknownTool", name, err)
 		}
 	}
 	for _, args := range []string{`[1]`, `null`, `"x"`, `{`} {
-		if _, err := h.Call(ctx, roman, "fake_echo", json.RawMessage(args)); err == nil {
+		if _, err := h.Call(ctx, alice, "fake_echo", json.RawMessage(args)); err == nil {
 			t.Errorf("Call with args %s succeeded, want an error", args)
 		}
 	}
@@ -267,7 +267,7 @@ func TestCallTimeout(t *testing.T) {
 	waitUp(t, h, "fake")
 
 	start := time.Now()
-	_, err := h.Call(t.Context(), roman, "fake_sleep", json.RawMessage(`{"ms":20000}`)) // tool timeout is 1 s
+	_, err := h.Call(t.Context(), alice, "fake_sleep", json.RawMessage(`{"ms":20000}`)) // tool timeout is 1 s
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want DeadlineExceeded", err)
 	}
@@ -278,12 +278,12 @@ func TestCallTimeout(t *testing.T) {
 	// The caller's own deadline wins when it is shorter.
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	if _, err := h.Call(ctx, roman, "fake_sleep", json.RawMessage(`{"ms":20000}`)); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := h.Call(ctx, alice, "fake_sleep", json.RawMessage(`{"ms":20000}`)); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want DeadlineExceeded", err)
 	}
 
 	// The plugin is still fine.
-	if res, err := h.Call(t.Context(), roman, "fake_sleep", json.RawMessage(`{"ms":1}`)); err != nil || res.Text != "slept" {
+	if res, err := h.Call(t.Context(), alice, "fake_sleep", json.RawMessage(`{"ms":1}`)); err != nil || res.Text != "slept" {
 		t.Fatalf("after timeouts: %+v, %v", res, err)
 	}
 }
@@ -296,7 +296,7 @@ func TestCrashKeepsToolsAndReportsDown(t *testing.T) {
 	before := names(h.Tools(hub.AudienceAdmin))
 	changed := h.Changed()
 
-	if _, err := h.Call(t.Context(), roman, "fake_crash", nil); !errors.Is(err, hub.ErrPluginDown) {
+	if _, err := h.Call(t.Context(), alice, "fake_crash", nil); !errors.Is(err, hub.ErrPluginDown) {
 		t.Fatalf("fake_crash err = %v, want ErrPluginDown", err)
 	}
 	waitFor(t, h, "the crash to be recorded", func() bool { return state(h, "fake").LastError != "" })
@@ -312,7 +312,7 @@ func TestCrashKeepsToolsAndReportsDown(t *testing.T) {
 		t.Error("Changed fired although the tool set did not change")
 	default:
 	}
-	if _, err := h.Call(t.Context(), roman, "fake_echo", json.RawMessage(`{"text":"x"}`)); !errors.Is(err, hub.ErrPluginDown) {
+	if _, err := h.Call(t.Context(), alice, "fake_echo", json.RawMessage(`{"text":"x"}`)); !errors.Is(err, hub.ErrPluginDown) {
 		t.Errorf("call while down: err = %v, want ErrPluginDown", err)
 	}
 }
@@ -321,13 +321,13 @@ func TestCrashAndRestart(t *testing.T) {
 	h, _ := newHost(t, fastTiming, fake())
 	waitUp(t, h, "fake")
 
-	if _, err := h.Call(t.Context(), roman, "fake_crash", nil); !errors.Is(err, hub.ErrPluginDown) {
+	if _, err := h.Call(t.Context(), alice, "fake_crash", nil); !errors.Is(err, hub.ErrPluginDown) {
 		t.Fatalf("fake_crash err = %v, want ErrPluginDown", err)
 	}
 	waitFor(t, h, "a second start", func() bool {
 		return countPrefix(h.Logs("fake"), "fake plugin starting") >= 2 && state(h, "fake").State == hub.PluginUp
 	})
-	res, err := h.Call(t.Context(), roman, "fake_echo", json.RawMessage(`{"text":"back"}`))
+	res, err := h.Call(t.Context(), alice, "fake_echo", json.RawMessage(`{"text":"back"}`))
 	if err != nil || res.Text != "back" {
 		t.Fatalf("after restart: %+v, %v", res, err)
 	}
@@ -368,7 +368,7 @@ func TestChangedFires(t *testing.T) {
 	waitUp(t, h, "fake")
 	changed := h.Changed()
 
-	if _, err := h.Call(t.Context(), roman, "fake_add", json.RawMessage(`{"text":"extra"}`)); err != nil {
+	if _, err := h.Call(t.Context(), alice, "fake_add", json.RawMessage(`{"text":"extra"}`)); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -379,7 +379,7 @@ func TestChangedFires(t *testing.T) {
 	if !slices.Contains(names(h.Tools(hub.AudienceAssistant)), "fake_extra") {
 		t.Fatalf("fake_extra missing: %v", names(h.Tools(hub.AudienceAssistant)))
 	}
-	res, err := h.Call(t.Context(), roman, "fake_extra", nil)
+	res, err := h.Call(t.Context(), alice, "fake_extra", nil)
 	if err != nil || res.Text != "added tool ran" {
 		t.Fatalf("fake_extra = %+v, %v", res, err)
 	}
@@ -397,7 +397,7 @@ func TestLegacyProtocolPlugin(t *testing.T) {
 		t.Fatalf("negotiated %q, want 2025-11-25", protocol)
 	}
 	changed := h.Changed()
-	if _, err := h.Call(t.Context(), roman, "fake_add", json.RawMessage(`{"text":"legacy"}`)); err != nil {
+	if _, err := h.Call(t.Context(), alice, "fake_add", json.RawMessage(`{"text":"legacy"}`)); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -405,8 +405,8 @@ func TestLegacyProtocolPlugin(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Changed did not fire")
 	}
-	res, err := h.Call(t.Context(), roman, "fake_echo", json.RawMessage(`{"text":"old"}`))
-	if err != nil || res.Text != "old" || !strings.Contains(string(res.Structured), `"caller":"Roman"`) {
+	res, err := h.Call(t.Context(), alice, "fake_echo", json.RawMessage(`{"text":"old"}`))
+	if err != nil || res.Text != "old" || !strings.Contains(string(res.Structured), `"caller":"Alice"`) {
 		t.Fatalf("fake_echo = %+v, %v", res, err)
 	}
 	if got := h.Instructions(); got != "Fake instructions." {
@@ -417,7 +417,7 @@ func TestLegacyProtocolPlugin(t *testing.T) {
 func TestStderrLog(t *testing.T) {
 	h, dataDir := newHost(t, fastTiming, fake())
 	waitUp(t, h, "fake")
-	if _, err := h.Call(t.Context(), roman, "fake_log", json.RawMessage(`{"text":"hello from stderr"}`)); err != nil {
+	if _, err := h.Call(t.Context(), alice, "fake_log", json.RawMessage(`{"text":"hello from stderr"}`)); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, h, "the stderr line", func() bool { return slices.Contains(h.Logs("fake"), "hello from stderr") })
@@ -445,7 +445,7 @@ func TestEnvAndDataDir(t *testing.T) {
 	t.Setenv("HOMIE_TEST_LEAK", "secret")
 	h, dataDir := newHost(t, fastTiming, fake())
 	waitUp(t, h, "fake")
-	res, err := h.Call(t.Context(), roman, "fake_env", nil)
+	res, err := h.Call(t.Context(), alice, "fake_env", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestShutdown(t *testing.T) {
 	if st := state(h, "fake"); st.State != hub.PluginStopped {
 		t.Errorf("state after Close = %+v", st)
 	}
-	if _, err := h.Call(t.Context(), roman, "fake_echo", nil); !errors.Is(err, hub.ErrPluginDown) {
+	if _, err := h.Call(t.Context(), alice, "fake_echo", nil); !errors.Is(err, hub.ErrPluginDown) {
 		t.Errorf("call after Close: err = %v, want ErrPluginDown", err)
 	}
 	h.Start(t.Context()) // no effect after Close
@@ -531,7 +531,7 @@ func TestCloseDuringCall(t *testing.T) {
 	waitUp(t, h, "fake")
 	errc := make(chan error, 1)
 	go func() {
-		_, err := h.Call(context.Background(), roman, "fake_sleep", json.RawMessage(`{"ms":800}`))
+		_, err := h.Call(context.Background(), alice, "fake_sleep", json.RawMessage(`{"ms":800}`))
 		errc <- err
 	}()
 	waitFor(t, h, "the call to reach the plugin", func() bool { return slices.Contains(h.Logs("fake"), "sleeping 800") })
@@ -566,7 +566,7 @@ func TestExampleUnderHost(t *testing.T) {
 	if res.Text != "hello" || out["caller"] != "Bella" {
 		t.Errorf("echo_say = %+v", res)
 	}
-	res, err = h.Call(t.Context(), roman, "echo_list", nil)
+	res, err = h.Call(t.Context(), alice, "echo_list", nil)
 	if err != nil || !strings.Contains(string(res.Structured), `"items"`) {
 		t.Errorf("echo_list = %s, %v", res.Structured, err)
 	}
@@ -647,11 +647,11 @@ func TestCallProgress(t *testing.T) {
 			}
 			done := make(chan outcome, 1)
 			go func() {
-				res, err := h.Call(ctx, roman, "fake_progress", nil)
+				res, err := h.Call(ctx, alice, "fake_progress", nil)
 				done <- outcome{res, err}
 			}()
 			first, second := <-reports, <-reports
-			if _, err := h.Call(t.Context(), roman, "fake_release", nil); err != nil {
+			if _, err := h.Call(t.Context(), alice, "fake_release", nil); err != nil {
 				t.Fatal(err)
 			}
 			if o := <-done; o.err != nil || o.res.Text != "released" {
@@ -666,7 +666,7 @@ func TestCallProgress(t *testing.T) {
 			}
 
 			// Without WithProgress the plugin gets no token and sends nothing.
-			if res, err := h.Call(t.Context(), roman, "fake_progress", nil); err != nil || res.Text != "no token" {
+			if res, err := h.Call(t.Context(), alice, "fake_progress", nil); err != nil || res.Text != "no token" {
 				t.Fatalf("fake_progress without progress = %+v, %v", res, err)
 			}
 			h.mu.Lock()

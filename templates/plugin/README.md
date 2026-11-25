@@ -58,7 +58,7 @@ W=/tmp/plug-dev
 homed plugin add --data-dir $W/data --id plug -- "$PWD/bin/homie-plug" serve
 homed run --data-dir $W/data --listen 127.0.0.1:8080 --setup-listen 127.0.0.1:8090 --dev-origin http://localhost:8080 &
 homed tool list --data-dir $W/data
-homed tool call --data-dir $W/data plug_add '{"host":"192.168.1.30","name":"Desk lamp"}'
+homed tool call --data-dir $W/data plug_add '{"host":"192.0.2.30","name":"Desk lamp"}'
 homed tool call --data-dir $W/data plug_switch '{"on":true}'
 ```
 

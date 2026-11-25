@@ -167,13 +167,13 @@ func TestServerOverMCP(t *testing.T) {
 
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name: "demo_who",
-		Meta: mcp.Meta{MetaCaller: "Roman", MetaVia: "site"},
+		Meta: mcp.Meta{MetaCaller: "Alice", MetaVia: "chatgpt"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, _ := res.StructuredContent.(map[string]any)
-	if got["person"] != "Roman" || got["via"] != "site" {
+	if got["person"] != "Alice" || got["via"] != "chatgpt" {
 		t.Fatalf("structured = %v", res.StructuredContent)
 	}
 

@@ -106,7 +106,7 @@ test_privacy_script() {
 		line="${line//@U@//Users}"
 		line="${line//@A@/192.168}"
 		line="${line//@B@/10}"
-		line="${line//@M@/20:3d:bd}"
+		line="${line//@M@/00:0c:29}"
 		line="${line//@D@/172.16}"
 		line="${line//@E@/172.31}"
 		line="${line//@N@/00:1a:2b}"
@@ -121,7 +121,7 @@ x @B@.0.0.0/8 y
 @D@.5.5
 @E@.255.1:80
 host @A@.1.20 up
-mac @M@:38:e1:c8 up
+mac @M@:38:e1:f8 up
 two 02:00:00:00:00:01 and @N@:3c:4d:5e
 EOF
 	printf 'allowed %s.1.20 privacy:ok\n' "192.168" >"$d/dirty.txt"

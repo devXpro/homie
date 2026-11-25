@@ -41,7 +41,7 @@ const (
 	MetaRole     = "homie/role"     // "inventory" marks the device-list tool
 	MetaI18n     = "homie/i18n"     // translated texts: tool _meta (see I18n) and progress _meta (see Progress)
 	MetaCaller   = "homie/caller"   // request _meta: the person's display name
-	MetaVia      = "homie/via"      // request _meta: "site", "mcp", "admin" or "cli"
+	MetaVia      = "homie/via"      // request _meta: "chatgpt", "claude", "admin" or "cli"
 )
 
 // SchemaRef is the input property schema keyword that links a property to something the hub knows; its only value is

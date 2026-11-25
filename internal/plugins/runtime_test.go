@@ -61,7 +61,7 @@ func TestAddRestartRemove(t *testing.T) {
 	if n := countPrefix(stripTimes(h.Logs("fake")), "homie: exited"); n != 1 {
 		t.Fatalf("restart did not stop the first process (%d exits):\n%s", n, strings.Join(h.Logs("fake"), "\n"))
 	}
-	res, err := h.Call(t.Context(), roman, "fake_echo", json.RawMessage(`{"text":"again"}`))
+	res, err := h.Call(t.Context(), alice, "fake_echo", json.RawMessage(`{"text":"again"}`))
 	if err != nil || res.Text != "again" {
 		t.Fatalf("call after restart = %+v, %v", res, err)
 	}
@@ -78,7 +78,7 @@ func TestAddRestartRemove(t *testing.T) {
 	if st, tools := h.Status(), h.Tools(hub.AudienceAdmin); len(st) != 0 || len(tools) != 0 {
 		t.Fatalf("after remove: status %+v, tools %v", st, names(tools))
 	}
-	if _, err := h.Call(t.Context(), roman, "fake_echo", nil); !errors.Is(err, hub.ErrUnknownTool) {
+	if _, err := h.Call(t.Context(), alice, "fake_echo", nil); !errors.Is(err, hub.ErrUnknownTool) {
 		t.Fatalf("call after remove: %v", err)
 	}
 	logFile, err := os.ReadFile(filepath.Join(dataDir, "logs", "fake.log")) //nolint:gosec // test temp dir

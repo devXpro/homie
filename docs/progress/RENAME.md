@@ -1,6 +1,0 @@
-- renamed files (plist, service, plugin manifest json, cmd/homie-tv), deleted Formula/gpt-home.rb
-- bulk sed of names across homie + homie-tv (module paths, GPT-Home, env, cookies, gpt-<x> examples); review pending
-- also renamed gh- CSS classes, gh.* localStorage keys, __ghMock, gh-e2e temp prefix; left ghk_ key prefix and ghr1. connect code (wire formats)
-- go lint (0 issues) and go test -race green
-- web typecheck/lint/test/build/e2e green
-- site, template, install lint/linux/mac, relay all green
