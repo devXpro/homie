@@ -23,11 +23,12 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate } from 'react-router'
 import { StatusOrb } from '@/components/status'
+import { SuperadminOnly } from '@/components/superadmin'
 import { ModuleTile } from '@/components/tile'
 import { ActivityRow } from '@/features/activity/rows'
 import { useToolIndex } from '@/features/activity/toolIndex'
 import { QuickBanner } from '@/features/tunnel/QuickBanner'
-import { useOverview } from '@/lib/queries'
+import { useOverview, useSuperadmin } from '@/lib/queries'
 import { needsOwner, pluginTone, tunnelLook, tunnelTone } from '@/lib/status'
 import { moduleTitle } from '@/lib/tools'
 import type { Attention, PluginSummary, TunnelStatus } from '@/lib/types'
@@ -47,8 +48,10 @@ function OwnerHome() {
   const tools = useToolIndex()
   const now = useNow()
   const showSkeleton = useDelayed(overview.isPending)
+  const superadmin = useSuperadmin()
   const data = overview.data
   const title = data?.home.name ?? ''
+  const attention = needsOwner(data?.attention, superadmin)
 
   if (overview.error && !data) {
     return (
@@ -79,16 +82,20 @@ function OwnerHome() {
     <Page title={title}>
       <Hero tunnel={data.tunnel} />
       {data.tunnel.mode === 'quick' && <QuickBanner className="mt-4" />}
-      {needsOwner(data.attention).length > 0 && <AttentionSection items={data.attention} plugins={data.plugins} />}
+      {attention.length > 0 && <AttentionSection items={attention} plugins={data.plugins} />}
       {data.plugins.length === 0 ? (
         <EmptyState
           icon={Lamp}
           title={t('home.empty.title')}
           text={t('home.empty.text')}
           action={
-            <ButtonLink to="/devices/add" preventScrollReset variant="filled" size="lg">
-              {t('home.empty.button')}
-            </ButtonLink>
+            superadmin ? (
+              <ButtonLink to="/devices/add" preventScrollReset variant="filled" size="lg">
+                {t('home.empty.button')}
+              </ButtonLink>
+            ) : (
+              <p className="type-footnote text-label-2">{t('superadmin.only')}</p>
+            )
           }
         />
       ) : (
@@ -104,7 +111,11 @@ function OwnerHome() {
               chevron
             />
           ))}
-          <Row to="/devices/add" iconInset accent leading={<AddGlyph />} title={t('home.devices.add')} />
+          {superadmin ? (
+            <Row to="/devices/add" iconInset accent leading={<AddGlyph />} title={t('home.devices.add')} />
+          ) : (
+            <SuperadminOnly title={t('home.devices.add')} leading={<AddGlyph />} />
+          )}
         </Section>
       )}
       <Section header={t('home.assistants')} id="home-assistants">

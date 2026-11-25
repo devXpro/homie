@@ -177,10 +177,21 @@ const SHOTS: Shot[] = [
       await expect(p.getByRole('img', { name: 'QR-код ссылки для телефона' })).toBeVisible()
     },
   },
+  {
+    name: '18c-lan-reconnect-domain',
+    path: '/firstrun',
+    scenario: 'firstrun-domain',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await expect(p.getByRole('heading', { name: 'Адрес сменился' })).toBeVisible()
+    },
+  },
   { name: '19b-lan-closed', path: '/firstrun', scenario: 'firstrun-closed', ready: 'Страница настройки закрыта' },
 
   // Дом
   { name: '20-home', path: '/home', ready: 'ChatGPT и Claude могут управлять домом' },
+  { name: '20c-home-coowner', path: '/home', scenario: 'coowner', ready: 'ChatGPT и Claude могут управлять домом' },
   { name: '21-home-quick', path: '/home', scenario: 'quick', ready: 'Адрес для пробы' },
   { name: '22-home-trouble', path: '/home', scenario: 'trouble', ready: 'Требует внимания' },
   { name: '23-home-empty', path: '/home', scenario: 'fresh', ready: 'Пока нет устройств' },
@@ -211,8 +222,27 @@ const SHOTS: Shot[] = [
 
   // Устройства
   { name: '40-devices', path: '/devices', ready: 'Телевизоры' },
+  { name: '40c-devices-coowner', path: '/devices', scenario: 'coowner', ready: 'Телевизоры' },
   { name: '41-devices-add', path: '/devices/add', ready: 'Рекомендуем' },
   { name: '42-module', path: '/devices/tv', ready: 'Телевизор в гостиной' },
+  {
+    name: '42c-module-coowner',
+    path: '/devices/tv',
+    scenario: 'coowner',
+    ready: 'Телевизор в гостиной',
+    prepare: async (p) => {
+      await p.getByRole('region', { name: 'Обслуживание' }).scrollIntoViewIfNeeded()
+    },
+  },
+  {
+    name: '42d-module-remove',
+    path: '/devices/tv',
+    ready: 'Телевизор в гостиной',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Удалить модуль «Телевизоры»' }).click()
+      await expect(p.getByRole('alertdialog')).toBeVisible()
+    },
+  },
   { name: '43-module-device', path: '/devices/tv/items/tv', ready: 'Подключить телевизор' },
   {
     name: '44-run-progress',
@@ -308,6 +338,7 @@ const SHOTS: Shot[] = [
   { name: '73-connection', path: '/settings/connection', ready: 'Проверка снаружи' },
   { name: '74-connection-quick', path: '/settings/connection', scenario: 'quick', ready: 'Адрес для пробы' },
   { name: '75-connection-trouble', path: '/settings/connection', scenario: 'trouble', ready: 'Нет связи' },
+  { name: '75c-connection-coowner', path: '/settings/connection', scenario: 'coowner', ready: 'Проверка снаружи' },
   {
     name: '76-connection-reconnect-quick',
     path: '/settings/connection',
@@ -331,6 +362,7 @@ const SHOTS: Shot[] = [
     },
   },
   { name: '77-about-update', path: '/settings/about', scenario: 'trouble', ready: 'Обновить до 0.3.0' },
+  { name: '77c-about-coowner', path: '/settings/about', scenario: 'coowner', ready: 'Новая версия Homie' },
   { name: '78-settings-member', path: '/settings', scenario: 'member', ready: 'Язык' },
 
   // Global states

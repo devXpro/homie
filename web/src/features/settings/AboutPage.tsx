@@ -4,10 +4,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowDownCircle, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useJobs } from '@/features/run/jobs'
+import { SuperadminOnly } from '@/components/superadmin'
 import { OwnerOnly } from '@/features/shell/OwnerOnly'
 import { homeApi, pointedAt } from '@/lib/api'
 import { errorText } from '@/lib/errors'
-import { hq, useSystem } from '@/lib/queries'
+import { hq, useSuperadmin, useSystem } from '@/lib/queries'
 import type { Job, SystemInfo } from '@/lib/types'
 
 // О программе: the version, a check for updates and the self-update (step-up, then a job; at
@@ -28,6 +29,7 @@ function AboutScreen() {
   const system = useSystem()
   const { withStepUp } = useStepUp()
   const { openJob } = useJobs()
+  const superadmin = useSuperadmin()
   const showSkeleton = useDelayed(system.isPending)
   const s = system.data
 
@@ -89,9 +91,15 @@ function AboutScreen() {
                     }
                   />
                 </Section>
-                <Button className="mt-6" variant="filled" size="lg" onClick={() => void update()}>
-                  {t('settings.update.button', { version: s.update.latest })}
-                </Button>
+                {superadmin ? (
+                  <Button className="mt-6" variant="filled" size="lg" onClick={() => void update()}>
+                    {t('settings.update.button', { version: s.update.latest })}
+                  </Button>
+                ) : (
+                  <Section>
+                    <SuperadminOnly title={t('settings.update.button', { version: s.update.latest })} />
+                  </Section>
+                )}
               </>
             ) : (
               <Section>

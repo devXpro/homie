@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { hostOf, tunnelHost, tunnelLook, tunnelTone } from './status'
-import type { TunnelStatus } from './types'
+import { hostOf, needsOwner, tunnelHost, tunnelLook, tunnelTone } from './status'
+import type { Attention, TunnelStatus } from './types'
 
 const t = (s: Partial<TunnelStatus>): TunnelStatus => ({ mode: 'named', state: 'connected', url: 'https://home.example.com', ...s })
 
@@ -40,5 +40,23 @@ describe('hosts', () => {
     expect(tunnelHost(t({ hostname: 'home.example.com', url: 'https://other.example.com' }))).toBe('home.example.com')
     expect(tunnelHost(t({}))).toBe('home.example.com')
     expect(tunnelHost(undefined)).toBe('')
+  })
+})
+
+describe('needsOwner', () => {
+  const items: Attention[] = [
+    { kind: 'tunnel_offline' },
+    { kind: 'hub_update', version: '0.3.0' },
+    { kind: 'plugin_update', target: 'tv', version: '0.3.0' },
+    { kind: 'plugin_failing', target: 'tv' },
+    { kind: 'tunnel_quick' },
+  ]
+
+  it('leaves the quick tunnel to its banner', () => {
+    expect(needsOwner(items).map((a) => a.kind)).toEqual(['tunnel_offline', 'hub_update', 'plugin_update', 'plugin_failing'])
+  })
+
+  it('does not call a co-owner for updates, which are the superadmin’s to run', () => {
+    expect(needsOwner(items, false).map((a) => a.kind)).toEqual(['tunnel_offline', 'plugin_failing'])
   })
 })

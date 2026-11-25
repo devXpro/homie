@@ -36,9 +36,9 @@ import type { ConnectStatus, ConnectStepName, FirstRunState, SetupLink, TunnelSt
 // The LAN first-run page (docs/ADMIN-API.md §7), served by homed's setup listener on http://<lan ip>:8090 while
 // no tunnel is configured (then on 127.0.0.1:8090 only) and until an owner has a passkey of the current address:
 // PIN → "my domain" (the Cloudflare login link, then the connect's progress) or "try without a domain" (a quick
-// tunnel) → the probe → the one-time setup link. Behind a quick tunnel the address changes on every restart; the page
-// then opens again and offers «Переподключить»: a new setup link for the same owner and the steps to re-add the
-// connector. The PIN rules stay as T2.F made them: 8 digits, 5 wrong per device per 10 minutes, 20 close the page.
+// tunnel) → the probe → the one-time setup link. Whenever the address changes and the owner cannot sign in at the new
+// one (a quick tunnel's restart, a move to an own domain), the page opens again and offers «Переподключить»: a new
+// setup link for the same owner and the steps to re-add the connector. The PIN rules stay as T2.F made them: 8 digits, 5 wrong per device per 10 minutes, 20 close the page.
 
 const QRCodeView = lazy(() => import('@/components/qrcode').then((m) => ({ default: m.QRCodeView })))
 
@@ -96,7 +96,8 @@ export function LanSetup() {
         content = <ConnectingStep state={s} />
         break
       case 'link':
-        // An owner exists, yet the page is open: the quick address changed and their passkey no longer fits.
+        // An owner exists, yet the page is open: the address changed (a quick tunnel's restart, or a move to an own
+        // domain) and their passkey no longer fits.
         content = s.ownerExists ? <ReconnectStep tunnel={s.tunnel} onGone={refresh} /> : <LinkStep onGone={refresh} />
         break
     }
@@ -640,8 +641,9 @@ function LinkStep({ onGone }: { onGone: () => void }) {
 }
 
 /**
- * ReconnectStep: a quick tunnel came back with a new address, so the owner's passkey no longer fits. «Переподключить»
- * issues a new setup link for the same owner; the new connector address and the steps to re-add it follow.
+ * ReconnectStep: the home has a new address (a quick tunnel came back with another one, or the home moved to its own
+ * domain), so the owner's passkey no longer fits. «Переподключить» issues a new setup link for the same owner; the new
+ * connector address and the steps to re-add it follow.
  */
 function ReconnectStep({ tunnel, onGone }: { tunnel?: TunnelStatus; onGone: () => void }) {
   const { t } = useTranslation()
@@ -651,7 +653,9 @@ function ReconnectStep({ tunnel, onGone }: { tunnel?: TunnelStatus; onGone: () =
     <div className="flex flex-col items-center">
       <StatusOrb tone="warning" />
       <h1 className="mt-5 type-title-1 text-balance">{t('lan.reconnect.title')}</h1>
-      <p className="mt-2 type-callout text-balance text-label-2">{t('lan.reconnect.text')}</p>
+      <p className="mt-2 type-callout text-balance text-label-2">
+        {tunnel?.mode === 'named' ? t('lan.reconnect.text.named', { host: tunnelHost(tunnel) }) : t('lan.reconnect.text')}
+      </p>
       {mcp && (
         <div className="mt-6 w-full text-left">
           <p className="px-1 pb-1.5 type-footnote text-label-2">{t('lan.reconnect.address')}</p>

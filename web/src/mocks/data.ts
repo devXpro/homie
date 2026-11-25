@@ -22,6 +22,7 @@ export const SCENARIOS = [
   'offline',
   'firstrun',
   'firstrun-reconnect',
+  'firstrun-domain',
   'firstrun-closed',
   'firstrun-done',
 ] as const
@@ -465,7 +466,11 @@ export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
       state.tunnel = { ...namedTunnel(), state: 'probing', lastError: 'GET https://home.example.com/healthz: 502 Bad Gateway' }
       break
     case 'coowner':
+      // A co-owner, with updates waiting: installing, updating and removing modules, updating the hub and
+      // reconnecting the tunnel are the superadmin's.
       state.session = 'per_bella'
+      state.plugins = [tvPlugin([livingRoom(lang)], { update: { latest: '0.3.0', checkedAt: iso(HOUR) } })]
+      state.system.update = { latest: '0.3.0', notesUrl: 'https://github.com/devXpro/homie/releases/tag/v0.3.0', checkedAt: iso(HOUR) }
       break
     case 'member':
       state.session = 'per_bob'
@@ -498,6 +503,10 @@ export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
       // A quick tunnel came back with a new address: the owner exists, their passkey is for the old one.
       state.session = null
       state.tunnel = tunnelAt('quick', QUICK_URL_NEXT, 40_000)
+      break
+    case 'firstrun-domain':
+      // The home moved to its own domain: the owner exists, their passkey is for the old address.
+      state.session = null
       break
     case 'firstrun-closed':
       state.session = null

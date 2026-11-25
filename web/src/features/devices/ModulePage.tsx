@@ -29,6 +29,7 @@ import { ArrowDownCircle, Lamp, RotateCw, ScrollText, TriangleAlert, Trash2, Wan
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate, useParams } from 'react-router'
+import { SuperadminOnly } from '@/components/superadmin'
 import { ModuleTile } from '@/components/tile'
 import { useJobs } from '@/features/run/jobs'
 import { useRun } from '@/features/run/run'
@@ -37,7 +38,7 @@ import { useCloseSheet } from '@/features/shell/useCloseSheet'
 import { homeApi, pointedAt } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { pluginRemovedBus } from '@/lib/events'
-import { hq, useInventory, usePlugin } from '@/lib/queries'
+import { hq, useInventory, usePlugin, useSuperadmin } from '@/lib/queries'
 import { itemTone, pluginTone } from '@/lib/status'
 import { groupTools, isDestructive, moduleTitle, toolDescription, toolTitle } from '@/lib/tools'
 import type { InventoryItem, Job, PluginDetail, PluginSummary, Tool } from '@/lib/types'
@@ -152,6 +153,7 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   const inventory = useInventory(p.id, hasInventory && p.state === 'up')
   const [ability, setAbility] = useState<Tool | null>(null)
   const [removing, setRemoving] = useState(false)
+  const superadmin = useSuperadmin()
   const autoSetup = useRef(false)
 
   // Right after installing, the module page opens its setup action by itself.
@@ -295,15 +297,18 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
       )}
 
       <Section header={t('module.maintenance')} id="module-maintenance">
-        {p.update && (
-          <Row
-            onClick={() => void update()}
-            iconInset
-            leading={<IconTile icon={ArrowDownCircle} color="blue" />}
-            title={t('module.update', { version: p.update.latest })}
-            chevron
-          />
-        )}
+        {p.update &&
+          (superadmin ? (
+            <Row
+              onClick={() => void update()}
+              iconInset
+              leading={<IconTile icon={ArrowDownCircle} color="blue" />}
+              title={t('module.update', { version: p.update.latest })}
+              chevron
+            />
+          ) : (
+            <SuperadminOnly title={t('module.update', { version: p.update.latest })} leading={<IconTile icon={ArrowDownCircle} color="gray" />} />
+          ))}
         <Row to={`/devices/${p.id}/logs`} iconInset leading={<IconTile icon={ScrollText} color="gray" />} title={t('module.logs')} chevron />
         <Row
           onClick={() => restart.mutate()}
@@ -314,7 +319,11 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
           trailing={restart.isPending ? <Spinner size="sm" /> : undefined}
         />
         <SwitchRow title={t('module.enabled')} checked={p.enabled} onChange={(v) => enable.mutate(v)} />
-        <Row onClick={() => setRemoving(true)} title={t('module.remove', { title })} destructive centered />
+        {superadmin ? (
+          <Row onClick={() => setRemoving(true)} title={t('module.remove', { title })} destructive centered />
+        ) : (
+          <SuperadminOnly title={t('module.remove', { title })} />
+        )}
       </Section>
 
       <ActionSheet

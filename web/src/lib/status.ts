@@ -8,10 +8,11 @@ export type { Tone }
 
 /**
  * needsOwner is the attention that calls for the owner: everything but a quick tunnel, which Дом shows as its
- * «для пробы» banner rather than as a red dot that never goes away.
+ * «для пробы» banner rather than as a red dot that never goes away. Updates are the superadmin's to run, so a
+ * co-owner is not called for them.
  */
-export function needsOwner(items: Attention[] | undefined) {
-  return (items ?? []).filter((a) => a.kind !== 'tunnel_quick')
+export function needsOwner(items: Attention[] | undefined, superadmin = true) {
+  return (items ?? []).filter((a) => a.kind !== 'tunnel_quick' && (superadmin || (a.kind !== 'hub_update' && a.kind !== 'plugin_update')))
 }
 
 /**

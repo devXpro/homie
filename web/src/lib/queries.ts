@@ -51,6 +51,14 @@ export function useOwner() {
   return useMe().data?.person.role === 'owner'
 }
 
+/**
+ * useSuperadmin: the signed-in person set the home up. Running code on the home computer is theirs alone: installing,
+ * updating and removing modules, updating the hub, reconnecting the tunnel (a co-owner gets 403 forbidden there).
+ */
+export function useSuperadmin() {
+  return useMe().data?.person.superadmin === true
+}
+
 export function useOverview(enabled = true) {
   return useQuery({ queryKey: hq.overview, queryFn: () => homeApi.get<Overview>('/overview'), enabled })
 }

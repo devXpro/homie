@@ -175,14 +175,17 @@ const isActive = (p: MockPerson) => !p.access_until || new Date(p.access_until).
 
 type Guard = Response | undefined
 
-/** guard applies the gatekeeper's rules: the CSRF header on writes, a session, owner and superadmin, step-up. */
-function guard(request: Request, need: { owner?: boolean; superadmin?: boolean; stepUp?: boolean; session?: boolean } = {}): Guard {
+/**
+ * guard applies the gatekeeper's and homed's rules: the CSRF header on writes, a session, the superadmin (`superadmin`
+ * names what only they may do; checked before the step-up, as homed does), an owner, step-up.
+ */
+function guard(request: Request, need: { owner?: boolean; superadmin?: string; stepUp?: boolean; session?: boolean } = {}): Guard {
   if (request.method !== 'GET' && request.headers.get('X-Homie') !== '1') return fail(403, 'forbidden', 'missing X-Homie header')
   if (need.session === false) return undefined
   const v = viewer()
   if (!v) return fail(401, 'no_session', 'no session')
   if (!isActive(v)) return fail(401, 'no_session', 'your access has ended')
-  if (need.superadmin && !v.superadmin) return fail(403, 'forbidden', 'superadmin only')
+  if (need.superadmin && !v.superadmin) return fail(403, 'forbidden', `only the home's superadmin may do this: ${need.superadmin}`)
   if (need.owner && v.role !== 'owner') return fail(403, 'forbidden', 'owner only')
   if (need.stepUp && db.stepUpUntil < Date.now()) return fail(403, 'step_up_required', 'this needs a fresh passkey')
   return undefined
@@ -1078,7 +1081,7 @@ export const handlers = [
 
   http.post(`${H}/tunnel/reconnect`, async ({ request }) => {
     await delay(ms(300))
-    const g = guard(request, { owner: true, stepUp: true })
+    const g = guard(request, { owner: true, superadmin: 'reconnect the tunnel', stepUp: true })
     if (g) return g
     if (db.tunnel.mode === 'off') return fail(409, 'conflict', 'no tunnel to reconnect')
     audit('tunnel.reconnect')
@@ -1102,7 +1105,7 @@ export const handlers = [
 
   http.post(`${H}/system/update`, async ({ request }) => {
     await delay(ms(200))
-    const g = guard(request, { owner: true, stepUp: true })
+    const g = guard(request, { owner: true, superadmin: 'update the hub', stepUp: true })
     if (g) return g
     if (!db.system.update) return fail(409, 'conflict', 'no update')
     const latest = db.system.update.latest
@@ -1138,7 +1141,7 @@ export const handlers = [
 
   http.post(`${H}/plugins`, async ({ request }) => {
     await delay(ms(250))
-    const g = guard(request, { owner: true, stepUp: true })
+    const g = guard(request, { owner: true, superadmin: 'install a plugin', stepUp: true })
     if (g) return g
     const b = await body<{ repo?: string; id?: string }>(request)
     const pre = previewOf(b.repo ?? '')
@@ -1197,7 +1200,7 @@ export const handlers = [
 
   http.post(`${H}/plugins/:id/update`, async ({ request, params }) => {
     await delay(ms(200))
-    const g = guard(request, { owner: true, stepUp: true })
+    const g = guard(request, { owner: true, superadmin: 'update a plugin', stepUp: true })
     if (g) return g
     const p = plugin(String(params.id))
     if (!p) return fail(404, 'not_found', 'no such plugin')
@@ -1213,12 +1216,16 @@ export const handlers = [
 
   http.delete(`${H}/plugins/:id`, async ({ request, params }) => {
     await delay(ms(200))
-    const g = guard(request, { owner: true, stepUp: true })
+    const g = guard(request, { owner: true, superadmin: 'remove a plugin', stepUp: true })
     if (g) return g
     const p = plugin(String(params.id))
     if (!p) return fail(404, 'not_found', 'no such plugin')
     const job = startJob('plugin.remove', p.summary.id, undefined, () => {
       db.plugins = db.plugins.filter((x) => x !== p)
+      // As homed: the plugin's permission leaves everyone, and the open invites that give it are revoked.
+      const perm = `plugin:${p.summary.id}`
+      for (const person of db.people) if (person.permissions) person.permissions = person.permissions.filter((x) => x !== perm)
+      db.invites = db.invites.filter((i) => !i.permissions?.includes(perm))
       emit('plugin.removed', { id: p.summary.id })
       audit('plugin.remove', { target: p.summary.id })
     })
@@ -1381,6 +1388,8 @@ export const handlers = [
     if (b.mode === 'quick') {
       if (db.tunnel.mode !== 'off') return fail(409, 'conflict', 'the home has a tunnel already')
       db.firstrun.connect = undefined
+      // A quick tunnel is the owner's alone: homed revokes every open member and co-owner invite.
+      db.invites = db.invites.filter((i) => i.kind === 'setup')
       void bringUp('quick', undefined)
       return HttpResponse.json({ tunnel: { mode: 'quick', state: 'starting' } }, { status: 202 })
     }

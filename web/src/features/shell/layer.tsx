@@ -29,7 +29,7 @@ export function useHomieShell(me: Me) {
   const overview = useOverview(owner)
   return {
     // The Дом tab carries the id "connect": the package's connect page lives under it.
-    connect: owner && needsOwner(overview.data?.attention).length > 0,
+    connect: owner && needsOwner(overview.data?.attention, me.person.superadmin === true).length > 0,
     devices: owner && (overview.data?.plugins ?? []).some((p) => p.state === 'failing'),
   }
 }

@@ -24,12 +24,13 @@ import { Copy } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { StatusOrb } from '@/components/status'
+import { SuperadminOnly } from '@/components/superadmin'
 import { OwnerOnly } from '@/features/shell/OwnerOnly'
 import { QuickBanner } from '@/features/tunnel/QuickBanner'
 import { homeApi } from '@/lib/api'
 import { updateBootstrap } from '@/lib/bootstrap'
 import { errorText } from '@/lib/errors'
-import { hq, useTunnel } from '@/lib/queries'
+import { hq, useSuperadmin, useTunnel } from '@/lib/queries'
 import { tunnelHost, tunnelLook, tunnelTone } from '@/lib/status'
 import type { Overview, TunnelStatus } from '@/lib/types'
 
@@ -56,6 +57,7 @@ function TunnelScreen() {
   const showSkeleton = useDelayed(tunnel.isPending)
   const [confirming, setConfirming] = useState(false)
   const [moved, setMoved] = useState(false)
+  const superadmin = useSuperadmin()
   const s = tunnel.data
 
   const apply = (next: TunnelStatus) => {
@@ -185,15 +187,21 @@ function TunnelScreen() {
               </Disclosure>
             </div>
           )}
-          <Section footer={t('tunnel.reconnect.footer')}>
-            <Row
-              onClick={() => (quick ? setConfirming(true) : reconnect.mutate())}
-              disabled={reconnect.isPending}
-              accent
-              title={t('tunnel.reconnect')}
-              trailing={reconnect.isPending ? <Spinner size="sm" /> : undefined}
-            />
-          </Section>
+          {superadmin ? (
+            <Section footer={t('tunnel.reconnect.footer')}>
+              <Row
+                onClick={() => (quick ? setConfirming(true) : reconnect.mutate())}
+                disabled={reconnect.isPending}
+                accent
+                title={t('tunnel.reconnect')}
+                trailing={reconnect.isPending ? <Spinner size="sm" /> : undefined}
+              />
+            </Section>
+          ) : (
+            <Section>
+              <SuperadminOnly title={t('tunnel.reconnect')} />
+            </Section>
+          )}
         </>
       )}
       <ActionSheet

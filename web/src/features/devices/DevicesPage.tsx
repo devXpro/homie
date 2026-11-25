@@ -5,6 +5,7 @@ import {
   ErrorState,
   fade,
   IconButton,
+  IconTile,
   isApiError,
   Page,
   Row,
@@ -28,18 +29,20 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMatch, useNavigate } from 'react-router'
 import { catalog, parseRepo } from '@/catalog'
+import { SuperadminOnly } from '@/components/superadmin'
 import { ModuleTile } from '@/components/tile'
 import { JobSteps } from '@/features/run/jobs'
 import { useCloseSheet } from '@/features/shell/useCloseSheet'
 import { homeApi } from '@/lib/api'
 import { errorText, jobErrorText } from '@/lib/errors'
 import { httpsLink } from '@/lib/links'
-import { hq, useJob, useOwner, usePlugins, usePreview } from '@/lib/queries'
+import { hq, useJob, useOwner, usePlugins, usePreview, useSuperadmin } from '@/lib/queries'
 import { pluginTone } from '@/lib/status'
 import { moduleTitle } from '@/lib/tools'
 import type { HomeAccount, Job, PluginPreview, PluginSummary } from '@/lib/types'
 
-// Устройства: one row per module, failing ones first; "+" opens Add devices. A member sees
+// Устройства: one row per module, failing ones first; "+" opens Add devices (the superadmin's: a co-owner sees
+// who may add them instead). A member sees
 // the devices the owner opened to them, read-only: GET /api/account lists them (docs/ADMIN-API.md §5).
 
 const ORDER: Record<PluginSummary['state'], number> = { failing: 0, starting: 1, stopped: 2, disabled: 3, up: 4 }
@@ -78,7 +81,8 @@ function OwnerDevices() {
   const navigate = useNavigate()
   const plugins = usePlugins()
   const desktop = useIsDesktop()
-  const adding = !!useMatch('/devices/add')
+  const superadmin = useSuperadmin()
+  const adding = !!useMatch('/devices/add') && superadmin
   const closeAdd = useCloseSheet('/devices')
   const showSkeleton = useDelayed(plugins.isPending)
   const items = [...(plugins.data?.items ?? [])].sort((a, b) => ORDER[a.state] - ORDER[b.state] || moduleTitle(a, t).localeCompare(moduleTitle(b, t)))
@@ -87,9 +91,11 @@ function OwnerDevices() {
     <Page
       title={t('devices.title')}
       trailing={
-        <IconButton label={t('devices.add')} onClick={() => navigate('/devices/add', { preventScrollReset: true })}>
-          <Plus aria-hidden strokeWidth={2.2} />
-        </IconButton>
+        superadmin && (
+          <IconButton label={t('devices.add')} onClick={() => navigate('/devices/add', { preventScrollReset: true })}>
+            <Plus aria-hidden strokeWidth={2.2} />
+          </IconButton>
+        )
       }
     >
       {plugins.error && !plugins.data ? (
@@ -102,34 +108,45 @@ function OwnerDevices() {
           title={t('devices.empty.title')}
           text={t('devices.empty.text')}
           action={
-            <ButtonLink to="/devices/add" preventScrollReset variant="filled" size="lg">
-              {t('devices.empty.button')}
-            </ButtonLink>
+            superadmin ? (
+              <ButtonLink to="/devices/add" preventScrollReset variant="filled" size="lg">
+                {t('devices.empty.button')}
+              </ButtonLink>
+            ) : (
+              <p className="type-footnote text-label-2">{t('superadmin.only')}</p>
+            )
           }
         />
       ) : (
-        <Section>
-          {items.map((p) => (
-            <Row
-              key={p.id}
-              to={`/devices/${p.id}`}
-              leading={<ModuleTile id={p.id} size="md" />}
-              className="min-h-[68px] [--row-inset:72px]"
-              title={moduleTitle(p, t)}
-              subtitle={
-                <span className="inline-flex items-center gap-1.5">
-                  <StatusDot tone={pluginTone(p.state)} />
-                  <span>
-                    {t(`state.${p.state}`)}
-                    {p.devices !== undefined && p.devices > 0 && ` · ${t('devices.count', { count: p.devices })}`}
-                    {desktop && ` · v${p.version}`}
+        <>
+          <Section>
+            {items.map((p) => (
+              <Row
+                key={p.id}
+                to={`/devices/${p.id}`}
+                leading={<ModuleTile id={p.id} size="md" />}
+                className="min-h-[68px] [--row-inset:72px]"
+                title={moduleTitle(p, t)}
+                subtitle={
+                  <span className="inline-flex items-center gap-1.5">
+                    <StatusDot tone={pluginTone(p.state)} />
+                    <span>
+                      {t(`state.${p.state}`)}
+                      {p.devices !== undefined && p.devices > 0 && ` · ${t('devices.count', { count: p.devices })}`}
+                      {desktop && ` · v${p.version}`}
+                    </span>
                   </span>
-                </span>
-              }
-              chevron
-            />
-          ))}
-        </Section>
+                }
+                chevron
+              />
+            ))}
+          </Section>
+          {!superadmin && (
+            <Section>
+              <SuperadminOnly title={t('devices.add')} leading={<IconTile icon={Plus} color="gray" />} />
+            </Section>
+          )}
+        </>
       )}
       <AddSheet open={adding} onClose={closeAdd} installed={plugins.data?.items ?? []} />
     </Page>
