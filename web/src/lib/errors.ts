@@ -1,22 +1,17 @@
-// Error codes → words (DESIGN.md §10.6); unknown codes use error.generic.
+// Error codes → words (DESIGN.md §10.6). The package words the gatekeeper's codes; Homie adds its own (error.<code>)
+// and lets a plugin's own text through for tool_failed, since it says what to do.
 
+import { errorText as packageErrorText, isApiError } from '@devxpro/mcp-gatekeeper-ui'
 import type { TFunction } from 'i18next'
-import { isApiError, isOffline } from './api'
 import type { Job } from './types'
 
-type T = TFunction
-
-export function errorText(err: unknown, t: T): string {
-  if (isOffline(err)) return t('error.offline')
-  if (isApiError(err)) {
-    if (err.code === 'tool_failed' && err.message) return err.message
-    return t(`error.${err.code}`, { defaultValue: t('error.generic') })
-  }
-  return t('error.generic')
+export function errorText(err: unknown, t: TFunction): string {
+  if (isApiError(err, 'tool_failed') && err.message) return err.message
+  return packageErrorText(err, t)
 }
 
 /** jobErrorText words a failed job (DESIGN.md §10.5). */
-export function jobErrorText(job: Job, t: T): string {
+export function jobErrorText(job: Job, t: TFunction): string {
   const code = job.error?.code ?? 'internal'
   return t(`job.error.${code}`, { defaultValue: t(`error.${code}`, { defaultValue: t('error.generic') }) })
 }

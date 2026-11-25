@@ -1,37 +1,36 @@
 // The mock home behind `npm run dev:mock`, the Playwright tests and the screenshots: one in-memory state per page
-// load, shaped exactly like docs/ADMIN-API.md, seeded by a scenario (?mock=<name>).
+// load, seeded by a scenario (?mock=<name>). Everything in it is a neutral fixture (STEP2 §5.12): the people Alice,
+// Bella, Bob and Carol, the home «Дом», the hosts home.example.com and example.trycloudflare.com, the LAN 192.0.2.0/24
+// and a locally administered MAC address.
 
-import type {
-  AuditItem,
-  Call,
-  Job,
-  JSONSchema,
-  Key,
-  Lang,
-  Passkey,
-  Person,
-  PluginSummary,
-  RelayStatus,
-  Session,
-  SystemInfo,
-  Tool,
-} from '@/lib/types'
+import type { AuditEntry, Lang, Role } from '@devxpro/mcp-gatekeeper-ui'
+import type { ActivityItem, Call, ConnectStatus, Job, JSONSchema, PluginSummary, SystemInfo, Tool, TunnelStatus, Via } from '@/lib/types'
 
 export const SCENARIOS = [
   'default',
+  'quick',
   'fresh',
   'tv-new',
   'trouble',
   'unreachable',
+  'coowner',
+  'member',
   'signed-out',
   'not-set-up',
+  'join',
+  'consent',
   'offline',
   'firstrun',
-  'firstrun-norelay',
-  'firstrun-done',
+  'firstrun-reconnect',
   'firstrun-closed',
+  'firstrun-done',
 ] as const
 export type Scenario = (typeof SCENARIOS)[number]
+
+export const NAMED_URL = 'https://home.example.com'
+export const QUICK_URL = 'https://example.trycloudflare.com'
+export const QUICK_URL_NEXT = 'https://example-two.trycloudflare.com'
+export const LOGIN_URL = 'https://dash.example.com/argotunnel?callback=example'
 
 export interface MockTV {
   id: string
@@ -51,27 +50,72 @@ export interface MockPlugin {
   logs: string[]
 }
 
+export interface MockPerson {
+  id: string
+  name: string
+  role: Role
+  superadmin: boolean
+  joined_at: string
+  access_until?: string | null
+  permissions?: string[]
+}
+
+export interface MockInvite {
+  id: string
+  token: string
+  kind: 'setup' | 'member' | 'owner'
+  name: string
+  expires_at: string
+  role?: Role
+  access_until?: string | null
+  permissions?: string[]
+}
+
+export interface MockGrant {
+  grant_id: string
+  person: string
+  assistant: string
+  client_name: string
+  created_at: string
+  last_used_at?: string
+}
+
+export interface MockPasskey {
+  id: string
+  person: string
+  name: string
+  created_at: string
+  last_used_at?: string
+}
+
 export interface MockState {
   scenario: Scenario
   lang: Lang
   slow: boolean
   home: { name: string; language: Lang }
-  ownerReady: boolean
-  signedIn: boolean
+  session: string | null
   stepUpUntil: number
-  person: Person
-  relay: RelayStatus
+  people: MockPerson[]
+  invites: MockInvite[]
+  grants: MockGrant[]
+  passkeys: MockPasskey[]
+  audit: AuditEntry[]
+  tunnel: TunnelStatus
   plugins: MockPlugin[]
-  audit: AuditItem[]
+  activity: ActivityItem[]
   calls: Map<string, Call>
   jobs: Map<string, Job>
-  passkeys: Passkey[]
-  sessions: Session[]
-  keys: Key[]
-  people: Person[]
   system: SystemInfo
+  attentionReset: boolean
   offline: boolean
-  firstrun: { done: boolean; closed: boolean; relayConfigured: boolean; unlocked: boolean; wrongPins: number; lockedUntil: number }
+  firstrun: {
+    done: boolean
+    closed: boolean
+    unlocked: boolean
+    /** the owner exists already (the quick-mode Reconnect case once the address changed) */
+    ownerExists: boolean
+    connect?: ConnectStatus
+  }
   seq: number
 }
 
@@ -80,6 +124,13 @@ const HOUR = 60 * MIN
 const DAY = 24 * HOUR
 
 export const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
+export const isoIn = (msAhead: number) => new Date(Date.now() + msAhead).toISOString()
+
+/** endOfDay is 23:59:59 local, n days from today: how the invite sheet ends a term. */
+function endOfDayIn(n: number) {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 23, 59, 59).toISOString()
+}
 
 const inventoryRef = (description: string) => ({ type: 'string', description, 'x-homie-ref': 'inventory' })
 const tvOptional = inventoryRef("The TV's id or name, as tv_list shows it. Leave it out when only one TV is set up.")
@@ -89,7 +140,7 @@ const object = (properties: Record<string, JSONSchema>, required?: string[]): JS
 const command = { destructiveHint: false, idempotentHint: true }
 const tvLabel = { tv: 'Телевизор' }
 
-/** The homie-tv tools as the hub lists them (homie-tv internal/tools, with T2.7's Russian texts). */
+/** The homie-tv tools as the hub lists them, with their Russian texts. */
 export function tvTools(): Tool[] {
   const tool = (t: Omit<Tool, 'pluginId' | 'timeoutMs' | 'inventory'> & Partial<Pick<Tool, 'timeoutMs' | 'inventory'>>): Tool => ({
     pluginId: 'tv',
@@ -101,12 +152,11 @@ export function tvTools(): Tool[] {
     tool({
       name: 'tv_add',
       title: 'Add a TV',
-      description:
-        'Adds the LG webOS TV at an IPv4 address and reads its model and MAC address. The TV must be on. Pair it afterwards with tv_pair.',
+      description: 'Adds the TV at an IPv4 address and reads its model and MAC address. The TV must be on. Pair it afterwards with tv_pair.',
       audience: 'admin',
       inputSchema: object(
         {
-          host: { type: 'string', description: "The TV's IPv4 address, e.g. 192.168.1.20." },
+          host: { type: 'string', description: "The TV's IPv4 address, e.g. 192.0.2.20." },
           name: { type: 'string', description: 'What people call the TV, e.g. Living room TV.' },
           id: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$', description: 'Short id: lowercase letters, digits and dashes. Default: tv, tv-2, ...' },
         },
@@ -116,7 +166,7 @@ export function tvTools(): Tool[] {
       i18n: {
         ru: {
           title: 'Добавить телевизор',
-          description: 'Телевизор LG по его IP-адресу. Он должен быть включён.',
+          description: 'Телевизор по его IP-адресу. Он должен быть включён.',
           properties: { host: 'IP-адрес', name: 'Название', id: 'Короткое имя' },
         },
       },
@@ -124,12 +174,12 @@ export function tvTools(): Tool[] {
     tool({
       name: 'tv_discover',
       title: 'Find TVs',
-      description: 'Searches the home network for LG webOS TVs that are switched on; takes up to 10 seconds.',
+      description: 'Searches the home network for TVs that are switched on; takes up to 10 seconds.',
       audience: 'admin',
       inputSchema: object({}),
       annotations: { readOnlyHint: true },
       timeoutMs: 15_000,
-      i18n: { ru: { title: 'Найти телевизоры', description: 'Ищет включённые телевизоры LG в домашней сети. Это займёт до 10 секунд.' } },
+      i18n: { ru: { title: 'Найти телевизоры', description: 'Ищет включённые телевизоры в домашней сети. Это займёт до 10 секунд.' } },
     }),
     tool({
       name: 'tv_list',
@@ -151,13 +201,7 @@ export function tvTools(): Tool[] {
       annotations: command,
       timeoutMs: 180_000,
       target: 'tv',
-      i18n: {
-        ru: {
-          title: 'Подключить телевизор',
-          description: 'На экране появится запрос — нажмите OK на пульте в течение 2 минут.',
-          properties: tvLabel,
-        },
-      },
+      i18n: { ru: { title: 'Подключить телевизор', description: 'На экране появится запрос — нажмите OK на пульте в течение 2 минут.', properties: tvLabel } },
     }),
     tool({
       name: 'tv_power_off',
@@ -221,10 +265,7 @@ export function tvTools(): Tool[] {
       title: 'Set TV volume',
       description: "Sets the volume of a TV's own speakers, in percent from 0 (silent) to 100 (loudest).",
       audience: 'assistant',
-      inputSchema: object(
-        { tv: tvOptional, percent: { type: 'integer', minimum: 0, maximum: 100, description: 'Volume in percent, 0 to 100.' } },
-        ['percent'],
-      ),
+      inputSchema: object({ tv: tvOptional, percent: { type: 'integer', minimum: 0, maximum: 100, description: 'Volume in percent, 0 to 100.' } }, ['percent']),
       annotations: command,
       target: 'tv',
       i18n: { ru: { title: 'Громкость', description: 'Громкость динамиков телевизора, от 0 до 100 %.', properties: { tv: 'Телевизор', percent: 'Громкость, %' } } },
@@ -232,14 +273,9 @@ export function tvTools(): Tool[] {
   ]
 }
 
-export const LIVING_ROOM: MockTV = {
-  id: 'tv',
-  name: 'Телевизор в гостиной',
-  host: '192.168.68.66',
-  mac: '20:3d:bd:38:e1:c8',
-  model: '49UJ634V-ZD',
-  paired: true,
-  power: 'on',
+/** The one TV of the fixtures, on the documentation LAN with a locally administered MAC address. */
+export function livingRoom(lang: Lang): MockTV {
+  return { id: 'tv', name: lang === 'en' ? 'Living room TV' : 'Телевизор в гостиной', host: '192.0.2.20', mac: '02:00:00:00:00:01', model: 'webOS TV', paired: true, power: 'on' }
 }
 
 const TV_INSTRUCTIONS =
@@ -251,7 +287,7 @@ export function tvPlugin(tvs: MockTV[], over: Partial<PluginSummary> = {}): Mock
       id: 'tv',
       name: 'homie-tv',
       title: 'TV',
-      description: 'LG webOS TVs: power, volume, inputs.',
+      description: 'webOS TVs: power, volume, inputs.',
       version: '0.2.0',
       state: 'up',
       since: iso(2 * HOUR + 14 * MIN),
@@ -266,175 +302,205 @@ export function tvPlugin(tvs: MockTV[], over: Partial<PluginSummary> = {}): Mock
     instructions: TV_INSTRUCTIONS,
     tvs: tvs.map((t) => ({ ...t })),
     logs: [
-      `${new Date(Date.now() - 2 * HOUR).toISOString()} INFO homie-tv 0.2.0 serving MCP over stdio`,
-      `${new Date(Date.now() - 2 * HOUR).toISOString()} INFO store: 1 TV in tvs.json`,
-      `${new Date(Date.now() - 47 * MIN).toISOString()} INFO tv_power_on tv=tv caller=Роман via=site`,
-      `${new Date(Date.now() - 47 * MIN + 2400).toISOString()} INFO wake-on-lan sent to 20:3d:bd:38:e1:c8`,
-      `${new Date(Date.now() - 47 * MIN + 6100).toISOString()} INFO tv answered hello after 6.1s`,
-      `${new Date(Date.now() - 12 * MIN).toISOString()} INFO tv_set_volume tv=tv percent=18 caller=Таня via=site`,
+      `${iso(2 * HOUR)} INFO homie-tv 0.2.0 serving MCP over stdio`,
+      `${iso(2 * HOUR)} INFO store: 1 TV in tvs.json`,
+      `${iso(47 * MIN)} INFO tv_power_on tv=tv caller=Alice via=chatgpt`,
+      `${iso(47 * MIN - 2400)} INFO wake-on-lan sent to 02:00:00:00:00:01`,
+      `${iso(47 * MIN - 6100)} INFO tv answered hello after 6.1s`,
+      `${iso(12 * MIN)} INFO tv_set_volume tv=tv percent=18 caller=Bella via=claude`,
     ],
   }
 }
 
-const roman = { id: 'roman', name: 'Роман' }
-const tanya = { id: 'tanya', name: 'Таня' }
+/** The people of the fixtures: the owner (superadmin), a co-owner, a guest with a term and a guest whose term ended. */
+function people(lang: Lang): MockPerson[] {
+  const en = lang === 'en'
+  return [
+    { id: 'per_alice', name: en ? 'Alice' : 'Алиса', role: 'owner', superadmin: true, joined_at: iso(9 * DAY), permissions: ['all'] },
+    { id: 'per_bella', name: en ? 'Bella' : 'Белла', role: 'owner', superadmin: false, joined_at: iso(8 * DAY), permissions: ['all'] },
+    { id: 'per_bob', name: en ? 'Bob' : 'Борис', role: 'member', superadmin: false, joined_at: iso(DAY), access_until: endOfDayIn(3), permissions: ['plugin:tv'] },
+    { id: 'per_carol', name: en ? 'Carol' : 'Карина', role: 'member', superadmin: false, joined_at: iso(12 * DAY), access_until: iso(2 * DAY), permissions: ['plugin:tv'] },
+  ]
+}
 
-function auditSeed(): AuditItem[] {
-  const out: AuditItem[] = []
+function activitySeed(lang: Lang): ActivityItem[] {
+  const [alice, bella, bob] = people(lang)
+  const out: ActivityItem[] = []
   let id = 1100
-  const tool = (ago: number, who: { id: string; name: string }, name: string, title: string, ok = true, ms = 800, args: Record<string, unknown> = {}, error?: string) => {
-    out.push({
-      id: String(id--),
-      at: iso(ago),
-      kind: 'tool',
-      person: who,
-      via: 'site',
-      tool: name,
-      toolTitle: title,
-      pluginId: 'tv',
-      args,
-      ok,
-      error,
-      durationMs: ms,
-    })
+  const call = (ago: number, who: MockPerson, via: Via, tool: string, title: string, ok = true, ms = 800, args: Record<string, unknown> = {}, error?: string) => {
+    out.push({ id: String(id--), at: iso(ago), person: { id: who.id, name: who.name }, via, tool, toolTitle: title, pluginId: 'tv', args, ok, error, durationMs: ms })
   }
-  const admin = (ago: number, action: string, target?: string, ok = true, via: 'admin' | 'cli' = 'admin') => {
-    out.push({ id: String(id--), at: iso(ago), kind: 'admin', person: ok ? roman : undefined, via, action, target, ok, durationMs: 0 })
-  }
-  tool(12 * MIN, tanya, 'tv_set_volume', 'Set TV volume', true, 640, { percent: 18 })
-  tool(47 * MIN, roman, 'tv_power_on', 'Turn TV on', true, 6120, { tv: 'tv' })
-  tool(3 * HOUR, roman, 'tv_set_input', 'Switch TV input', true, 930, { input: 'hdmi2' })
-  admin(3 * HOUR + 5 * MIN, 'auth.login')
-  tool(5 * HOUR, tanya, 'tv_power_off', 'Turn TV off', true, 1210)
-  tool(DAY + 2 * HOUR, roman, 'tv_power_on', 'Turn TV on', false, 40_120, { tv: 'tv' },
-    'Телевизор в гостиной did not wake up. Check that Mobile TV On → Turn on via Wi-Fi is enabled in the TV settings, or turn it on with the remote.')
-  tool(DAY + 2 * HOUR + 4 * MIN, roman, 'tv_set_volume', 'Set TV volume', true, 702, { percent: 25 })
-  tool(DAY + 6 * HOUR, tanya, 'tv_power_on', 'Turn TV on', true, 5400)
-  admin(DAY + 7 * HOUR, 'key.create', 'k_7Hd2')
-  admin(2 * DAY + 3 * HOUR, 'plugin.install', 'tv')
-  admin(2 * DAY + 3 * HOUR + 2 * MIN, 'passkey.add', 'iPhone')
-  tool(2 * DAY + 5 * HOUR, roman, 'tv_set_input', 'Switch TV input', true, 1104, { input: 'tv' })
-  tool(3 * DAY + 1 * HOUR, tanya, 'tv_power_off', 'Turn TV off', true, 980)
-  admin(3 * DAY + 2 * HOUR, 'auth.login_failed', undefined, false)
-  tool(4 * DAY + 4 * HOUR, roman, 'tv_power_on', 'Turn TV on', true, 6900)
-  tool(5 * DAY + 2 * HOUR, tanya, 'tv_set_volume', 'Set TV volume', true, 680, { percent: 12 })
-  tool(6 * DAY + 3 * HOUR, roman, 'tv_power_off', 'Turn TV off', true, 1020)
-  admin(9 * DAY, 'auth.setup', 'roman')
-  admin(9 * DAY - 10 * MIN, 'setup.link', undefined, true, 'cli')
+  const tv = livingRoom(lang).name
+  call(12 * MIN, bella, 'claude', 'tv_set_volume', 'Set TV volume', true, 640, { percent: 18 })
+  call(47 * MIN, alice, 'chatgpt', 'tv_power_on', 'Turn TV on', true, 6120, { tv: 'tv' })
+  call(3 * HOUR, alice, 'chatgpt', 'tv_set_input', 'Switch TV input', true, 930, { input: 'hdmi2' })
+  call(5 * HOUR, bob, 'claude', 'tv_power_off', 'Turn TV off', true, 1210)
+  call(DAY + 2 * HOUR, alice, 'chatgpt', 'tv_power_on', 'Turn TV on', false, 40_120, { tv: 'tv' }, `${tv} did not wake up. Check that Turn on via Wi-Fi is enabled in the TV settings, or turn it on with the remote.`)
+  call(DAY + 2 * HOUR + 4 * MIN, alice, 'admin', 'tv_set_volume', 'Set TV volume', true, 702, { percent: 25 })
+  call(DAY + 6 * HOUR, bella, 'chatgpt', 'tv_power_on', 'Turn TV on', true, 5400)
+  call(2 * DAY + 5 * HOUR, alice, 'cli', 'tv_set_input', 'Switch TV input', true, 1104, { input: 'tv' })
+  call(3 * DAY + 1 * HOUR, bella, 'claude', 'tv_power_off', 'Turn TV off', true, 980)
+  call(4 * DAY + 4 * HOUR, alice, 'chatgpt', 'tv_power_on', 'Turn TV on', true, 6900)
+  call(5 * DAY + 2 * HOUR, bob, 'chatgpt', 'tv_set_volume', 'Set TV volume', true, 680, { percent: 12 })
+  call(6 * DAY + 3 * HOUR, alice, 'chatgpt', 'tv_power_off', 'Turn TV off', true, 1020)
   return out
 }
 
-function relayConnected(): RelayStatus {
-  return {
-    configured: true,
-    domain: 'homie.jobbyjobs.work',
-    publicUrl: 'https://homie.jobbyjobs.work',
-    state: 'connected',
-    since: iso(2 * HOUR + 13 * MIN),
-    selfCheck: { ok: true, checkedAt: iso(20_000) },
-  }
+function auditSeed(): AuditEntry[] {
+  const entry = (ago: number, action: string, actor: string | undefined, target?: string, detail?: Record<string, string>): AuditEntry => ({
+    id: `a_${Math.round(ago / 1000)}`,
+    at: iso(ago),
+    action,
+    actor,
+    target,
+    detail,
+    ip: '192.0.2.10',
+  })
+  return [
+    entry(12 * MIN, 'oauth.grant.create', 'per_bob', 'home', { assistant: 'claude' }),
+    entry(3 * HOUR + 5 * MIN, 'auth.login', 'per_alice'),
+    entry(DAY + 7 * HOUR, 'account.member.update', 'per_alice', 'per_bob', { access_until: endOfDayIn(3), permissions: 'plugin:tv' }),
+    entry(DAY + 8 * HOUR, 'auth.join', 'per_bob'),
+    entry(DAY + 9 * HOUR, 'account.invite.create', 'per_alice', 'Bob'),
+    entry(2 * DAY + 3 * HOUR, 'plugin.install', 'per_alice', 'tv'),
+    entry(3 * DAY + 2 * HOUR, 'auth.login.fail', undefined, undefined, { count: '1' }),
+    entry(8 * DAY, 'auth.join', 'per_bella'),
+    entry(9 * DAY, 'auth.register', 'per_alice'),
+    entry(9 * DAY + 10 * MIN, 'admin.setup-link', undefined),
+  ]
+}
+
+/** tunnelAt is a connected tunnel at a public origin, as homed reports it (HC-api §3 TunnelStatus). */
+export function tunnelAt(mode: 'named' | 'quick', url: string, msAgo: number): TunnelStatus {
+  return { mode, state: 'connected', url, mcpUrl: `${url}/mcp`, hostname: new URL(url).host, since: iso(msAgo) }
+}
+
+export function namedTunnel(): TunnelStatus {
+  return tunnelAt('named', NAMED_URL, 2 * HOUR + 13 * MIN)
+}
+
+export function quickTunnel(): TunnelStatus {
+  return tunnelAt('quick', QUICK_URL, 25 * MIN)
 }
 
 export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
-  const person: Person = {
-    id: 'roman',
-    name: lang === 'en' ? 'Roman' : 'Роман',
-    role: 'owner',
-    plugins: ['*'],
-    language: lang,
-    createdAt: iso(9 * DAY),
-    passkeys: 2,
-    lastActiveAt: iso(MIN),
-  }
+  const all = people(lang)
   const state: MockState = {
     scenario,
     lang,
     slow,
-    home: { name: lang === 'en' ? 'Our place' : 'Мой шалаш', language: lang },
-    ownerReady: true,
-    signedIn: true,
+    home: { name: lang === 'en' ? 'Home' : 'Дом', language: lang },
+    session: 'per_alice',
     stepUpUntil: 0,
-    person,
-    relay: relayConnected(),
-    plugins: [tvPlugin([{ ...LIVING_ROOM }])],
+    people: all,
+    invites: [{ id: 'inv_carol', token: 'invite-token', kind: 'member', name: lang === 'en' ? 'Dan' : 'Дмитрий', expires_at: isoIn(20 * HOUR), access_until: endOfDayIn(7), permissions: ['plugin:tv'] }],
+    grants: [
+      { grant_id: 'grt_alice_chatgpt', person: 'per_alice', assistant: 'chatgpt', client_name: 'ChatGPT', created_at: iso(9 * DAY), last_used_at: iso(47 * MIN) },
+      { grant_id: 'grt_alice_claude', person: 'per_alice', assistant: 'claude', client_name: 'Claude', created_at: iso(6 * DAY), last_used_at: iso(DAY) },
+      { grant_id: 'grt_bella_claude', person: 'per_bella', assistant: 'claude', client_name: 'Claude', created_at: iso(8 * DAY), last_used_at: iso(12 * MIN) },
+      { grant_id: 'grt_bob_chatgpt', person: 'per_bob', assistant: 'chatgpt', client_name: 'ChatGPT', created_at: iso(DAY), last_used_at: iso(5 * HOUR) },
+    ],
+    passkeys: [
+      { id: 'pk_mac', person: 'per_alice', name: 'MacBook', created_at: iso(9 * DAY), last_used_at: iso(3 * HOUR) },
+      { id: 'pk_phone', person: 'per_alice', name: 'iPhone', created_at: iso(2 * DAY + 3 * HOUR), last_used_at: iso(DAY + 5 * HOUR) },
+      { id: 'pk_bella', person: 'per_bella', name: 'iPhone', created_at: iso(8 * DAY), last_used_at: iso(DAY) },
+      { id: 'pk_bob', person: 'per_bob', name: 'iPhone', created_at: iso(DAY), last_used_at: iso(5 * HOUR) },
+    ],
     audit: auditSeed(),
+    tunnel: namedTunnel(),
+    plugins: [tvPlugin([livingRoom(lang)])],
+    activity: activitySeed(lang),
     calls: new Map(),
     jobs: new Map(),
-    passkeys: [
-      { id: 'cred-mbp', name: 'MacBook Pro', provider: 'iCloud Keychain', createdAt: iso(9 * DAY), lastUsedAt: iso(3 * HOUR), current: true },
-      { id: 'cred-iphone', name: 'iPhone', provider: 'iCloud Keychain', createdAt: iso(2 * DAY + 3 * HOUR), lastUsedAt: iso(DAY + 5 * HOUR), current: false },
-    ],
-    sessions: [
-      { id: 's_mac', device: 'Safari · Mac', createdAt: iso(3 * HOUR), lastSeenAt: iso(MIN), current: true },
-      { id: 's_iphone', device: 'Safari · iPhone', createdAt: iso(2 * DAY), lastSeenAt: iso(DAY + 5 * HOUR), current: false },
-    ],
-    keys: [
-      { id: 'k_7Hd2', personId: 'roman', label: 'ChatGPT Site', hint: 'ghk_AbCd', createdAt: iso(DAY + 7 * HOUR), lastUsedAt: iso(12 * MIN) },
-      { id: 'k_2Lp9', personId: 'tanya', label: 'ChatGPT Site — Таня', hint: 'ghk_Q7rT', createdAt: iso(DAY + 7 * HOUR), lastUsedAt: iso(12 * MIN) },
-    ],
-    people: [],
-    system: { version: '0.2.0', commit: '8cd45e2', os: 'darwin', arch: 'arm64', startedAt: iso(2 * HOUR + 15 * MIN) },
+    system: { version: '0.2.0', commit: '1a2b3c4', os: 'darwin', arch: 'arm64', startedAt: iso(2 * HOUR + 15 * MIN) },
+    attentionReset: false,
     offline: false,
-    firstrun: { done: false, closed: false, relayConfigured: true, unlocked: false, wrongPins: 0, lockedUntil: 0 },
+    firstrun: { done: false, closed: false, unlocked: false, ownerExists: true },
     seq: 0,
   }
-  state.people = [
-    person,
-    { id: 'tanya', name: lang === 'en' ? 'Tanya' : 'Таня', role: 'member', plugins: ['*'], createdAt: iso(9 * DAY), passkeys: 0 },
-  ]
 
   switch (scenario) {
+    case 'quick':
+      // Trying Homie out: the owner alone (quick mode takes no invites, STEP2 Q4).
+      state.tunnel = quickTunnel()
+      state.invites = []
+      state.people = all.slice(0, 1)
+      state.grants = state.grants.filter((g) => g.person === 'per_alice')
+      state.activity = state.activity.filter((a) => a.person?.id === 'per_alice')
+      state.passkeys = state.passkeys.filter((k) => k.person === 'per_alice')
+      break
     case 'fresh':
       state.plugins = []
-      state.audit = state.audit.filter((a) => a.kind === 'admin' && (a.action === 'auth.setup' || a.action === 'setup.link'))
-      state.keys = []
+      state.activity = []
+      state.people = all.slice(0, 1)
+      state.invites = []
+      state.grants = []
       state.passkeys = state.passkeys.slice(0, 1)
-      state.sessions = state.sessions.slice(0, 1)
+      state.audit = state.audit.filter((a) => a.action === 'auth.register' || a.action === 'admin.setup-link')
       break
     case 'tv-new':
       state.plugins = [tvPlugin([], { since: iso(30_000), devices: 0 })]
-      state.audit = state.audit.filter((a) => a.kind === 'admin')
+      state.activity = []
       break
     case 'trouble': {
-      state.relay = { ...relayConnected(), state: 'offline', since: iso(25 * MIN), lastError: 'dial tcp 169.40.15.46:443: i/o timeout', selfCheck: { ok: false, checkedAt: iso(25 * MIN), error: 'Get "https://homie.jobbyjobs.work/healthz": context deadline exceeded' } }
-      const tv = tvPlugin([{ ...LIVING_ROOM, power: 'offline' }], {
+      state.tunnel = {
+        ...namedTunnel(),
+        state: 'failing',
+        since: iso(25 * MIN),
+        lastError: 'cloudflared exited: failed to dial to edge with quic: timeout: no recent network activity',
+      }
+      const tv = tvPlugin([{ ...livingRoom(lang), power: 'offline' }], {
         state: 'failing',
         since: iso(9 * MIN),
         lastError: 'plugin exited: signal: killed (5 crashes in 5 minutes)',
         update: { latest: '0.3.0', checkedAt: iso(HOUR) },
       })
-      tv.logs.push(`${new Date(Date.now() - 9 * MIN).toISOString()} ERROR lgwebos: ws dial 192.168.68.66:3001: connection refused`, `${new Date(Date.now() - 9 * MIN).toISOString()} FATAL panic: runtime error: invalid memory address`)
+      tv.logs.push(`${iso(9 * MIN)} ERROR webos: ws dial 192.0.2.20:3001: connection refused`, `${iso(9 * MIN)} FATAL panic: runtime error: invalid memory address`)
       state.plugins = [tv]
       state.system.update = { latest: '0.3.0', notesUrl: 'https://github.com/devXpro/homie/releases/tag/v0.3.0', checkedAt: iso(HOUR) }
+      state.attentionReset = true
       break
     }
     case 'unreachable':
-      state.relay = { ...relayConnected(), selfCheck: { ok: false, checkedAt: iso(40_000), error: 'GET https://homie.jobbyjobs.work/healthz: 502 Bad Gateway' } }
+      state.tunnel = { ...namedTunnel(), state: 'probing', lastError: 'GET https://home.example.com/healthz: 502 Bad Gateway' }
+      break
+    case 'coowner':
+      state.session = 'per_bella'
+      break
+    case 'member':
+      state.session = 'per_bob'
       break
     case 'signed-out':
-      state.signedIn = false
+      state.session = null
       break
     case 'not-set-up':
-      state.signedIn = false
-      state.ownerReady = false
+      state.session = null
+      state.people = []
+      state.grants = []
+      state.passkeys = []
+      state.invites = [{ id: 'inv_setup', token: 'setup-token', kind: 'setup', name: '', expires_at: isoIn(3 * MIN) }]
+      break
+    case 'join':
+      state.session = null
+      break
+    case 'consent':
       break
     case 'offline':
       state.offline = true
       break
     case 'firstrun':
-      state.signedIn = false
-      state.ownerReady = false
-      state.relay = { ...relayConnected(), state: 'connecting', since: iso(1000), selfCheck: undefined }
+      state.session = null
+      state.people = []
+      state.tunnel = { mode: 'off', state: 'stopped' }
+      state.firstrun.ownerExists = false
       break
-    case 'firstrun-norelay':
-      state.signedIn = false
-      state.ownerReady = false
-      state.firstrun.relayConfigured = false
-      state.relay = { configured: false, state: 'not_configured' }
+    case 'firstrun-reconnect':
+      // A quick tunnel came back with a new address: the owner exists, their passkey is for the old one.
+      state.session = null
+      state.tunnel = tunnelAt('quick', QUICK_URL_NEXT, 40_000)
       break
     case 'firstrun-closed':
-      state.signedIn = false
-      state.ownerReady = false
+      state.session = null
       state.firstrun.closed = true
       break
     case 'firstrun-done':
@@ -446,10 +512,7 @@ export function seed(scenario: Scenario, lang: Lang, slow: boolean): MockState {
   return state
 }
 
-/**
- * inventoryItems is what tv_list returns: "model · host" and the power state. An unpaired TV that is on reports the
- * contract's `unpaired` state (PLAN §5.1); today's homie-tv appends an English "not paired" to the subtitle instead.
- */
+/** inventoryItems is what tv_list returns: "model · host" and the power state; an unpaired TV that is on says so. */
 export function inventoryItems(p: MockPlugin) {
   return p.tvs.map((t) => ({
     id: t.id,

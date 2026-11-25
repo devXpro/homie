@@ -16,7 +16,7 @@ export default tseslint.config(
       // Providers export their hook next to them; Vite reloads those modules fully, which is fine.
       'react-refresh/only-export-components': [
         'error',
-        { allowConstantExport: true, allowExportNames: ['useRun', 'useStepUp', 'useJobs', 'usePageTitleRef'] },
+        { allowConstantExport: true, allowExportNames: ['useRun', 'useJobs', 'useHomieShell'] },
       ],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/consistent-type-imports': 'error',

@@ -1,26 +1,47 @@
+import {
+  ButtonLink,
+  cn,
+  currentLang,
+  EmptyState,
+  ErrorState,
+  fmtRelative,
+  IconTile,
+  Page,
+  Row,
+  Section,
+  Skeleton,
+  SkeletonRows,
+  StatusDot,
+  TONE_STATUS,
+  useDelayed,
+  useMe,
+  useNow,
+} from '@devxpro/mcp-gatekeeper-ui'
 import type { TFunction } from 'i18next'
-import { ArrowDownCircle, ChevronRight, CloudOff, Globe, Lamp, Plus } from 'lucide-react'
+import { ArrowDownCircle, ChevronRight, CloudOff, Globe, Lamp, Plus, ShieldAlert, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
-import { Page } from '@/components/page'
-import { ButtonLink } from '@/components/ui/button'
-import { EmptyState, ErrorState, Skeleton, SkeletonRows } from '@/components/ui/feedback'
-import { Row, Section } from '@/components/ui/list'
-import { StatusDot, StatusOrb } from '@/components/ui/status'
-import { IconTile, ModuleTile } from '@/components/ui/tile'
+import { Link, Navigate } from 'react-router'
+import { StatusOrb } from '@/components/status'
+import { ModuleTile } from '@/components/tile'
 import { ActivityRow } from '@/features/activity/rows'
 import { useToolIndex } from '@/features/activity/toolIndex'
-import { cn } from '@/lib/cn'
-import { useDelayed, useNow } from '@/lib/hooks'
+import { QuickBanner } from '@/features/tunnel/QuickBanner'
 import { useOverview } from '@/lib/queries'
-import { pluginTone, relayLook, relayTone, TONE_STATUS } from '@/lib/status'
+import { needsOwner, pluginTone, tunnelLook, tunnelTone } from '@/lib/status'
 import { moduleTitle } from '@/lib/tools'
-import type { Attention, PluginSummary, RelayStatus } from '@/lib/types'
+import type { Attention, PluginSummary, TunnelStatus } from '@/lib/types'
 
-// Дом (DESIGN.md §8.4): how the home is, what needs the person, the modules, and what ChatGPT did lately.
+// Дом (DESIGN.md §8.4): how the home is reachable, what needs the owner, the modules, the assistants, and what
+// ChatGPT and Claude did lately. A member has no home page of their own: the connect page is theirs.
 
 export function HomePage() {
+  const me = useMe().data
+  if (me && me.person.role !== 'owner') return <Navigate to="/connect" replace />
+  return <OwnerHome />
+}
+
+function OwnerHome() {
   const { t } = useTranslation()
   const overview = useOverview()
   const tools = useToolIndex()
@@ -56,15 +77,16 @@ export function HomePage() {
 
   return (
     <Page title={title}>
-      <Hero relay={data.relay} />
-      {data.attention.length > 0 && <AttentionSection items={data.attention} plugins={data.plugins} />}
+      <Hero tunnel={data.tunnel} />
+      {data.tunnel.mode === 'quick' && <QuickBanner className="mt-4" />}
+      {needsOwner(data.attention).length > 0 && <AttentionSection items={data.attention} plugins={data.plugins} />}
       {data.plugins.length === 0 ? (
         <EmptyState
           icon={Lamp}
           title={t('home.empty.title')}
           text={t('home.empty.text')}
           action={
-            <ButtonLink to="/admin/devices/add" preventScrollReset variant="filled" size="lg">
+            <ButtonLink to="/devices/add" preventScrollReset variant="filled" size="lg">
               {t('home.empty.button')}
             </ButtonLink>
           }
@@ -74,7 +96,7 @@ export function HomePage() {
           {data.plugins.map((p) => (
             <Row
               key={p.id}
-              to={`/admin/devices/${p.id}`}
+              to={`/devices/${p.id}`}
               iconInset
               leading={<ModuleTile id={p.id} size="sm" />}
               title={moduleTitle(p, t)}
@@ -82,9 +104,19 @@ export function HomePage() {
               chevron
             />
           ))}
-          <Row to="/admin/devices/add" iconInset accent leading={<AddGlyph />} title={t('home.devices.add')} />
+          <Row to="/devices/add" iconInset accent leading={<AddGlyph />} title={t('home.devices.add')} />
         </Section>
       )}
+      <Section header={t('home.assistants')} id="home-assistants">
+        <Row
+          to="/connect"
+          iconInset
+          leading={<IconTile icon={Sparkles} color="purple" />}
+          title={t('home.connect')}
+          subtitle={t('home.connect.subtitle')}
+          chevron
+        />
+      </Section>
       {data.plugins.length > 0 && (
         <Section header={t('home.recent')} id="home-recent">
           {data.recent.length === 0 ? (
@@ -92,9 +124,9 @@ export function HomePage() {
           ) : (
             <>
               {data.recent.map((a) => (
-                <ActivityRow key={a.id} item={a} tools={tools} to={`/admin/activity/${a.id}`} relative now={now} />
+                <ActivityRow key={a.id} item={a} tools={tools} to={`/activity/${a.id}`} relative now={now} />
               ))}
-              <Row to="/admin/activity" title={t('home.recent.all')} accent chevron />
+              <Row to="/activity" title={t('home.recent.all')} accent chevron />
             </>
           )}
         </Section>
@@ -124,21 +156,19 @@ export function ModuleSubtitle({ p }: { p: PluginSummary }) {
   )
 }
 
-function Hero({ relay }: { relay: RelayStatus }) {
+/** Hero is the status card: is the home reachable from outside, and what that means (DESIGN.md §8.4). */
+function Hero({ tunnel }: { tunnel: TunnelStatus }) {
   const { t } = useTranslation()
-  const look = relayLook(relay)
-  const tone = relayTone(look)
+  const look = tunnelLook(tunnel)
+  const tone = tunnelTone(look)
   return (
     <Link
-      to="/admin/settings/server"
-      className={cn(
-        'homie-hero flex items-center gap-4 rounded-xl p-5 transition-[filter] active:brightness-95',
-        TONE_STATUS[tone],
-      )}
+      to="/settings/connection"
+      className={cn('fh-hero flex items-center gap-4 rounded-xl p-5 transition-[filter] active:brightness-95', TONE_STATUS[tone])}
     >
       <StatusOrb tone={tone} breathing={look === 'connecting'} />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="type-title-2">{t(`relay.${look}`)}</span>
+        <span className="type-title-2">{t(`tunnel.${look}`)}</span>
         <span className="type-subheadline text-label-2">{t(`home.hero.${look}`)}</span>
       </span>
       <ChevronRight aria-hidden className="size-5 shrink-0 text-label-3" strokeWidth={2.5} />
@@ -146,20 +176,24 @@ function Hero({ relay }: { relay: RelayStatus }) {
   )
 }
 
-function attentionRow(a: Attention, plugins: PluginSummary[], t: TFunction) {
+function attentionRow(a: Attention, plugins: PluginSummary[], t: TFunction, now: number) {
   const plugin = 'target' in a ? plugins.find((p) => p.id === a.target) : undefined
   const title = plugin ? moduleTitle(plugin, t) : 'target' in a ? a.target : ''
   switch (a.kind) {
-    case 'relay_offline':
-      return { key: a.kind, to: '/admin/settings/server', icon: <IconTile icon={CloudOff} color="red" />, title: t('attention.relay_offline.title'), subtitle: t('attention.relay_offline.subtitle') }
-    case 'relay_unreachable':
-      return { key: a.kind, to: '/admin/settings/server', icon: <IconTile icon={Globe} color="orange" />, title: t('attention.relay_unreachable.title'), subtitle: t('attention.relay_unreachable.subtitle') }
+    case 'tunnel_offline':
+      return { key: a.kind, to: '/settings/connection', icon: <IconTile icon={CloudOff} color="red" />, title: t('attention.tunnel_offline.title'), subtitle: t('attention.tunnel_offline.subtitle') }
+    case 'tunnel_unreachable':
+      return { key: a.kind, to: '/settings/connection', icon: <IconTile icon={Globe} color="orange" />, title: t('attention.tunnel_unreachable.title'), subtitle: t('attention.tunnel_unreachable.subtitle') }
+    case 'access_reset': {
+      const subtitle = a.at ? t('attention.access_reset.subtitle.at', { time: fmtRelative(a.at, currentLang(), now) }) : t('attention.access_reset.subtitle')
+      return { key: a.kind, to: '/account/audit', icon: <IconTile icon={ShieldAlert} color="red" />, title: t('attention.access_reset.title'), subtitle }
+    }
     case 'plugin_failing':
-      return { key: `${a.kind}-${a.target}`, to: `/admin/devices/${a.target}`, icon: <ModuleTile id={a.target} size="sm" className="bg-danger" />, title: t('attention.plugin_failing.title', { title }), subtitle: t('attention.plugin_failing.subtitle') }
+      return { key: `${a.kind}-${a.target}`, to: `/devices/${a.target}`, icon: <ModuleTile id={a.target} size="sm" className="bg-danger" />, title: t('attention.plugin_failing.title', { title }), subtitle: t('attention.plugin_failing.subtitle') }
     case 'plugin_update':
-      return { key: `${a.kind}-${a.target}`, to: `/admin/devices/${a.target}`, icon: <IconTile icon={ArrowDownCircle} color="blue" />, title: t('attention.plugin_update.title', { title }), subtitle: t('attention.plugin_update.subtitle', { version: a.version }) }
+      return { key: `${a.kind}-${a.target}`, to: `/devices/${a.target}`, icon: <IconTile icon={ArrowDownCircle} color="blue" />, title: t('attention.plugin_update.title', { title }), subtitle: t('attention.plugin_update.subtitle', { version: a.version }) }
     case 'hub_update':
-      return { key: a.kind, to: '/admin/settings/about', icon: <IconTile icon={ArrowDownCircle} color="blue" />, title: t('attention.hub_update.title'), subtitle: t('attention.hub_update.subtitle', { version: a.version }) }
+      return { key: a.kind, to: '/settings/about', icon: <IconTile icon={ArrowDownCircle} color="blue" />, title: t('attention.hub_update.title'), subtitle: t('attention.hub_update.subtitle', { version: a.version }) }
     default:
       return undefined
   }
@@ -167,8 +201,10 @@ function attentionRow(a: Attention, plugins: PluginSummary[], t: TFunction) {
 
 function AttentionSection({ items, plugins }: { items: Attention[]; plugins: PluginSummary[] }) {
   const { t } = useTranslation()
+  const now = useNow()
   const [all, setAll] = useState(false)
-  const rows = items.map((a) => attentionRow(a, plugins, t)).filter((r) => r !== undefined)
+  // tunnel_quick is the trial banner above, not a row.
+  const rows = items.map((a) => attentionRow(a, plugins, t, now)).filter((r) => r !== undefined)
   const shown = all ? rows : rows.slice(0, 3)
   if (rows.length === 0) return null
   return (

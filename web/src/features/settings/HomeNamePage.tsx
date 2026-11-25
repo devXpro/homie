@@ -1,26 +1,29 @@
+import { Button, Page, qk, TextField, toast, useMe, type Account, type Me } from '@devxpro/mcp-gatekeeper-ui'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Page } from '@/components/page'
-import { Button } from '@/components/ui/button'
-import { TextField } from '@/components/ui/controls'
-import { api, isApiError } from '@/lib/api'
+import { OwnerOnly } from '@/features/shell/OwnerOnly'
+import { homeApi, isInvalid } from '@/lib/api'
+import { updateBootstrap } from '@/lib/bootstrap'
 import { errorText } from '@/lib/errors'
-import { qk, useSession } from '@/lib/queries'
-import { toast } from '@/lib/toast'
-import type { Bootstrap, Me, Overview, Settings } from '@/lib/types'
+import { hq, useSettings } from '@/lib/queries'
+import type { Overview, Settings } from '@/lib/types'
 
-
-// The home's name (DESIGN.md §8.9): what the family sees in ChatGPT.
+// The home's name (DESIGN.md §8.9): what ChatGPT and Claude call the home. It is the gatekeeper account's name too
+// (STEP2 §2.4), so a rename here renames the account: the sidebar, the people page and the invites follow.
 
 export function HomeNamePage() {
   const { t } = useTranslation()
-  const me = useSession().data
+  const me = useMe().data
+  const settings = useSettings(me?.person.role === 'owner')
+  const current = settings.data?.homeName ?? me?.account.name
   return (
-    <Page title={t('settings.home.name')} back={{ to: '/admin/settings', label: t('settings.title') }}>
-      {me && <HomeNameForm current={me.home.name} />}
-    </Page>
+    <OwnerOnly title={t('settings.home.name')}>
+      <Page title={t('settings.home.name')} back={{ to: '/settings', label: t('settings.title') }}>
+        {current !== undefined && <HomeNameForm current={current} />}
+      </Page>
+    </OwnerOnly>
   )
 }
 
@@ -32,16 +35,17 @@ function HomeNameForm({ current }: { current: string }) {
   const [error, setError] = useState<string>()
   const trimmed = name.trim()
   const save = useMutation({
-    mutationFn: () => api.patch<Settings>('/settings', { homeName: trimmed }),
+    mutationFn: () => homeApi.patch<Settings>('/settings', { homeName: trimmed }),
     onSuccess: (s) => {
-      qc.setQueryData(qk.settings, s)
-      qc.setQueryData<Me>(qk.session, (m) => m && { ...m, home: { ...m.home, name: s.homeName } })
-      qc.setQueryData<Bootstrap>(qk.bootstrap, (b) => b && { ...b, homeName: s.homeName })
-      qc.setQueryData<Overview>(qk.overview, (o) => o && { ...o, home: { name: s.homeName } })
+      qc.setQueryData(hq.settings, s)
+      qc.setQueryData<Overview>(hq.overview, (o) => o && { ...o, home: { name: s.homeName } })
+      qc.setQueryData<Me>(qk.me, (m) => m && { ...m, account: { ...m.account, name: s.homeName } })
+      qc.setQueryData<Account>(qk.account, (a) => a && { ...a, name: s.homeName })
+      updateBootstrap({ homeName: s.homeName })
       toast(t('common.saved'))
-      navigate('/admin/settings')
+      navigate('/settings')
     },
-    onError: (err) => setError(isApiError(err, 'invalid_args') ? t('form.maxLength', { max: 40 }) : errorText(err, t)),
+    onError: (err) => setError(isInvalid(err) ? t('form.maxLength', { max: 40 }) : errorText(err, t)),
   })
   return (
     <form
@@ -53,8 +57,8 @@ function HomeNameForm({ current }: { current: string }) {
       className="flex flex-col gap-6"
     >
       <TextField
-        label={t('setup.home.label')}
-        hint={trimmed ? t('setup.home.preview', { name: trimmed }) : undefined}
+        label={t('settings.home.label')}
+        hint={trimmed ? t('settings.home.preview', { name: trimmed }) : undefined}
         error={error}
         value={name}
         onChange={(e) => {

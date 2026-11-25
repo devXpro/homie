@@ -1,23 +1,17 @@
+import { ActionSheet, Button, currentLang, ProgressBar, seg, Sheet, SheetFooter, Spinner, SuccessCheck, toast, useNow } from '@devxpro/mcp-gatekeeper-ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router'
-import { Button } from '@/components/ui/button'
-import { ProgressBar, SuccessCheck } from '@/components/ui/feedback'
-import { ActionSheet, Sheet, SheetFooter } from '@/components/ui/sheet'
-import { Spinner } from '@/components/ui/spinner'
-import { currentLang } from '@/i18n'
-import { api, isApiError, type ApiError } from '@/lib/api'
+import { homeApi, isHomeError, isInvalid } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { callBus, useEventsConnected } from '@/lib/events'
 import { fmtClock } from '@/lib/format'
-import { useNow } from '@/lib/hooks'
-import { qk, useCall, useInventory, usePlugin } from '@/lib/queries'
+import { hq, useCall, useInventory, usePlugin } from '@/lib/queries'
 import { buildFields, initialValues, serverErrors, validate, type FieldErrors, type FormValues } from '@/lib/schema'
-import { toast } from '@/lib/toast'
 import { fieldCount, groupTools, isDestructive, progressMessage, toolDescription, toolTitle } from '@/lib/tools'
-import type { Call, PluginDetail, Tool } from '@/lib/types'
+import type { Call, List, PluginDetail, Tool } from '@/lib/types'
 import { ResultView, type FollowUpContext } from './ResultView'
 import { SchemaForm } from './SchemaForm'
 
@@ -53,7 +47,7 @@ export function useRun() {
 const myCalls = new Set<string>()
 
 function toolFromCache(qc: ReturnType<typeof useQueryClient>, pluginId: string, name: string) {
-  return qc.getQueryData<PluginDetail>(qk.plugin(pluginId))?.tools.find((t) => t.name === name)
+  return qc.getQueryData<PluginDetail>(hq.plugin(pluginId))?.tools.find((t) => t.name === name)
 }
 
 let seq = 0
@@ -85,7 +79,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       const cached = toolFromCache(qc, call.pluginId, call.tool)
       if (cached) return show(cached)
       void qc
-        .fetchQuery({ queryKey: qk.plugin(call.pluginId), queryFn: () => api.get<PluginDetail>(`/plugins/${encodeURIComponent(call.pluginId)}`) })
+        .fetchQuery({ queryKey: hq.plugin(call.pluginId), queryFn: () => homeApi.get<PluginDetail>(`/plugins/${seg(call.pluginId)}`) })
         .then((d) => d.tools.find((x) => x.name === call.tool))
         .catch(() => undefined)
         .then((tool) =>
@@ -167,7 +161,7 @@ function RunContent({
   // While the event stream is down, poll the running call instead.
   useEffect(() => {
     if (!callId || sse || c?.state !== 'running') return
-    const id = setInterval(() => void qc.invalidateQueries({ queryKey: qk.call(callId) }), 1500)
+    const id = setInterval(() => void qc.invalidateQueries({ queryKey: hq.call(callId) }), 1500)
     return () => clearInterval(id)
   }, [callId, sse, c?.state, qc])
 
@@ -183,18 +177,20 @@ function RunContent({
       setSubmitError(null)
       setOtherErrors([])
       try {
-        const created = await api.post<Call>(`/tools/${encodeURIComponent(tool.name)}/calls`, { args })
-        qc.setQueryData(qk.call(created.id), created)
+        const created = await homeApi.post<Call>(`/tools/${seg(tool.name)}/calls`, { args })
+        qc.setQueryData(hq.call(created.id), created)
         myCalls.add(created.id)
         setCallId(created.id)
         onCallShown(created.id)
       } catch (err) {
-        if (isApiError(err, 'call_running') && err.callId) {
-          myCalls.add(err.callId)
-          setCallId(err.callId)
-          onCallShown(err.callId)
-        } else if (isApiError(err, 'invalid_args')) {
-          const mapped = serverErrors(tool, fields, (err as ApiError).fields, t)
+        // The same tool runs already: attach to that call (409 names it; else find it among the running ones).
+        const running = isHomeError(err, 'call_running') ? (err.callId ?? (await runningCallOf(tool.name))) : undefined
+        if (running) {
+          myCalls.add(running)
+          setCallId(running)
+          onCallShown(running)
+        } else if (isInvalid(err)) {
+          const mapped = serverErrors(tool, fields, isHomeError(err) ? err.fields : [], t)
           setErrors(mapped.errors)
           setOtherErrors(mapped.other.length ? mapped.other : Object.keys(mapped.errors).length ? [] : [errorText(err, t)])
         } else {
@@ -321,7 +317,7 @@ function RunContent({
         disabled={!c}
         onClick={() => {
           if (!c) return
-          void api.del<Call>(`/calls/${encodeURIComponent(c.id)}`).then((x) => qc.setQueryData(qk.call(x.id), x)).catch(() => undefined)
+          void homeApi.del<Call>(`/calls/${seg(c.id)}`).then((x) => x && qc.setQueryData(hq.call(x.id), x)).catch(() => undefined)
         }}
       >
         {t('run.cancel')}
@@ -381,6 +377,16 @@ function RunContent({
       />
     </>
   )
+}
+
+/** runningCallOf finds the running call of a tool, for a 409 call_running that did not name it. */
+async function runningCallOf(tool: string): Promise<string | undefined> {
+  try {
+    const list = await homeApi.get<List<Call>>('/calls', { query: { state: 'running' } })
+    return list.items.find((c) => c.tool === tool)?.id
+  } catch {
+    return undefined
+  }
 }
 
 function buildArgsForEmpty(values: FormValues) {

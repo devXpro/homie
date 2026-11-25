@@ -1,101 +1,53 @@
-// Wire types of the admin API (docs/ADMIN-API.md §2). Optional keys are omitted by the server, never null.
+// Wire types of Homie's own API, /api/home/* (docs/ADMIN-API.md §2 without keys, the relay, Sites and connections),
+// and of the LAN first-run page, /api/firstrun/*. People, passkeys, sessions, invites and connections are the
+// gatekeeper's: their types come from @devxpro/mcp-gatekeeper-ui. Optional keys are omitted by the server.
 
-export type Lang = 'ru' | 'en'
+import type { Account, Lang, Resource } from '@devxpro/mcp-gatekeeper-ui'
+
+export type { Lang }
 export type ISOTime = string
 
-export interface Features {
-  people: boolean
-  connections: boolean
-}
-
+/** One field of a 400 invalid answer: a JSON Pointer into the request (ADMIN-API §1.2). */
 export interface FieldError {
   path: string
   code: string
   message: string
 }
 
-export interface ErrorBody {
-  error: { code: string; message: string; requestId?: string; fields?: FieldError[]; callId?: string; jobId?: string }
-  callId?: string
-  jobId?: string
+// ---------------------------------------------------------------- the tunnel (STEP2 §4.5, §4.7)
+
+export type TunnelMode = 'named' | 'quick' | 'off'
+
+/** The supervisor's state: starting → probing → connected; failing while the child is down; stopped. */
+export type TunnelState = 'starting' | 'probing' | 'connected' | 'failing' | 'stopped'
+
+/**
+ * The tunnel as homed reports it. `probing`: the address is known but the outside check (GET <url>/healthz must
+ * carry this homed's X-Homie-Instance) does not pass yet; `lastError` then says why. `url` and `mcpUrl` are absent
+ * while a quick tunnel has no hostname yet; a quick tunnel's change on every restart.
+ */
+export interface TunnelStatus {
+  mode: TunnelMode
+  state: TunnelState
+  /** the public origin, https://<host> */
+  url?: string
+  /** the connector address, <url>/mcp */
+  mcpUrl?: string
+  hostname?: string
+  since?: ISOTime
+  /** English, for «Подробнее» */
+  lastError?: string
 }
 
-export type Role = 'owner' | 'member'
-export type ConnectionState = 'pending' | 'needs_login' | 'publishing' | 'live' | 'failed' | 'revoked'
-
-export interface ConnectionSummary {
-  id: string
-  kind: 'site' | 'plugin'
-  state: ConnectionState
-  stale: boolean
-}
-
-export interface Person {
-  id: string
-  name: string
-  role: Role
-  plugins: string[]
-  language?: Lang
-  createdAt: ISOTime
-  passkeys: number
-  lastActiveAt?: ISOTime
-  connection?: ConnectionSummary
-}
-
-export interface Me {
-  person: Person
-  session: { id: string; createdAt: ISOTime; expiresAt: ISOTime; idleExpiresAt: ISOTime; stepUpUntil?: ISOTime }
-  home: { name: string; language: Lang }
-  version: string
-  features: Features
-}
-
+/** GET /api/home/bootstrap (public): what the SPA needs before anything else. */
 export interface Bootstrap {
   homeName: string
   language: Lang
-  ownerReady: boolean
-  features: Features
-  connectionKind?: 'site' | 'plugin'
+  ownerReady?: boolean
+  tunnel: { mode: TunnelMode; url?: string }
 }
 
-export interface Session {
-  id: string
-  device: string
-  createdAt: ISOTime
-  lastSeenAt: ISOTime
-  current: boolean
-}
-
-export interface Passkey {
-  id: string
-  name: string
-  provider?: string
-  createdAt: ISOTime
-  lastUsedAt?: ISOTime
-  current: boolean
-}
-
-export interface Key {
-  id: string
-  personId: string
-  label: string
-  hint?: string
-  connectionId?: string
-  createdAt: ISOTime
-  lastUsedAt?: ISOTime
-}
-
-export type RelayState = 'not_configured' | 'connected' | 'connecting' | 'offline'
-
-export interface RelayStatus {
-  configured: boolean
-  domain?: string
-  publicUrl?: string
-  state: RelayState
-  since?: ISOTime
-  lastError?: string
-  selfCheck?: { ok: boolean; checkedAt?: ISOTime; error?: string }
-}
+// ---------------------------------------------------------------- plugins and tools
 
 export type PluginState = 'starting' | 'up' | 'failing' | 'stopped' | 'disabled'
 
@@ -150,7 +102,7 @@ export interface JSONSchema {
   [key: string]: unknown
 }
 
-/** Translated tool texts from the plugin's _meta "homie/i18n" (PLAN §5.1), keyed by language. */
+/** Translated tool texts from the plugin's _meta "homie/i18n", keyed by language. */
 export interface ToolText {
   title?: string
   description?: string
@@ -200,7 +152,7 @@ export interface CallProgress {
   progress: number
   total?: number
   message?: string
-  /** Translations of `message` by language (ADMIN-API §2 Call), e.g. {"ru": "Нажмите OK на пульте телевизора"}. */
+  /** translations of `message` by language, e.g. {"ru": "Нажмите OK на пульте телевизора"} */
   messageI18n?: Partial<Record<Lang, string>>
 }
 
@@ -220,20 +172,7 @@ export interface Call {
   error?: { code: string; message: string }
 }
 
-export type JobKind =
-  | 'plugin.install'
-  | 'plugin.update'
-  | 'plugin.remove'
-  | 'hub.update'
-  | 'connection.publish'
-  | 'connections.republish'
-
-export interface JobItem {
-  id: string
-  label: string
-  state: 'waiting' | 'running' | 'ok' | 'failed' | 'needs_login' | 'skipped'
-  message?: string
-}
+export type JobKind = 'plugin.install' | 'plugin.update' | 'plugin.remove' | 'hub.update'
 
 export interface Job {
   id: string
@@ -244,25 +183,25 @@ export interface Job {
   step?: string
   progress?: { done: number; total?: number }
   message?: string
-  items?: JobItem[]
   startedAt: ISOTime
   endedAt?: ISOTime
   error?: { code: string; message: string }
 }
 
-export type Via = 'site' | 'mcp' | 'admin' | 'cli'
+// ---------------------------------------------------------------- the activity log (tool calls)
 
-export interface AuditItem {
+/** Where a call came from: an assistant (by its OAuth client), the admin or the CLI. */
+export type Via = 'chatgpt' | 'claude' | 'admin' | 'cli'
+
+/** One tool call of the activity log (the Homie table `activity`), arguments redacted. */
+export interface ActivityItem {
   id: string
   at: ISOTime
-  kind: 'tool' | 'admin'
   person?: { id?: string; name: string }
   via: Via
-  tool?: string
+  tool: string
   toolTitle?: string
   pluginId?: string
-  action?: string
-  target?: string
   args?: Record<string, unknown>
   ok: boolean
   error?: string
@@ -278,11 +217,11 @@ export interface List<T> {
   items: T[]
 }
 
+// ---------------------------------------------------------------- the home
+
 export interface Settings {
   homeName: string
   language: Lang
-  connectionKind?: 'site' | 'plugin'
-  siteSignOut?: boolean
 }
 
 export interface SystemInfo {
@@ -294,21 +233,24 @@ export interface SystemInfo {
   update?: { latest: string; notesUrl: string; checkedAt: ISOTime }
 }
 
+/** What needs the owner, by severity (HC-api §3). */
 export type Attention =
-  | { kind: 'relay_offline' }
-  | { kind: 'relay_unreachable' }
+  /** someone ran `homed admin reset-access` on the home box lately; `peer` is the program that asked (GK-5) */
+  | { kind: 'access_reset'; at?: ISOTime; peer?: string }
+  | { kind: 'tunnel_offline' }
+  | { kind: 'tunnel_unreachable' }
   | { kind: 'plugin_failing'; target: string }
-  | { kind: 'plugin_update'; target: string; version: string }
   | { kind: 'hub_update'; version: string }
-  | { kind: 'connections_stale'; count: number }
-  | { kind: 'connection_failed'; target: string }
+  | { kind: 'plugin_update'; target: string; version: string }
+  /** a quick tunnel: «для пробы»; Дом shows it as its banner */
+  | { kind: 'tunnel_quick' }
 
 export interface Overview {
   home: { name: string }
-  relay: RelayStatus
+  tunnel: TunnelStatus
   plugins: PluginSummary[]
   attention: Attention[]
-  recent: AuditItem[]
+  recent: ActivityItem[]
 }
 
 export interface PluginPreview {
@@ -325,29 +267,62 @@ export interface PluginPreview {
   installed?: { version: string }
 }
 
-export interface TokenInfo {
-  kind: 'setup' | 'member'
-  homeName: string
-  personName?: string
-  inviterName?: string
-  expiresAt: ISOTime
+/** A device a person may use, as GET /api/account lists it for the viewer (a member sees only theirs). */
+export interface AccountDevice {
+  id: string
+  title: string
+  /** its permission id, "plugin:<id>" */
+  permission: string
 }
 
-export interface Ceremony<T> {
-  ceremonyId: string
-  publicKey: T
+/** GET /api/account with Homie's fields (people.AccountFields, HC-api §5). */
+export interface HomeAccount extends Account {
+  /** the home, the one MCP resource: feeds the connect page */
+  resources?: Resource[]
+  devices?: AccountDevice[]
+  tunnel?: { mode: TunnelMode }
 }
 
-export interface NewKey {
-  key: Key
-  secret: string
+/** One event of GET /api/home/events/poll: the same as an SSE frame's id, event and data. */
+export interface PolledEvent {
+  id?: string
+  event: string
+  data: unknown
 }
 
-// First-run LAN page (ADMIN-API §5).
+export interface PollAnswer {
+  events: PolledEvent[]
+  /** where the next poll resumes: its `after` */
+  cursor: string
+}
+
+// ---------------------------------------------------------------- the LAN first-run page (STEP2 §4.8)
+
+/** The Cloudflare connect of "my domain": login link → tunnel → DNS → config (gatekeeper Connector.Start). */
+export type ConnectStepName = 'login' | 'tunnel' | 'dns' | 'config'
+
+/** The connect job of "my domain" (HC-api §7 ConnectJob). */
+export interface ConnectStatus {
+  hostname: string
+  state: 'running' | 'ok' | 'failed'
+  step?: ConnectStepName
+  /** the Cloudflare link to sign in and pick the zone, as soon as cloudflared prints it */
+  loginUrl?: string
+  /** English; an existing DNS record says to retry with overwriteDns */
+  error?: string
+  startedAt?: ISOTime
+  endedAt?: ISOTime
+}
+
 export interface FirstRunState {
-  step: 'pin' | 'relay' | 'connecting' | 'link'
+  /** pin; tunnel: nothing connects the home yet; connecting: a connect runs or the tunnel comes up; link */
+  step: 'pin' | 'tunnel' | 'connecting' | 'link'
   homeName?: string
-  relay?: RelayStatus
+  /** with "link": the owner is set up already, so this is the quick-mode Reconnect (the address changed) */
+  ownerExists?: boolean
+  tunnel?: TunnelStatus
+  /** the last connect, also a failed one */
+  connect?: ConnectStatus
 }
 
 export interface SetupLink {

@@ -170,7 +170,7 @@ describe('validate (no eval: @cfworker/json-schema)', () => {
   const fields = buildFields(tl, 'ru')
 
   it('accepts valid values', () => {
-    expect(validate(tl, fields, { percent: 40, host: '192.168.68.66', id: 'tv-2', name: 'abc', input: 'tv' }, t).errors).toEqual({})
+    expect(validate(tl, fields, { percent: 40, host: '192.0.2.66', id: 'tv-2', name: 'abc', input: 'tv' }, t).errors).toEqual({})
   })
 
   it('maps every keyword to the field words of DESIGN.md §9.3', () => {

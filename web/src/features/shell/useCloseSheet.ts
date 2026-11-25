@@ -1,5 +1,5 @@
+import { canGoBack } from '@devxpro/mcp-gatekeeper-ui'
 import { useNavigate } from 'react-router'
-import { canGoBack } from './navstack'
 
 /**
  * useCloseSheet closes a sheet that has its own route the way the back gesture would: back to wherever the person

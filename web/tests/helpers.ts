@@ -3,8 +3,8 @@ import { expect, type Page } from '@playwright/test'
 
 /** open loads a mock scenario (src/mocks/data.ts SCENARIOS); state lives in the page, so every test starts fresh. */
 export async function open(page: Page, path: string, scenario = 'default', extra = '') {
-  const sep = path.includes('?') ? '&' : '?'
   const [base, hash] = path.split('#')
+  const sep = base.includes('?') ? '&' : '?'
   await page.goto(`${base}${sep}mock=${scenario}${extra}${hash ? `#${hash}` : ''}`)
 }
 
@@ -37,7 +37,7 @@ export async function useRealWebAuthn(page: Page) {
           isResidentCredential: true,
           rpId: 'localhost',
           privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
-          userHandle: Buffer.from('roman').toString('base64'),
+          userHandle: Buffer.from('alice').toString('base64'),
           signCount: 0,
         },
       })
@@ -68,4 +68,18 @@ export async function guardCSP(page: Page) {
       expect([...problems, ...fromDom]).toEqual([])
     },
   }
+}
+
+/** mock calls a test hook of the mock build (src/mocks/browser.ts). */
+export async function mock(page: Page, hook: 'finishLogin' | 'restartQuick' | 'forgetPin' | 'offline' | 'online') {
+  await page.evaluate((h) => {
+    const m = (
+      window as unknown as {
+        __homieMock?: { setOffline: (v: boolean) => void; finishLogin: () => void; restartQuick: () => void; forgetPin: () => void }
+      }
+    ).__homieMock
+    if (h === 'offline') m?.setOffline(true)
+    else if (h === 'online') m?.setOffline(false)
+    else m?.[h]()
+  }, hook)
 }

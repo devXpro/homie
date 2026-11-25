@@ -61,7 +61,7 @@ export default async function globalSetup() {
   )
   closeSync(out)
   await waitForHealth(`http://127.0.0.1:${port}/healthz`, homed, log)
-  const ui = await fetch(`${origin}/admin/`)
+  const ui = await fetch(`${origin}/login`)
   if (ui.status !== 200) {
     homed.kill('SIGTERM')
     throw new Error(`homed serves no admin UI (${ui.status}): run \`make web\` first, or use \`make e2e\``)

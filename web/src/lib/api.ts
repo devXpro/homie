@@ -1,155 +1,79 @@
-// The admin API client (docs/ADMIN-API.md §1): JSON both ways, the CSRF header on every write, error codes as
-// ApiError, and "the home is offline" (a network error, or the relay's non-JSON 404 page) as OfflineError.
+// Homie's own API clients: /api/home/* (the admin) and /api/firstrun/* (the LAN first-run page). They answer in the
+// gatekeeper's error form {"error":"<code>","message":"…"} (STEP2 §2.4), so errors are the package's ApiError and
+// every screen words them the same way. Homie's answers may carry a little more, which this client keeps: the
+// invalid fields of a form, and the running call or job that a 409 points at.
 
-import type { ErrorBody, FieldError } from './types'
+import { api, ApiError, brand, connectivity, OfflineError, type Method } from '@devxpro/mcp-gatekeeper-ui'
+import type { FieldError } from './types'
 
-export class ApiError extends Error {
-  readonly status: number
-  readonly code: string
+/** HomeError is an ApiError with Homie's extras. */
+export class HomeError extends ApiError {
   readonly fields: FieldError[]
   readonly callId?: string
   readonly jobId?: string
-  readonly retryAfter?: number
 
-  constructor(
-    status: number,
-    code: string,
-    message: string,
-    extra: { fields?: FieldError[]; callId?: string; jobId?: string; retryAfter?: number } = {},
-  ) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = code
+  constructor(status: number, code: string, message: string, extra: { fields?: FieldError[]; callId?: string; jobId?: string; retryAfter?: number } = {}) {
+    super(status, code, message, { retryAfter: extra.retryAfter })
     this.fields = extra.fields ?? []
     this.callId = extra.callId
     this.jobId = extra.jobId
-    this.retryAfter = extra.retryAfter
   }
 }
 
-export class OfflineError extends Error {
-  constructor() {
-    super('the home is offline')
-    this.name = 'OfflineError'
-  }
+/** isHomeError narrows an error to HomeError, optionally of one code. */
+export function isHomeError(err: unknown, code?: string): err is HomeError {
+  return err instanceof HomeError && (code === undefined || err.code === code)
 }
 
-export function isApiError(err: unknown, code?: string): err is ApiError {
-  return err instanceof ApiError && (code === undefined || err.code === code)
+/** isInvalid: a validation refusal, whichever name the hub gives it (the gatekeeper's `invalid`, or `invalid_args`). */
+export function isInvalid(err: unknown): err is ApiError {
+  return err instanceof ApiError && (err.code === 'invalid' || err.code === 'invalid_args')
 }
 
-export function isOffline(err: unknown): err is OfflineError {
-  return err instanceof OfflineError
+/** A proxy in front of a stopped homed (cloudflared, Cloudflare's edge) answers these with its own HTML page. */
+const UNREACHABLE = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530])
+
+let askingMe = false
+
+/**
+ * noSession lets the signed-in shell notice an ended session: the package's own client reports a 401 no_session to
+ * the shell, so one cheap GET /api/me through it does (the shell then goes to the sign-in page with its toast).
+ */
+function noSession() {
+  if (askingMe) return
+  askingMe = true
+  void api
+    .get('/me')
+    .catch(() => undefined)
+    .finally(() => {
+      askingMe = false
+    })
 }
 
-type Listener = () => void
+const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 
-/** Connectivity tracks whether the home answers, and retries with backoff while it does not (DESIGN §8.12.1). */
-class Connectivity {
-  private offline = false
-  private attempt = 0
-  private timer: ReturnType<typeof setTimeout> | undefined
-  private readonly listeners = new Set<Listener>()
-  private readonly backListeners = new Set<Listener>()
-  probeUrl = '/api/admin/bootstrap'
-
-  subscribe = (listener: Listener) => {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
-  }
-
-  getSnapshot = () => this.offline
-
-  /** onBack runs every time the home answers again after being offline. */
-  onBack(listener: Listener) {
-    this.backListeners.add(listener)
-    return () => {
-      this.backListeners.delete(listener)
-    }
-  }
-
-  reportOffline() {
-    if (this.offline) return
-    this.offline = true
-    this.attempt = 0
-    this.emit()
-    this.schedule()
-  }
-
-  reportOnline() {
-    if (!this.offline) return
-    this.offline = false
-    clearTimeout(this.timer)
-    this.emit()
-    for (const l of this.backListeners) l()
-  }
-
-  /** retryNow probes at once: the Retry button, `online` and `visibilitychange`. */
-  retryNow = () => {
-    if (!this.offline) return
-    clearTimeout(this.timer)
-    void this.probe()
-  }
-
-  private schedule() {
-    const delays = [2000, 5000, 10000]
-    const delay = delays[this.attempt] ?? 30000
-    this.attempt++
-    clearTimeout(this.timer)
-    this.timer = setTimeout(() => void this.probe(), delay)
-  }
-
-  private async probe() {
-    try {
-      const res = await fetch(this.probeUrl, { cache: 'no-store', credentials: 'same-origin' })
-      if ((res.headers.get('content-type') ?? '').includes('application/json')) {
-        this.reportOnline()
-        return
-      }
-    } catch {
-      // still offline
-    }
-    if (this.offline) this.schedule()
-  }
-
-  private emit() {
-    for (const l of this.listeners) l()
-  }
-}
-
-export const connectivity = new Connectivity()
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', connectivity.retryNow)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') connectivity.retryNow()
+/** errorOf reads an error body: the gatekeeper's flat form, or an older nested {"error":{"code",…}} one. */
+function errorOf(status: number, statusText: string, data: unknown, retryAfter?: number): HomeError {
+  const o = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  const nested = o.error && typeof o.error === 'object' ? (o.error as Record<string, unknown>) : undefined
+  const src = nested ?? o
+  const code = str(nested ? nested.code : o.error) ?? 'generic'
+  const fields = Array.isArray(src.fields) ? (src.fields as FieldError[]) : undefined
+  return new HomeError(status, code, str(src.message) ?? statusText, {
+    fields,
+    callId: str(o.callId) ?? str(o.call_id) ?? str(src.callId),
+    jobId: str(o.jobId) ?? str(o.job_id) ?? str(src.jobId),
+    retryAfter,
   })
 }
 
-const unauthenticatedListeners = new Set<Listener>()
-
-/** onUnauthenticated runs when any admin request answers 401 unauthenticated (DESIGN §7). */
-export function onUnauthenticated(listener: Listener) {
-  unauthenticatedListeners.add(listener)
-  return () => {
-    unauthenticatedListeners.delete(listener)
-  }
-}
-
-export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
-
 export interface RequestOptions {
-  /** API base; the LAN first-run page uses /api/firstrun. */
-  base?: string
   query?: Record<string, string | number | boolean | undefined>
   signal?: AbortSignal
 }
 
-export async function request<T>(method: Method, path: string, body?: unknown, opts: RequestOptions = {}): Promise<T> {
-  let url = (opts.base ?? '/api/admin') + path
+async function request<T>(base: string, method: Method, path: string, body?: unknown, opts: RequestOptions = {}): Promise<T> {
+  let url = base + path
   if (opts.query) {
     const q = new URLSearchParams()
     for (const [k, v] of Object.entries(opts.query)) {
@@ -161,7 +85,7 @@ export async function request<T>(method: Method, path: string, body?: unknown, o
   const headers: Record<string, string> = { Accept: 'application/json' }
   let payload: string | undefined
   if (method !== 'GET') {
-    headers['X-Homie'] = '1'
+    headers[brand().csrfHeader] = '1'
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json'
       payload = JSON.stringify(body)
@@ -170,14 +94,7 @@ export async function request<T>(method: Method, path: string, body?: unknown, o
 
   let res: Response
   try {
-    res = await fetch(url, {
-      method,
-      headers,
-      body: payload,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: opts.signal,
-    })
+    res = await fetch(url, { method, headers, body: payload, credentials: 'same-origin', cache: 'no-store', signal: opts.signal })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
     connectivity.reportOffline()
@@ -191,34 +108,31 @@ export async function request<T>(method: Method, path: string, body?: unknown, o
     return (await res.json()) as T
   }
   if (!json) {
-    // The relay answers for an offline home with its own HTML page and status 404 (PLAN §3); a proxy in front of
-    // a stopped relay answers 502–504 without JSON. Both mean the home cannot be reached.
-    if (res.status === 404 || res.status >= 502) {
+    if (UNREACHABLE.has(res.status)) {
       connectivity.reportOffline()
       throw new OfflineError()
     }
-    throw new ApiError(res.status, 'generic', res.statusText)
+    throw new HomeError(res.status, res.status === 404 ? 'not_found' : 'generic', res.statusText)
   }
   connectivity.reportOnline()
-  const data = (await res.json().catch(() => null)) as ErrorBody | null
-  const e = data?.error
   const retry = Number(res.headers.get('Retry-After'))
-  const err = new ApiError(res.status, e?.code ?? 'generic', e?.message ?? res.statusText, {
-    fields: e?.fields,
-    callId: data?.callId ?? e?.callId,
-    jobId: data?.jobId ?? e?.jobId,
-    retryAfter: Number.isFinite(retry) && retry > 0 ? retry : undefined,
-  })
-  if (err.code === 'unauthenticated') {
-    for (const l of unauthenticatedListeners) l()
-  }
+  const err = errorOf(res.status, res.statusText, await res.json().catch(() => null), Number.isFinite(retry) && retry > 0 ? retry : undefined)
+  if (err.code === 'no_session') noSession()
   throw err
 }
 
-export const api = {
-  get: <T>(path: string, opts?: RequestOptions) => request<T>('GET', path, undefined, opts),
-  post: <T>(path: string, body: unknown = {}, opts?: RequestOptions) => request<T>('POST', path, body, opts),
-  patch: <T>(path: string, body: unknown, opts?: RequestOptions) => request<T>('PATCH', path, body, opts),
-  put: <T>(path: string, body: unknown, opts?: RequestOptions) => request<T>('PUT', path, body, opts),
-  del: <T>(path: string, opts?: RequestOptions) => request<T>('DELETE', path, undefined, opts),
+function client(base: string) {
+  return {
+    get: <T>(path: string, opts?: RequestOptions) => request<T>(base, 'GET', path, undefined, opts),
+    post: <T>(path: string, body: unknown = {}, opts?: RequestOptions) => request<T>(base, 'POST', path, body, opts),
+    patch: <T>(path: string, body: unknown, opts?: RequestOptions) => request<T>(base, 'PATCH', path, body, opts),
+    put: <T>(path: string, body: unknown, opts?: RequestOptions) => request<T>(base, 'PUT', path, body, opts),
+    del: <T>(path: string, opts?: RequestOptions) => request<T>(base, 'DELETE', path, undefined, opts),
+  }
 }
+
+/** homeApi is /api/home/*: devices, tools, calls, jobs, the activity log, settings, the tunnel, the system. */
+export const homeApi = client('/api/home')
+
+/** firstrunApi is /api/firstrun/*, the LAN first-run page's own API (plain HTTP, a PIN cookie). */
+export const firstrunApi = client('/api/firstrun')

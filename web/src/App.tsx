@@ -1,75 +1,64 @@
-import { QueryClientProvider } from '@tanstack/react-query'
-import { MotionConfig } from 'motion/react'
-import { useState } from 'react'
-import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
-import { RouterProvider } from 'react-router/dom'
-import { Toaster } from '@/components/ui/toaster'
-import { ActivityPage } from '@/features/activity/ActivityPage'
-import { LoginPage } from '@/features/auth/LoginPage'
-import { DevicesPage } from '@/features/devices/DevicesPage'
-import { LogsPage } from '@/features/devices/LogsPage'
-import { ModulePage } from '@/features/devices/ModulePage'
-import { HomePage } from '@/features/home/HomePage'
-import { NotFoundPage, NotFoundScreen } from '@/features/misc/NotFound'
-import { PeoplePage } from '@/features/people/PeoplePage'
-import { AboutPage } from '@/features/settings/AboutPage'
-import { AppearancePage, LanguagePage } from '@/features/settings/ChoicePages'
-import { HomeNamePage } from '@/features/settings/HomeNamePage'
-import { KeysPage } from '@/features/settings/KeysPage'
-import { PasskeysPage } from '@/features/settings/PasskeysPage'
-import { ServerPage } from '@/features/settings/ServerPage'
-import { SessionsPage } from '@/features/settings/SessionsPage'
-import { SettingsPage } from '@/features/settings/SettingsPage'
-import { SetupWizard } from '@/features/setup/SetupWizard'
-import { AppShell, type PageHandle } from '@/features/shell/AppShell'
-import { makeQueryClient } from '@/lib/queries'
+import { api, GatekeeperApp, i18n, useMe, type ConnectSlots, type PermissionInfo, type Resource } from '@devxpro/mcp-gatekeeper-ui'
+import { useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
+import { HomeTile } from '@/components/tile'
+import { ConnectSteps, QuickNote, TunnelBadge } from '@/features/connect/slots'
+import { useHomieShell } from '@/features/shell/layer'
+import { liveOf, mcpUrl, useBootstrap } from '@/lib/bootstrap'
+import { localCatalog } from '@/lib/permissions'
+import { hq } from '@/lib/queries'
+import type { HomeAccount } from '@/lib/types'
+import { publicRoutes, routes, tabs } from '@/routes'
 
+// Homie on the gatekeeper's UI package (STEP2 §3.1 web row): the package owns sign-in, setup and join, consent, the
+// connect page, people and passkeys, and the shell; Homie adds its tabs and pages (routes.ts), the LAN first-run
+// page, its parts of the connect page, the device catalog of the access pickers, and how it follows changes.
 
-const page = (path: string, Component: React.ComponentType, handle: PageHandle): RouteObject => ({ path, Component, handle })
+/**
+ * resources: the home is the one MCP resource (STEP2 §2.1 #4), at https://<host>/mcp, always on. homed lists it on
+ * GET /api/account (HC-api §5); the description is the admin's own words in the UI language.
+ */
+function resources(a: HomeAccount): Resource[] {
+  const description = i18n.t('connect.home.description')
+  const listed = a.resources?.filter((r) => r.id === 'home') ?? []
+  if (listed.length > 0) return listed.map((r) => ({ ...r, description, mcp_url: mcpUrl(r.mcp_url) }))
+  return [{ id: 'home', name: a.name, description, mcp_url: mcpUrl(), enabled: true }]
+}
 
-// Routes of DESIGN.md §2.2. Sheets have their own URL, served by the page under them (so back closes them).
-const routes: RouteObject[] = [
-  { path: '/', element: <Navigate to="/admin" replace /> },
-  { path: '/firstrun', lazy: async () => ({ Component: (await import('@/features/firstrun/LanSetup')).LanSetup }) },
-  { path: '/admin/login', Component: LoginPage },
-  { path: '/admin/setup', Component: SetupWizard },
-  {
-    path: '/admin',
-    Component: AppShell,
-    children: [
-      { index: true, Component: HomePage, handle: { page: 'home', tab: 'home', depth: 0 } satisfies PageHandle },
-      page('devices', DevicesPage, { page: 'devices', tab: 'devices', depth: 0 }),
-      page('devices/add', DevicesPage, { page: 'devices', tab: 'devices', depth: 0 }),
-      page('devices/:pluginId', ModulePage, { page: 'module', tab: 'devices', depth: 1 }),
-      page('devices/:pluginId/items/:itemId', ModulePage, { page: 'module', tab: 'devices', depth: 1 }),
-      page('devices/:pluginId/logs', LogsPage, { page: 'logs', tab: 'devices', depth: 2 }),
-      page('people', PeoplePage, { page: 'people', tab: 'people', depth: 0 }),
-      page('activity', ActivityPage, { page: 'activity', tab: 'activity', depth: 0 }),
-      page('activity/:id', ActivityPage, { page: 'activity', tab: 'activity', depth: 0 }),
-      page('settings', SettingsPage, { page: 'settings', tab: 'settings', depth: 0 }),
-      page('settings/home', HomeNamePage, { page: 'settings/home', tab: 'settings', depth: 1 }),
-      page('settings/language', LanguagePage, { page: 'settings/language', tab: 'settings', depth: 1 }),
-      page('settings/appearance', AppearancePage, { page: 'settings/appearance', tab: 'settings', depth: 1 }),
-      page('settings/passkeys', PasskeysPage, { page: 'settings/passkeys', tab: 'settings', depth: 1 }),
-      page('settings/sessions', SessionsPage, { page: 'settings/sessions', tab: 'settings', depth: 1 }),
-      page('settings/server', ServerPage, { page: 'settings/server', tab: 'settings', depth: 1 }),
-      page('settings/keys', KeysPage, { page: 'settings/keys', tab: 'settings', depth: 1 }),
-      page('settings/about', AboutPage, { page: 'settings/about', tab: 'settings', depth: 1 }),
-      page('*', NotFoundPage, { page: 'notfound', depth: 0 }),
-    ],
-  },
-  { path: '*', Component: NotFoundScreen },
-]
+const connect: ConnectSlots = { Badge: TunnelBadge, Note: QuickNote, BodyEnd: ConnectSteps }
+
+const NO_CATALOG: PermissionInfo[] = []
+
+/**
+ * usePluginCatalog is what an invite or a member's detail can tick (owners only): homed's catalog (GET
+ * /api/account/permissions: "plugin:<id>" per installed plugin), titled as the admin names the devices.
+ */
+function usePluginCatalog(): PermissionInfo[] | undefined {
+  const owner = useMe().data?.person.role === 'owner'
+  const remote = useQuery({
+    queryKey: hq.permissions,
+    queryFn: async () => (await api.get<PermissionInfo[] | null>('/account/permissions')) ?? [],
+    enabled: owner,
+    staleTime: 60_000,
+  })
+  const catalog = useMemo(() => (remote.data ? localCatalog(remote.data) : undefined), [remote.data])
+  return owner ? catalog : NO_CATALOG
+}
 
 export function App() {
-  const [qc] = useState(makeQueryClient)
-  const [router] = useState(() => createBrowserRouter(routes))
+  const boot = useBootstrap()
   return (
-    <QueryClientProvider client={qc}>
-      <MotionConfig reducedMotion="user">
-        <RouterProvider router={router} />
-        <Toaster />
-      </MotionConfig>
-    </QueryClientProvider>
+    <GatekeeperApp
+      tabs={tabs}
+      routes={routes}
+      publicRoutes={publicRoutes}
+      resources={(a) => resources(a as HomeAccount)}
+      ResourceTile={HomeTile}
+      useBadges={useHomieShell}
+      connect={connect}
+      setupDoneTo="/home"
+      usePermissions={usePluginCatalog}
+      live={liveOf(boot?.tunnel.mode)}
+    />
   )
 }

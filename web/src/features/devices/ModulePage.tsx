@@ -1,36 +1,61 @@
+import {
+  ActionSheet,
+  Button,
+  currentLang,
+  EmptyState,
+  ErrorState,
+  IconTile,
+  isApiError,
+  Page,
+  Row,
+  Section,
+  seg,
+  Sheet,
+  SheetFooter,
+  Skeleton,
+  SkeletonRows,
+  Spinner,
+  StatusDot,
+  StatusPill,
+  SwitchRow,
+  toast,
+  useDelayed,
+  usePageTitleRef,
+  useStepUp,
+  useSticky,
+} from '@devxpro/mcp-gatekeeper-ui'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowDownCircle, Lamp, RotateCw, ScrollText, TriangleAlert, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate, useParams } from 'react-router'
-import { Page, usePageTitleRef } from '@/components/page'
-import { Button } from '@/components/ui/button'
-import { SwitchRow } from '@/components/ui/controls'
-import { EmptyState, ErrorState, Skeleton, SkeletonRows } from '@/components/ui/feedback'
-import { Row, Section } from '@/components/ui/list'
-import { ActionSheet, Sheet, SheetFooter } from '@/components/ui/sheet'
-import { Spinner } from '@/components/ui/spinner'
-import { StatusDot, StatusPill } from '@/components/ui/status'
-import { IconTile, ModuleTile } from '@/components/ui/tile'
-import { useStepUp } from '@/features/auth/stepup'
+import { ModuleTile } from '@/components/tile'
 import { useJobs } from '@/features/run/jobs'
-import { useCloseSheet } from '@/features/shell/useCloseSheet'
 import { useRun } from '@/features/run/run'
-import { currentLang } from '@/i18n'
-import { api, isApiError } from '@/lib/api'
+import { OwnerOnly } from '@/features/shell/OwnerOnly'
+import { useCloseSheet } from '@/features/shell/useCloseSheet'
+import { homeApi, isHomeError } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { pluginRemovedBus } from '@/lib/events'
-import { useDelayed, useSticky } from '@/lib/hooks'
-import { qk, useInventory, usePlugin } from '@/lib/queries'
+import { hq, useInventory, usePlugin } from '@/lib/queries'
 import { itemTone, pluginTone } from '@/lib/status'
-import { toast } from '@/lib/toast'
 import { groupTools, isDestructive, moduleTitle, toolDescription, toolTitle } from '@/lib/tools'
 import type { InventoryItem, Job, PluginDetail, PluginSummary, Tool } from '@/lib/types'
 
 // Module detail (DESIGN.md §8.7): header, a banner when it is not running, its devices, its actions, what it does
-// in ChatGPT, and maintenance. The device sheet (§8.7.3) is the route …/items/:itemId over this page.
+// in ChatGPT and Claude, and maintenance. The device sheet (§8.7.3) is the route …/items/:itemId over this page.
+// Owners only: a member's devices page lists what they may use, without details.
 
 export function ModulePage() {
+  const { t } = useTranslation()
+  return (
+    <OwnerOnly title={t('devices.title')}>
+      <ModuleScreen />
+    </OwnerOnly>
+  )
+}
+
+function ModuleScreen() {
   const { t } = useTranslation()
   const { pluginId = '', itemId } = useParams()
   const navigate = useNavigate()
@@ -45,12 +70,12 @@ export function ModulePage() {
       pluginRemovedBus.on((id) => {
         if (id !== pluginId) return
         toast(t('module.removed', { title: title || pluginId }))
-        navigate('/admin/devices', { replace: true })
+        navigate('/devices', { replace: true })
       }),
     [pluginId, navigate, t, title],
   )
 
-  const back = { to: '/admin/devices', label: t('devices.title') }
+  const back = { to: '/devices', label: t('devices.title') }
   if (plugin.error && !p) {
     const missing = isApiError(plugin.error, 'not_found')
     return (
@@ -61,7 +86,7 @@ export function ModulePage() {
           onRetry={missing ? undefined : () => void plugin.refetch()}
           action={
             missing ? (
-              <Button variant="tinted" size="lg" onClick={() => navigate('/admin/devices')}>
+              <Button variant="tinted" size="lg" onClick={() => navigate('/devices')}>
                 {t('module.back')}
               </Button>
             ) : undefined
@@ -122,7 +147,7 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   const title = moduleTitle(p, t)
   const groups = useMemo(() => groupTools(p.tools, lang), [p.tools, lang])
   const setup = groups.setup
-  const closeDevice = useCloseSheet(`/admin/devices/${p.id}`)
+  const closeDevice = useCloseSheet(`/devices/${p.id}`)
   const hasInventory = !!p.inventoryTool
   const inventory = useInventory(p.id, hasInventory && p.state === 'up')
   const [ability, setAbility] = useState<Tool | null>(null)
@@ -139,14 +164,14 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   }, [wantsSetup, groups.setup, inventory.data, openRun, navigate, location.pathname])
 
   const summary = (patch: PluginSummary) => {
-    qc.setQueryData<PluginDetail>(qk.plugin(p.id), (d) => {
+    qc.setQueryData<PluginDetail>(hq.plugin(p.id), (d) => {
       if (!d) return d
       const { tools: _counts, ...rest } = patch
       return { ...d, ...rest }
     })
   }
   const restart = useMutation({
-    mutationFn: () => api.post<PluginSummary>(`/plugins/${p.id}/restart`, {}),
+    mutationFn: () => homeApi.post<PluginSummary>(`/plugins/${seg(p.id)}/restart`, {}),
     onSuccess: (s) => {
       summary(s)
       toast(t('module.restarted', { title }), 'info')
@@ -154,15 +179,15 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
     onError: (err) => toast(errorText(err, t), 'warning'),
   })
   const enable = useMutation({
-    mutationFn: (enabled: boolean) => api.patch<PluginSummary>(`/plugins/${p.id}`, { enabled }),
+    mutationFn: (enabled: boolean) => homeApi.patch<PluginSummary>(`/plugins/${seg(p.id)}`, { enabled }),
     // Switches are optimistic (DESIGN.md §7).
     onMutate: (enabled) => {
-      const before = qc.getQueryData<PluginDetail>(qk.plugin(p.id))
-      qc.setQueryData<PluginDetail>(qk.plugin(p.id), (d) => d && { ...d, enabled, state: enabled ? 'starting' : 'disabled' })
+      const before = qc.getQueryData<PluginDetail>(hq.plugin(p.id))
+      qc.setQueryData<PluginDetail>(hq.plugin(p.id), (d) => d && { ...d, enabled, state: enabled ? 'starting' : 'disabled' })
       return { before }
     },
     onError: (err, _v, ctx) => {
-      if (ctx?.before) qc.setQueryData(qk.plugin(p.id), ctx.before)
+      if (ctx?.before) qc.setQueryData(hq.plugin(p.id), ctx.before)
       toast(errorText(err, t), 'warning')
     },
     onSuccess: summary,
@@ -170,8 +195,8 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
 
   const update = async () => {
     const version = p.update?.latest
-    const job = await withStepUp(() => api.post<Job>(`/plugins/${p.id}/update`, version ? { version } : {}), t('stepup.action.update', { title })).catch((err) => {
-      if (isApiError(err, 'job_running') && err.jobId) return { id: err.jobId } as Job
+    const job = await withStepUp(() => homeApi.post<Job>(`/plugins/${seg(p.id)}/update`, version ? { version } : {}), t('stepup.action.update', { title })).catch((err) => {
+      if (isHomeError(err, 'job_running') && err.jobId) return { id: err.jobId } as Job
       toast(errorText(err, t), 'warning')
       return undefined
     })
@@ -179,12 +204,12 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
   }
   const remove = async () => {
     setRemoving(false)
-    const job = await withStepUp(() => api.del<Job>(`/plugins/${p.id}`), t('stepup.action.remove_module', { title })).catch((err) => {
+    const job = await withStepUp(() => homeApi.del<Job>(`/plugins/${seg(p.id)}`), t('stepup.action.remove_module', { title })).catch((err) => {
       toast(errorText(err, t), 'warning')
       return undefined
     })
     if (job) {
-      qc.setQueryData(qk.job(job.id), job)
+      qc.setQueryData(hq.job(job.id), job)
       openJob({ jobId: job.id, title: t('job.title.plugin.remove', { title }), doneText: t('module.removed', { title }) })
     }
   }
@@ -231,7 +256,7 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
             items.map((it) => (
               <Row
                 key={it.id}
-                to={`/admin/devices/${p.id}/items/${encodeURIComponent(it.id)}`}
+                to={`/devices/${p.id}/items/${encodeURIComponent(it.id)}`}
                 leading={<StatusDot tone={itemTone(it.state)} />}
                 title={it.name}
                 subtitle={it.subtitle}
@@ -278,7 +303,7 @@ function ModuleBody({ plugin: p, itemId }: { plugin: PluginDetail; itemId?: stri
             chevron
           />
         )}
-        <Row to={`/admin/devices/${p.id}/logs`} iconInset leading={<IconTile icon={ScrollText} color="gray" />} title={t('module.logs')} chevron />
+        <Row to={`/devices/${p.id}/logs`} iconInset leading={<IconTile icon={ScrollText} color="gray" />} title={t('module.logs')} chevron />
         <Row
           onClick={() => restart.mutate()}
           disabled={restart.isPending || !p.enabled}
@@ -335,7 +360,7 @@ function Banner({ p, title, onRestart, restarting, onEnable }: { p: PluginDetail
                 <Button variant="tinted" size="sm" loading={restarting} onClick={onRestart}>
                   {t('module.restart')}
                 </Button>
-                <Button variant="plain" size="sm" onClick={() => navigate(`/admin/devices/${p.id}/logs`)}>
+                <Button variant="plain" size="sm" onClick={() => navigate(`/devices/${p.id}/logs`)}>
                   {t('module.logs')}
                 </Button>
               </div>

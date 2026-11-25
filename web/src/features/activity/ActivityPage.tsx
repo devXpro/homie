@@ -1,57 +1,70 @@
+import {
+  Button,
+  CheckList,
+  currentLang,
+  dayDiff,
+  EmptyState,
+  ErrorState,
+  fmtDate,
+  fmtDateTime,
+  IconButton,
+  Page,
+  Row,
+  Section,
+  SegmentedControl,
+  Sheet,
+  SheetFooter,
+  Skeleton,
+  SkeletonRows,
+  Spinner,
+  spring,
+  useAccount,
+  useDelayed,
+  useNow,
+  useSticky,
+} from '@devxpro/mcp-gatekeeper-ui'
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { ArrowUp, History, SlidersHorizontal, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
-import { Page } from '@/components/page'
 import { useCloseSheet } from '@/features/shell/useCloseSheet'
-import { Button, IconButton } from '@/components/ui/button'
-import { CheckList, SegmentedControl } from '@/components/ui/controls'
-import { EmptyState, ErrorState, Skeleton, SkeletonRows } from '@/components/ui/feedback'
-import { Row, Section } from '@/components/ui/list'
-import { Sheet, SheetFooter } from '@/components/ui/sheet'
-import { Spinner } from '@/components/ui/spinner'
-import { currentLang } from '@/i18n'
 import { errorText } from '@/lib/errors'
-import { auditBus } from '@/lib/events'
-import { dayDiff, fmtDate, fmtDateTime, fmtDuration } from '@/lib/format'
-import { useDelayed, useNow, useSticky } from '@/lib/hooks'
-import { spring } from '@/lib/motion'
-import { qk, useAudit, useAuditItem, usePeople, usePlugins, type AuditFilter } from '@/lib/queries'
+import { activityBus } from '@/lib/events'
+import { fmtDuration } from '@/lib/format'
+import { hq, useActivity, useActivityItem, useOwner, usePlugins, type ActivityFilter } from '@/lib/queries'
 import { moduleTitle } from '@/lib/tools'
-import type { AuditItem, Page as ApiPage } from '@/lib/types'
+import type { ActivityItem, Page as ApiPage, HomeAccount, Via } from '@/lib/types'
 import { ActivityRow } from './rows'
-import { auditTitle, useToolIndex } from './toolIndex'
+import { activityTitle, useToolIndex } from './toolIndex'
 
-// Журнал (DESIGN.md §8.8): ChatGPT / Всё / Ошибки, filters as removable chips, days, infinite scroll, and new
-// entries arriving live (a flash at the top, or a capsule when scrolled down).
+// Журнал (DESIGN.md §8.8): every tool call — by the assistants, from the admin and the terminal — with filters as
+// removable chips, days, infinite scroll, and new calls arriving live (a flash at the top, or a capsule when scrolled
+// down). Sign-ins and admin actions are the gatekeeper's audit: People → Changes and sign-ins. A member sees their
+// own calls only (the API filters).
 
 type Seg = 'assistant' | 'all' | 'failed'
-type Via = 'chatgpt' | 'admin' | 'cli'
 interface Extra {
   person?: string
   plugin?: string
   via?: Via
-  kind?: 'tool' | 'admin'
 }
 
 // The filter survives leaving the tab and coming back (module state, not URL: the tab stack keeps paths only).
 let saved: { seg: Seg; extra: Extra } = { seg: 'assistant', extra: {} }
 
-const VIA_QUERY: Record<Via, string> = { chatgpt: 'site,mcp', admin: 'admin', cli: 'cli' }
+const ASSISTANTS = 'chatgpt,claude'
 
-function toFilter(seg: Seg, extra: Extra): AuditFilter {
-  const f: AuditFilter = seg === 'assistant' ? { kind: 'tool', via: 'site,mcp' } : seg === 'failed' ? { status: 'failed' } : {}
-  if (extra.kind) f.kind = extra.kind
-  if (extra.via) f.via = VIA_QUERY[extra.via]
+function toFilter(seg: Seg, extra: Extra): ActivityFilter {
+  const f: ActivityFilter = seg === 'assistant' ? { via: ASSISTANTS } : seg === 'failed' ? { status: 'failed' } : {}
+  if (extra.via) f.via = extra.via
   if (extra.person) f.person = extra.person
   if (extra.plugin) f.plugin = extra.plugin
   return f
 }
 
-function matches(a: AuditItem, f: AuditFilter) {
-  if (f.kind && a.kind !== f.kind) return false
+function matches(a: ActivityItem, f: ActivityFilter) {
   if (f.via && !f.via.split(',').includes(a.via)) return false
   if (f.status === 'failed' && a.ok) return false
   if (f.status === 'ok' && !a.ok) return false
@@ -64,42 +77,49 @@ export function ActivityPage() {
   const { t } = useTranslation()
   const lang = currentLang()
   const qc = useQueryClient()
-  const { id: entryId } = useParams()
-  const closeEntry = useCloseSheet('/admin/activity')
+  const owner = useOwner()
+  const { entryId } = useParams()
+  const closeEntry = useCloseSheet('/activity')
   const [seg, setSeg] = useState<Seg>(saved.seg)
   const [extra, setExtra] = useState<Extra>(saved.extra)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [pending, setPending] = useState<AuditItem[]>([])
+  const [pending, setPending] = useState<ActivityItem[]>([])
   const [flash, setFlash] = useState<Set<string>>(new Set())
   const filter = useMemo(() => toFilter(seg, extra), [seg, extra])
-  const audit = useAudit(filter)
+  const activity = useActivity(filter)
   const tools = useToolIndex()
-  const plugins = usePlugins()
-  const people = usePeople()
+  // The devices to filter by: an owner's installed plugins, a member's own devices (GET /api/account).
+  const plugins = usePlugins(owner)
+  const account = useAccount<HomeAccount>()
+  const devices = owner ? (plugins.data?.items ?? []) : (account.data?.devices ?? [])
   const now = useNow()
-  const showSkeleton = useDelayed(audit.isPending)
+  const showSkeleton = useDelayed(activity.isPending)
   const sentinel = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     saved = { seg, extra }
   }, [seg, extra])
 
-  // New entries: at the top they slide in and flash; further down a capsule offers them (DESIGN.md §8.8).
+  // New calls: at the top they slide in and flash; further down a capsule offers them (DESIGN.md §8.8).
   useEffect(
     () =>
-      auditBus.on((a) => {
+      activityBus.on((a) => {
         if (!matches(a, filter)) {
-          void qc.invalidateQueries({ queryKey: qk.auditAll, refetchType: 'none' })
+          void qc.invalidateQueries({ queryKey: hq.activityAll, refetchType: 'none' })
           return
         }
         if (window.scrollY < 120) {
           insert(qc, filter, [a])
           setFlash((s) => new Set(s).add(a.id))
-          setTimeout(() => setFlash((s) => {
-            const n = new Set(s)
-            n.delete(a.id)
-            return n
-          }), 1300)
+          setTimeout(
+            () =>
+              setFlash((s) => {
+                const n = new Set(s)
+                n.delete(a.id)
+                return n
+              }),
+            1300,
+          )
         } else {
           setPending((p) => [a, ...p])
         }
@@ -108,20 +128,23 @@ export function ActivityPage() {
   )
 
   // Infinite scroll by cursor.
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = audit
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = activity
   useEffect(() => {
     const el = sentinel.current
     if (!el) return
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting) && hasNextPage && !isFetchingNextPage) void fetchNextPage()
-    }, { rootMargin: '400px' })
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && hasNextPage && !isFetchingNextPage) void fetchNextPage()
+      },
+      { rootMargin: '400px' },
+    )
     io.observe(el)
     return () => io.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const items = useMemo(() => audit.data?.pages.flatMap((p) => p.items) ?? [], [audit.data])
+  const items = useMemo(() => activity.data?.pages.flatMap((p) => p.items) ?? [], [activity.data])
   const groups = useMemo(() => {
-    const out: { key: string; label: string; items: AuditItem[] }[] = []
+    const out: { key: string; label: string; items: ActivityItem[] }[] = []
     for (const a of items) {
       const d = dayDiff(new Date(a.at), new Date(now))
       const label = d === 0 ? t('activity.today') : d === -1 ? t('activity.yesterday') : fmtDate(a.at, lang, new Date(now))
@@ -132,15 +155,15 @@ export function ActivityPage() {
     return out
   }, [items, now, lang, t])
 
+  const people = (account.data?.members ?? []).map((m) => ({ value: m.id, label: m.name }))
   const chips: { key: keyof Extra; label: string }[] = []
-  if (extra.person) chips.push({ key: 'person', label: people.data?.items.find((p) => p.id === extra.person)?.name ?? extra.person })
+  if (extra.person) chips.push({ key: 'person', label: people.find((p) => p.value === extra.person)?.label ?? extra.person })
   if (extra.plugin) {
-    const p = plugins.data?.items.find((x) => x.id === extra.plugin)
+    const p = devices.find((x) => x.id === extra.plugin)
     chips.push({ key: 'plugin', label: p ? moduleTitle(p, t) : extra.plugin })
   }
   if (extra.via) chips.push({ key: 'via', label: t(`activity.via.${extra.via}`) })
-  if (extra.kind) chips.push({ key: 'kind', label: t(`activity.kind.${extra.kind}`) })
-  // The default ChatGPT view counts as unfiltered: a new home is simply empty (DESIGN.md §8.8).
+  // The default Ассистенты view counts as unfiltered: a new home is simply empty (DESIGN.md §8.8).
   const filtered = seg === 'failed' || chips.length > 0
 
   const showPending = () => {
@@ -211,9 +234,9 @@ export function ActivityPage() {
       </AnimatePresence>
 
       <div className="mt-6">
-        {audit.error && !audit.data ? (
-          <ErrorState text={errorText(audit.error, t)} onRetry={() => void audit.refetch()} />
-        ) : !audit.data ? (
+        {activity.error && !activity.data ? (
+          <ErrorState text={errorText(activity.error, t)} onRetry={() => void activity.refetch()} />
+        ) : !activity.data ? (
           showSkeleton && <SkeletonRows rows={8} />
         ) : items.length === 0 ? (
           filtered ? (
@@ -234,16 +257,23 @@ export function ActivityPage() {
               }
             />
           ) : (
-            <EmptyState icon={History} title={t('activity.empty.title')} text={t('activity.empty.text')} />
+            <EmptyState icon={History} title={t('activity.empty.title')} text={t(owner ? 'activity.empty.text' : 'activity.empty.mine')} />
           )
         ) : (
-          <div className={audit.isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+          <div className={activity.isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
             {groups.map((g) => (
               <Section key={g.key} header={g.label}>
                 <AnimatePresence initial={false}>
                   {g.items.map((a) => (
-                    <motion.div key={a.id} layout="position" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={spring.smooth} className="homie-sep [--row-inset:60px]">
-                      <ActivityRow item={a} tools={tools} to={`/admin/activity/${a.id}`} now={now} flash={flash.has(a.id)} />
+                    <motion.div
+                      key={a.id}
+                      layout="position"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      transition={spring.smooth}
+                      className="fh-sep [--row-inset:60px]"
+                    >
+                      <ActivityRow item={a} tools={tools} to={`/activity/${a.id}`} now={now} flash={flash.has(a.id)} />
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -254,6 +284,7 @@ export function ActivityPage() {
             </div>
           </div>
         )}
+        {owner && <p className="mt-2 px-1 type-footnote text-label-2">{t('activity.security')}</p>}
       </div>
 
       <FilterSheet
@@ -261,16 +292,16 @@ export function ActivityPage() {
         onClose={() => setFiltersOpen(false)}
         extra={extra}
         onChange={setExtra}
-        people={(people.data?.items ?? []).map((p) => ({ value: p.id, label: p.name }))}
-        modules={(plugins.data?.items ?? []).map((p) => ({ value: p.id, label: moduleTitle(p, t) }))}
+        people={owner ? people : []}
+        modules={devices.map((p) => ({ value: p.id, label: moduleTitle(p, t) }))}
       />
       <EntrySheet id={entryId} onClose={closeEntry} />
     </Page>
   )
 }
 
-function insert(qc: ReturnType<typeof useQueryClient>, filter: AuditFilter, entries: AuditItem[]) {
-  qc.setQueryData<InfiniteData<ApiPage<AuditItem>>>(qk.audit(filter), (d) => {
+function insert(qc: ReturnType<typeof useQueryClient>, filter: ActivityFilter, entries: ActivityItem[]) {
+  qc.setQueryData<InfiniteData<ApiPage<ActivityItem>>>(hq.activity(filter), (d) => {
     if (!d || d.pages.length === 0) return d
     const known = new Set(d.pages.flatMap((p) => p.items.map((i) => i.id)))
     const fresh = entries.filter((e) => !known.has(e.id))
@@ -312,12 +343,9 @@ function FilterSheet({
       {modules.length > 0 && section('plugin', t('activity.filter.module'), modules)}
       {section('via', t('activity.filter.via'), [
         { value: 'chatgpt', label: t('activity.via.chatgpt') },
+        { value: 'claude', label: t('activity.via.claude') },
         { value: 'admin', label: t('activity.via.admin') },
         { value: 'cli', label: t('activity.via.cli') },
-      ])}
-      {section('kind', t('activity.filter.kind'), [
-        { value: 'tool', label: t('activity.kind.tool') },
-        { value: 'admin', label: t('activity.kind.admin') },
       ])}
       <SheetFooter>
         <Button variant="filled" size="lg" onClick={onClose}>
@@ -342,7 +370,7 @@ function EntryBody({ id }: { id: string }) {
   const { t } = useTranslation()
   const lang = currentLang()
   const tools = useToolIndex()
-  const entry = useAuditItem(id)
+  const entry = useActivityItem(id)
   const a = entry.data
   if (entry.error) return <ErrorState compact text={errorText(entry.error, t)} onRetry={() => void entry.refetch()} />
   if (!a) {
@@ -357,7 +385,7 @@ function EntryBody({ id }: { id: string }) {
   const args = a.args && Object.keys(a.args).length > 0 ? JSON.stringify(a.args, null, 2) : undefined
   return (
     <div className="pb-2">
-      <h2 className="type-title-2">{auditTitle(a, tools, t)}</h2>
+      <h2 className="type-title-2">{activityTitle(a, tools)}</h2>
       <p className={a.ok ? 'mt-1 type-subheadline text-success-text' : 'mt-1 type-subheadline text-danger-text'}>
         {a.ok ? t('activity.ok') : t('activity.failed')}
       </p>
@@ -365,8 +393,8 @@ function EntryBody({ id }: { id: string }) {
       <Section className="mt-5">
         <Row title={t('activity.who')} trailing={a.person?.name ?? t('activity.someone')} />
         <Row title={t('activity.when')} trailing={<span className="tabular-nums">{fmtDateTime(a.at, lang)}</span>} />
-        <Row title={t('activity.how')} trailing={t(`via.${a.via}`)} />
-        <Row title={t('activity.action')} trailing={<code className="font-mono text-[14px]">{a.tool ?? a.action}</code>} />
+        <Row title={t('activity.how')} trailing={t(`via.${a.via}`, { defaultValue: a.via })} />
+        <Row title={t('activity.action')} trailing={<code className="font-mono text-[14px]">{a.tool}</code>} />
         {a.durationMs > 0 && <Row title={t('activity.duration')} trailing={<span className="tabular-nums">{fmtDuration(a.durationMs, lang)}</span>} />}
       </Section>
       {args && (

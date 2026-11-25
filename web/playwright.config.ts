@@ -21,12 +21,13 @@ export default defineConfig({
   },
   webServer: {
     command: `npm run build:mock && npx vite preview --mode mock --outDir .mock-dist --port ${port} --strictPort --host localhost`,
-    url: `http://localhost:${port}/admin/`,
-    reuseExistingServer: !process.env.CI,
+    url: `http://localhost:${port}/login`,
+    // Always a fresh mock build: a server left over from an earlier run would serve stale code without a word.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   projects: [
     { name: 'smoke', testMatch: /smoke\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 860 } } },
-    { name: 'screenshots', testMatch: /screenshots\.spec\.ts/, timeout: 600_000, use: { ...devices['Desktop Chrome'] } },
+    { name: 'screenshots', testMatch: /screenshots\.spec\.ts/, timeout: 900_000, use: { ...devices['Desktop Chrome'] } },
   ],
 })

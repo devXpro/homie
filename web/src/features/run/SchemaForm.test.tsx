@@ -14,7 +14,7 @@ function tool(inputSchema: JSONSchema, over: Partial<Tool> = {}): Tool {
 }
 
 const inventory: InventoryItem[] = [
-  { id: 'tv', name: 'Телевизор в гостиной', subtitle: '192.168.68.66', state: 'on' },
+  { id: 'tv', name: 'Телевизор в гостиной', subtitle: '192.0.2.66', state: 'on' },
   { id: 'tv-2', name: 'Спальня', state: 'off' },
 ]
 
@@ -102,7 +102,7 @@ describe('SchemaForm', () => {
     const host = screen.getByRole('textbox', { name: 'IP-адрес' })
     expect(host).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByRole('alert')).toHaveTextContent('Заполните это поле')
-    await user.type(host, '192.168.68.66')
+    await user.type(host, '192.0.2.66')
     await user.type(screen.getByRole('textbox', { name: /Короткое имя/ }), 'Bad Id')
     await user.tab()
     expect(screen.getByRole('alert')).toHaveTextContent('Неверный формат')

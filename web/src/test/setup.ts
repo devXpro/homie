@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
+import { setLanguage } from '@devxpro/mcp-gatekeeper-ui'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
-import '@/i18n'
+import { setupHomie } from '@/setup'
 
 // jsdom has no matchMedia; tests run in the desktop layout (native selects, dialogs instead of drawers).
 Object.defineProperty(window, 'matchMedia', {
@@ -17,6 +18,10 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 })
+
+// The brand, the people options and the strings, as main.tsx sets them; the tests read Russian.
+setupHomie()
+setLanguage('ru')
 
 afterEach(() => cleanup())
 

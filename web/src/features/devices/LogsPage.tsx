@@ -1,27 +1,32 @@
+import { Button, copyText, EmptyState, ErrorState, Page, SkeletonRows, Switch, toast, useDelayed, useLiveMode } from '@devxpro/mcp-gatekeeper-ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { ScrollText } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
-import { Page } from '@/components/page'
-import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/controls'
-import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/feedback'
-import { copyText } from '@/lib/clipboard'
+import { OwnerOnly } from '@/features/shell/OwnerOnly'
 import { errorText } from '@/lib/errors'
 import { usePluginLogStream } from '@/lib/events'
-import { useDelayed } from '@/lib/hooks'
 import { usePlugin, usePluginLogs } from '@/lib/queries'
-import { toast } from '@/lib/toast'
 import { moduleTitle } from '@/lib/tools'
 
 // Module log (DESIGN.md §8.7.6): the last 1000 stderr lines, live; "Следить" keeps the end in view and turns off
-// when the person scrolls up.
+// when the person scrolls up. Behind a quick tunnel the lines are fetched again every few seconds instead.
 
 export function LogsPage() {
   const { t } = useTranslation()
+  return (
+    <OwnerOnly title={t('module.logs')}>
+      <LogsScreen />
+    </OwnerOnly>
+  )
+}
+
+function LogsScreen() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
+  const live = useLiveMode()
   const { pluginId = '' } = useParams()
   const plugin = usePlugin(pluginId)
   const logs = usePluginLogs(pluginId)
@@ -29,13 +34,12 @@ export function LogsPage() {
   const showSkeleton = useDelayed(logs.isPending)
   const lines = logs.data?.lines ?? []
   const title = plugin.data ? moduleTitle(plugin.data, t) : pluginId
-  const onLines = useCallback(() => undefined, [])
-  usePluginLogStream(qc, pluginId, onLines)
+  usePluginLogStream(qc, pluginId, live)
 
   return (
     <Page
       title={t('module.logs')}
-      back={{ to: `/admin/devices/${pluginId}`, label: title }}
+      back={{ to: `/devices/${pluginId}`, label: title }}
       trailing={
         <Button
           variant="plain"

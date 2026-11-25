@@ -1,21 +1,9 @@
+import { Badge, CheckList, cn, Section, SegmentedControl, spring, SwitchRow, TextField } from '@devxpro/mcp-gatekeeper-ui'
 import { ChevronDown, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Badge,
-  CheckList,
-  SegmentedControl,
-  Select,
-  Slider,
-  Stepper,
-  SwitchRow,
-  TextArea,
-  TextField,
-} from '@/components/ui/controls'
-import { Section } from '@/components/ui/list'
-import { cn } from '@/lib/cn'
-import { spring } from '@/lib/motion'
+import { Select, Slider, Stepper, TextArea } from '@/components/controls'
 import type { FieldErrors, FieldSpec, FormValues } from '@/lib/schema'
 import type { InventoryItem } from '@/lib/types'
 
@@ -123,7 +111,7 @@ function Field({
     case 'select':
       return <Select {...common} value={str || undefined} onChange={onChange} options={(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))} />
     case 'ipv4':
-      return <TextField {...common} value={str} onChange={(e) => onChange(e.target.value)} onBlur={blur} inputMode="decimal" mono autoComplete="off" spellCheck={false} placeholder="192.168.1.20" />
+      return <TextField {...common} value={str} onChange={(e) => onChange(e.target.value)} onBlur={blur} inputMode="decimal" mono autoComplete="off" spellCheck={false} placeholder="192.0.2.20" />
     case 'url':
       return <TextField {...common} value={str} onChange={(e) => onChange(e.target.value)} onBlur={blur} type="url" autoComplete="off" spellCheck={false} />
     case 'email':

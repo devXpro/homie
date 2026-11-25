@@ -1,27 +1,69 @@
-// The glossary of DESIGN.md §10: technical states → a colour (tone) and an i18n key for the words.
+// The glossary of DESIGN.md §10: technical states → a colour (tone) and an i18n key for the words. The tones and
+// their classes are the package's; the tunnel replaces the relay (STEP2 §3.1).
 
-import type { ItemState, PluginState, RelayStatus } from './types'
+import type { Tone } from '@devxpro/mcp-gatekeeper-ui'
+import type { Attention, ItemState, PluginState, TunnelStatus } from './types'
 
-export type Tone = 'success' | 'warning' | 'danger' | 'gray'
+export type { Tone }
 
-export type RelayLook = 'connected' | 'unreachable' | 'connecting' | 'offline' | 'not_configured'
-
-export function relayLook(r: RelayStatus | undefined): RelayLook {
-  if (!r) return 'connecting'
-  if (r.state === 'connected') return r.selfCheck && !r.selfCheck.ok ? 'unreachable' : 'connected'
-  return r.state
+/**
+ * needsOwner is the attention that calls for the owner: everything but a quick tunnel, which Дом shows as its
+ * «для пробы» banner rather than as a red dot that never goes away.
+ */
+export function needsOwner(items: Attention[] | undefined) {
+  return (items ?? []).filter((a) => a.kind !== 'tunnel_quick')
 }
 
-const RELAY_TONE: Record<RelayLook, Tone> = {
+/**
+ * TunnelLook is how the home's reachability reads: online; reachable to cloudflared but failing the outside check;
+ * connecting (the child starts or restarts); offline (the child keeps failing); stopped; or no tunnel yet.
+ */
+export type TunnelLook = 'connected' | 'unreachable' | 'connecting' | 'offline' | 'stopped' | 'not_configured'
+
+export function tunnelLook(s: TunnelStatus | undefined): TunnelLook {
+  if (!s) return 'connecting'
+  if (s.mode === 'off') return 'not_configured'
+  switch (s.state) {
+    case 'connected':
+      return 'connected'
+    case 'probing':
+      // The address is known; with an error the outside check failed, without one it has not run yet.
+      return s.lastError ? 'unreachable' : 'connecting'
+    case 'starting':
+      return 'connecting'
+    case 'failing':
+      return 'offline'
+    case 'stopped':
+      return 'stopped'
+  }
+}
+
+/** tunnelHost is the name the home is reachable at: the hostname, else the host of its address. */
+export function tunnelHost(s: TunnelStatus | undefined) {
+  return s?.hostname || hostOf(s?.url)
+}
+
+const TUNNEL_TONE: Record<TunnelLook, Tone> = {
   connected: 'success',
   unreachable: 'warning',
   connecting: 'warning',
   offline: 'danger',
+  stopped: 'gray',
   not_configured: 'gray',
 }
 
-export function relayTone(look: RelayLook): Tone {
-  return RELAY_TONE[look]
+export function tunnelTone(look: TunnelLook): Tone {
+  return TUNNEL_TONE[look]
+}
+
+/** hostOf is the bare host of a public URL, for the places that show it as a name. */
+export function hostOf(url: string | undefined) {
+  if (!url) return ''
+  try {
+    return new URL(url).host
+  } catch {
+    return url.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  }
 }
 
 const PLUGIN_TONE: Record<PluginState, Tone> = {
@@ -47,26 +89,4 @@ const ITEM_TONE: Record<ItemState, Tone> = {
 
 export function itemTone(s: ItemState | undefined): Tone {
   return ITEM_TONE[s ?? 'unknown']
-}
-
-export const TONE_BG: Record<Tone, string> = {
-  success: 'bg-success',
-  warning: 'bg-warning',
-  danger: 'bg-danger',
-  gray: 'bg-gray',
-}
-
-export const TONE_TEXT: Record<Tone, string> = {
-  success: 'text-success-text',
-  warning: 'text-warning-text',
-  danger: 'text-danger-text',
-  gray: 'text-label-2',
-}
-
-/** TONE_STATUS sets --status for the hero glow and the orb (index.css). */
-export const TONE_STATUS: Record<Tone, string> = {
-  success: 'homie-status-success',
-  warning: 'homie-status-warning',
-  danger: 'homie-status-danger',
-  gray: 'homie-status-gray',
 }

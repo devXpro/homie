@@ -1,25 +1,28 @@
+
+import { AppIcon, Button, ErrorState, Page, Row, Section, Skeleton, Spinner, toast, useDelayed, useStepUp } from '@devxpro/mcp-gatekeeper-ui'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowDownCircle, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Page } from '@/components/page'
-import { Button } from '@/components/ui/button'
-import { ErrorState, Skeleton } from '@/components/ui/feedback'
-import { Row, Section } from '@/components/ui/list'
-import { Spinner } from '@/components/ui/spinner'
-import { AppIcon } from '@/components/ui/tile'
-import { useStepUp } from '@/features/auth/stepup'
 import { useJobs } from '@/features/run/jobs'
-import { api, isApiError } from '@/lib/api'
+import { OwnerOnly } from '@/features/shell/OwnerOnly'
+import { homeApi, isHomeError } from '@/lib/api'
 import { errorText } from '@/lib/errors'
-import { useDelayed } from '@/lib/hooks'
-import { qk, useSystem } from '@/lib/queries'
-import { toast } from '@/lib/toast'
+import { hq, useSystem } from '@/lib/queries'
 import type { Job, SystemInfo } from '@/lib/types'
 
 // О программе (DESIGN.md §8.9): the version, a check for updates and the self-update (step-up, then a job; at
-// "restart" the page waits for the new hub's SSE hello and reloads itself).
+// "restart" the page waits for the new hub's hello and reloads itself).
 
 export function AboutPage() {
+  const { t } = useTranslation()
+  return (
+    <OwnerOnly title={t('settings.about')}>
+      <AboutScreen />
+    </OwnerOnly>
+  )
+}
+
+function AboutScreen() {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const system = useSystem()
@@ -29,9 +32,9 @@ export function AboutPage() {
   const s = system.data
 
   const check = useMutation({
-    mutationFn: () => api.post<SystemInfo>('/system/check-update', {}),
+    mutationFn: () => homeApi.post<SystemInfo>('/system/check-update', {}),
     onSuccess: (info) => {
-      qc.setQueryData(qk.system, info)
+      qc.setQueryData(hq.system, info)
       if (!info.update) toast(t('settings.update.latest'))
     },
     onError: (err) => toast(errorText(err, t), 'warning'),
@@ -39,18 +42,18 @@ export function AboutPage() {
 
   const update = async () => {
     try {
-      const job = await withStepUp(() => api.post<Job>('/system/update', s?.update ? { version: s.update.latest } : {}), t('stepup.action.hub_update'))
+      const job = await withStepUp(() => homeApi.post<Job>('/system/update', s?.update ? { version: s.update.latest } : {}), t('stepup.action.hub_update'))
       if (!job) return
-      qc.setQueryData(qk.job(job.id), job)
+      qc.setQueryData(hq.job(job.id), job)
       openJob({ jobId: job.id, title: t('job.title.hub.update'), doneText: t('job.done.hub.update') })
     } catch (err) {
-      if (isApiError(err, 'job_running') && err.jobId) openJob({ jobId: err.jobId, title: t('job.title.hub.update') })
+      if (isHomeError(err, 'job_running') && err.jobId) openJob({ jobId: err.jobId, title: t('job.title.hub.update') })
       else toast(errorText(err, t), 'warning')
     }
   }
 
   return (
-    <Page title={t('settings.about')} back={{ to: '/admin/settings', label: t('settings.title') }}>
+    <Page title={t('settings.about')} back={{ to: '/settings', label: t('settings.title') }}>
       <div className="flex flex-col items-center pt-2 pb-8 text-center">
         <AppIcon size={64} />
         <h2 className="mt-3 type-title-2">Homie</h2>

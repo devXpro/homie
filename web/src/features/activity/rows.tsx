@@ -1,13 +1,12 @@
-import { Shield, XCircle } from 'lucide-react'
+import { cn, currentLang, fmtRelative, fmtTime, IconTile, Row } from '@devxpro/mcp-gatekeeper-ui'
+import { Wand2, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Row } from '@/components/ui/list'
-import { IconTile, ModuleTile } from '@/components/ui/tile'
-import { currentLang } from '@/i18n'
-import { fmtDuration, fmtRelative, fmtTime } from '@/lib/format'
-import type { AuditItem, Tool } from '@/lib/types'
-import { auditTitle } from './toolIndex'
+import { ModuleTile } from '@/components/tile'
+import { fmtDuration } from '@/lib/format'
+import type { ActivityItem, Tool } from '@/lib/types'
+import { activityTitle } from './toolIndex'
 
-/** ActivityRow is one audit entry: icon, title, "who · how · when", and a red cross or the duration (§8.8). */
+/** ActivityRow is one call: the module's icon, the action, "who · how · when", and a red cross or the duration (§8.8). */
 export function ActivityRow({
   item,
   tools,
@@ -16,7 +15,7 @@ export function ActivityRow({
   now,
   flash,
 }: {
-  item: AuditItem
+  item: ActivityItem
   tools: Map<string, Tool>
   to?: string
   relative?: boolean
@@ -26,22 +25,24 @@ export function ActivityRow({
   const { t } = useTranslation()
   const lang = currentLang()
   const time = relative ? fmtRelative(item.at, lang, now) : fmtTime(item.at, lang)
+  // The wrapper carries the flash (the package's Row has none) and stays a separated row of its list.
   return (
-    <Row
-      to={to}
-      flash={flash}
-      iconInset
-      leading={item.kind === 'tool' && item.pluginId ? <ModuleTile id={item.pluginId} size="sm" /> : <IconTile icon={Shield} color="gray" />}
-      title={auditTitle(item, tools, t)}
-      subtitle={t('activity.row', { person: item.person?.name ?? t('activity.someone'), via: t(`via.${item.via}`), time })}
-      trailing={
-        !item.ok ? (
-          <XCircle role="img" aria-label={t('activity.failed_mark')} className="size-5 text-danger" />
-        ) : item.durationMs >= 2000 ? (
-          <span className="type-subheadline text-label-2 tabular-nums">{fmtDuration(item.durationMs, lang)}</span>
-        ) : undefined
-      }
-      chevron={!!to}
-    />
+    <div className={cn('fh-sep [--row-inset:60px]', flash && 'homie-flash')}>
+      <Row
+        to={to}
+        iconInset
+        leading={item.pluginId ? <ModuleTile id={item.pluginId} size="sm" /> : <IconTile icon={Wand2} color="gray" />}
+        title={activityTitle(item, tools)}
+        subtitle={t('activity.row', { person: item.person?.name ?? t('activity.someone'), via: t(`via.${item.via}`, { defaultValue: item.via }), time })}
+        trailing={
+          !item.ok ? (
+            <XCircle role="img" aria-label={t('activity.failed_mark')} className="size-5 text-danger" />
+          ) : item.durationMs >= 2000 ? (
+            <span className="type-subheadline text-label-2 tabular-nums">{fmtDuration(item.durationMs, lang)}</span>
+          ) : undefined
+        }
+        chevron={!!to}
+      />
+    </div>
   )
 }

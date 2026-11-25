@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 // End-to-end against a REAL homed (PLAN T2.6), not the mock API: global-setup.ts builds homed with the admin
 // embedded by `make web`, adds the fake plugin, runs homed on a temporary data dir with --dev-origin (passkeys for
-// localhost over plain http, no relay) and hands its addresses to the test through the environment. Run it with
+// localhost over plain http, no tunnel) and hands its addresses to the test through the environment. Run it with
 // `make e2e` from the repository root.
 export default defineConfig({
   testDir: '.',

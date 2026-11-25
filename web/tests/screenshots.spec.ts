@@ -1,15 +1,19 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Browser, type Page } from '@playwright/test'
+import { mock } from './helpers'
 
-// Screenshots of every screen and state for docs/screenshots (PLAN T2.4 acceptance): dark and light, phone
-// (390 × 844, iPhone) and desktop (1440 × 900, Mac), against the mock API. Run: npm --prefix web run screenshots
+// Screenshots of every screen and state, dark and light, phone (390 × 844, iPhone) and desktop (1440 × 900, Mac),
+// against the mock API. Run: SCREENSHOTS_DIR=<dir> npm --prefix web run screenshots (default: test-results/screenshots).
 
-const OUT = fileURLToPath(new URL('../../docs/screenshots/', import.meta.url))
+const OUT = process.env.SCREENSHOTS_DIR ? `${process.env.SCREENSHOTS_DIR.replace(/\/+$/, '')}/` : fileURLToPath(new URL('../test-results/screenshots/', import.meta.url))
+const ONLY = process.env.SHOTS ? new RegExp(process.env.SHOTS) : undefined
 const IPHONE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1'
-const MAC_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15'
+const MAC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15'
+
+type Device = 'phone' | 'desktop'
+type Theme = 'dark' | 'light'
 
 interface Shot {
   name: string
@@ -23,356 +27,331 @@ interface Shot {
   only?: Device
 }
 
-type Device = 'phone' | 'desktop'
-type Theme = 'dark' | 'light'
-
 const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', { name })
+const confirmStepUp = (page: Page) => dialog(page, 'Подтвердите, что это вы').getByRole('button', { name: 'Подтвердить' }).click()
+const pin = async (page: Page) => page.getByRole('textbox', { name: 'Введите PIN' }).fill('12345678')
 
 const SHOTS: Shot[] = [
-  // Sign in and the first run
-  { name: '01-login', path: '/admin/login', scenario: 'signed-out', ready: 'Войти' },
-  { name: '02-login-not-set-up', path: '/admin/login', scenario: 'not-set-up', ready: 'Дом ещё не настроен' },
-  { name: '03-setup-home', path: '/admin/setup#t=demo', scenario: 'not-set-up', ready: 'Как назовём дом?' },
+  // Sign in, the first run, joining, consent (the gatekeeper's screens in Homie's words)
+  { name: '01-login', path: '/login', scenario: 'signed-out', ready: 'Войти' },
+  { name: '02-setup-welcome', path: '/setup#t=setup-token', scenario: 'not-set-up', ready: 'Добро пожаловать в Homie' },
   {
-    name: '04-setup-name',
-    path: '/admin/setup#t=demo',
+    name: '03-setup-home',
+    path: '/setup#t=setup-token',
     scenario: 'not-set-up',
-    ready: 'Как назовём дом?',
+    ready: 'Добро пожаловать в Homie',
     prepare: async (p) => {
+      await p.getByRole('button', { name: 'Начать' }).click()
+      await p.getByRole('textbox', { name: 'Ваше имя' }).fill('Алиса')
       await p.getByRole('button', { name: 'Дальше' }).click()
-      await expect(p.getByRole('heading', { name: 'Как вас зовут?' })).toBeVisible()
+      await expect(p.getByRole('heading', { name: 'Как назовём дом?' })).toBeVisible()
     },
   },
   {
-    name: '05-setup-passkey',
-    path: '/admin/setup#t=demo',
+    name: '04-setup-done',
+    path: '/setup#t=setup-token',
     scenario: 'not-set-up',
-    ready: 'Как назовём дом?',
+    ready: 'Добро пожаловать в Homie',
     prepare: async (p) => {
-      await p.getByRole('button', { name: 'Дальше' }).click()
-      await p.getByRole('button', { name: 'Дальше' }).click()
-      await expect(p.getByRole('button', { name: 'Создать ключ' })).toBeVisible()
-    },
-  },
-  {
-    name: '06-setup-done',
-    path: '/admin/setup#t=demo',
-    scenario: 'not-set-up',
-    ready: 'Как назовём дом?',
-    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Начать' }).click()
+      await p.getByRole('textbox', { name: 'Ваше имя' }).fill('Алиса')
       await p.getByRole('button', { name: 'Дальше' }).click()
       await p.getByRole('button', { name: 'Дальше' }).click()
       await p.getByRole('button', { name: 'Создать ключ' }).click()
-      await expect(p.getByRole('heading', { name: 'Готово! Дом ваш' })).toBeVisible()
+      await expect(p.getByRole('heading', { name: 'Готово, Алиса!' })).toBeVisible()
     },
   },
-  { name: '07-setup-expired', path: '/admin/setup#t=expired', scenario: 'not-set-up', ready: 'Ссылка устарела' },
-  { name: '08-lan-pin', path: '/firstrun', scenario: 'firstrun', ready: 'Введите PIN' },
+  { name: '05-join-welcome', path: '/join#t=invite-token', scenario: 'join', ready: 'Вас зовут в дом «Дом»' },
+  { name: '06-consent', path: '/consent?txn=txn-chatgpt', scenario: 'consent', ready: 'ChatGPT просит доступ' },
+
+  // The LAN first-run page
+  { name: '10-lan-pin', path: '/firstrun', scenario: 'firstrun', ready: 'Введите PIN' },
   {
-    name: '09-lan-code',
-    path: '/firstrun',
-    scenario: 'firstrun-norelay',
-    ready: 'Введите PIN',
-    prepare: async (p) => {
-      await p.getByRole('textbox', { name: 'Введите PIN' }).fill('12345678')
-      await expect(p.getByRole('heading', { name: 'Код сервера' })).toBeVisible()
-    },
-  },
-  {
-    name: '10-lan-connecting',
-    path: '/firstrun',
-    scenario: 'firstrun',
-    extra: '&slow=1',
-    ready: 'Введите PIN',
-    prepare: async (p) => {
-      await p.getByRole('textbox', { name: 'Введите PIN' }).fill('12345678')
-      await expect(p.getByRole('heading', { name: /Подключаемся/ })).toBeVisible()
-    },
-  },
-  {
-    name: '11-lan-link',
+    name: '11-lan-tunnel',
     path: '/firstrun',
     scenario: 'firstrun',
     ready: 'Введите PIN',
     prepare: async (p) => {
-      await p.getByRole('textbox', { name: 'Введите PIN' }).fill('12345678')
-      await expect(p.getByRole('heading', { name: 'Откройте дом на телефоне или здесь' })).toBeVisible({ timeout: 15_000 })
+      await pin(p)
+      await expect(p.getByRole('heading', { name: 'Как дом будет виден из интернета?' })).toBeVisible()
     },
   },
-  { name: '12-lan-done', path: '/firstrun', scenario: 'firstrun-done', ready: 'Дом уже настроен' },
+  {
+    name: '12-lan-domain',
+    path: '/firstrun',
+    scenario: 'firstrun',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: /Мой домен/ }).click()
+      await p.getByRole('textbox', { name: 'Адрес дома' }).fill('home.example.com')
+    },
+  },
+  {
+    name: '13-lan-login',
+    path: '/firstrun',
+    scenario: 'firstrun',
+    extra: '&manual=1',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: /Мой домен/ }).click()
+      await p.getByRole('textbox', { name: 'Адрес дома' }).fill('home.example.com')
+      await p.getByRole('button', { name: 'Подключить' }).click()
+      await expect(p.getByRole('img', { name: 'QR-код ссылки для входа в Cloudflare' })).toBeVisible()
+    },
+  },
+  {
+    name: '14-lan-connecting',
+    path: '/firstrun',
+    scenario: 'firstrun',
+    extra: '&manual=1&slow=1',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: /Мой домен/ }).click()
+      await p.getByRole('textbox', { name: 'Адрес дома' }).fill('home.example.com')
+      await p.getByRole('button', { name: 'Подключить' }).click()
+      await expect(p.getByRole('heading', { name: 'Войдите в Cloudflare' })).toBeVisible({ timeout: 15_000 })
+      await mock(p, 'finishLogin')
+      await expect(p.getByRole('heading', { name: 'Подключаем home.example.com' })).toBeVisible({ timeout: 15_000 })
+    },
+  },
+  {
+    name: '15-lan-failed',
+    path: '/firstrun',
+    scenario: 'firstrun',
+    extra: '&manual=1',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: /Мой домен/ }).click()
+      await p.getByRole('textbox', { name: 'Адрес дома' }).fill('taken.example.com')
+      await p.getByRole('button', { name: 'Подключить' }).click()
+      await expect(p.getByRole('heading', { name: 'Войдите в Cloudflare' })).toBeVisible()
+      await mock(p, 'finishLogin')
+      await expect(p.getByRole('heading', { name: 'Не получилось подключить taken.example.com' })).toBeVisible({ timeout: 10_000 })
+    },
+  },
+  {
+    name: '16-lan-quick',
+    path: '/firstrun',
+    scenario: 'firstrun',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: /Попробовать без домена/ }).click()
+      await expect(p.getByRole('heading', { name: 'Адрес для пробы' })).toBeVisible()
+    },
+  },
+  {
+    name: '17-lan-link',
+    path: '/firstrun',
+    scenario: 'firstrun',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: /Попробовать без домена/ }).click()
+      await p.getByRole('button', { name: 'Попробовать' }).click()
+      await expect(p.getByRole('img', { name: 'QR-код ссылки для телефона' })).toBeVisible({ timeout: 15_000 })
+    },
+  },
+  {
+    name: '18-lan-reconnect',
+    path: '/firstrun',
+    scenario: 'firstrun-reconnect',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await expect(p.getByRole('heading', { name: 'Адрес сменился' })).toBeVisible()
+    },
+  },
+  {
+    name: '19-lan-reconnect-link',
+    path: '/firstrun',
+    scenario: 'firstrun-reconnect',
+    ready: 'Введите PIN',
+    prepare: async (p) => {
+      await pin(p)
+      await p.getByRole('button', { name: 'Переподключить' }).click()
+      await expect(p.getByRole('img', { name: 'QR-код ссылки для телефона' })).toBeVisible()
+    },
+  },
+  { name: '19b-lan-closed', path: '/firstrun', scenario: 'firstrun-closed', ready: 'Страница настройки закрыта' },
 
   // Дом
-  { name: '20-home', path: '/admin/', ready: 'ChatGPT может управлять домом' },
-  { name: '21-home-attention', path: '/admin/', scenario: 'trouble', ready: 'Требует внимания' },
-  { name: '22-home-empty', path: '/admin/', scenario: 'fresh', ready: 'Пока нет устройств' },
-  { name: '23-home-unreachable', path: '/admin/', scenario: 'unreachable', ready: 'Не виден снаружи' },
+  { name: '20-home', path: '/home', ready: 'ChatGPT и Claude могут управлять домом' },
+  { name: '21-home-quick', path: '/home', scenario: 'quick', ready: 'Адрес для пробы' },
+  { name: '22-home-trouble', path: '/home', scenario: 'trouble', ready: 'Требует внимания' },
+  { name: '23-home-empty', path: '/home', scenario: 'fresh', ready: 'Пока нет устройств' },
+  {
+    name: '24-domain-sheet',
+    path: '/home',
+    scenario: 'quick',
+    ready: 'Адрес для пробы',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Перейти на свой домен' }).click()
+      await dialog(p, 'Свой домен').getByRole('textbox', { name: 'Адрес дома' }).fill('home.example.com')
+    },
+  },
+
+  // Подключить (the package's connect page with Homie's parts)
+  { name: '30-connect', path: '/connect', ready: 'https://home.example.com/mcp' },
+  {
+    name: '31-connect-claude',
+    path: '/connect',
+    ready: 'https://home.example.com/mcp',
+    prepare: async (p) => {
+      await p.getByRole('radio', { name: 'Claude' }).click()
+      await p.getByRole('list', { name: 'Как подключить' }).scrollIntoViewIfNeeded()
+    },
+  },
+  { name: '32-connect-quick', path: '/connect', scenario: 'quick', ready: 'https://example.trycloudflare.com/mcp' },
+  { name: '33-connect-member', path: '/connect', scenario: 'member', ready: 'https://home.example.com/mcp' },
 
   // Устройства
-  { name: '30-devices', path: '/admin/devices', ready: 'Работает' },
-  { name: '31-devices-empty', path: '/admin/devices', scenario: 'fresh', ready: 'Здесь будут ваши устройства' },
-  { name: '32-add-choose', path: '/admin/devices/add', scenario: 'fresh', ready: 'LG webOS TVs: power, volume, inputs.' },
+  { name: '40-devices', path: '/devices', ready: 'Телевизоры' },
+  { name: '41-devices-add', path: '/devices/add', ready: 'Рекомендуем' },
+  { name: '42-module', path: '/devices/tv', ready: 'Телевизор в гостиной' },
+  { name: '43-module-device', path: '/devices/tv/items/tv', ready: 'Подключить телевизор' },
   {
-    name: '33-add-preview',
-    path: '/admin/devices/add',
-    scenario: 'fresh',
-    ready: 'LG webOS TVs: power, volume, inputs.',
-    prepare: async (p) => {
-      await dialog(p, 'Добавить устройства').getByRole('button', { name: /Телевизоры/ }).click()
-      await expect(p.getByRole('button', { name: 'Установить' })).toBeEnabled()
-    },
-  },
-  {
-    name: '34-add-incompatible',
-    path: '/admin/devices/add',
-    scenario: 'fresh',
-    ready: 'LG webOS TVs: power, volume, inputs.',
-    prepare: async (p) => {
-      await p.getByRole('textbox', { name: 'Адрес на GitHub' }).fill('someone/homie-kettle')
-      await p.getByRole('button', { name: 'Найти' }).click()
-      await expect(p.getByText('Нужна более новая версия Homie. Сначала обновите её в Настройках.')).toBeVisible()
-    },
-  },
-  {
-    name: '35-stepup',
-    path: '/admin/devices/add',
-    scenario: 'fresh',
-    ready: 'LG webOS TVs: power, volume, inputs.',
-    prepare: async (p) => {
-      await dialog(p, 'Добавить устройства').getByRole('button', { name: /Телевизоры/ }).click()
-      await p.getByRole('button', { name: 'Установить' }).click()
-      await expect(dialog(p, 'Подтвердите, что это вы')).toBeVisible()
-    },
-  },
-  {
-    name: '36-add-installing',
-    path: '/admin/devices/add',
-    scenario: 'fresh',
-    extra: '&slow=1',
-    ready: 'LG webOS TVs: power, volume, inputs.',
-    prepare: async (p) => {
-      await dialog(p, 'Добавить устройства').getByRole('button', { name: /Телевизоры/ }).click()
-      await p.getByRole('button', { name: 'Установить' }).click()
-      await dialog(p, 'Подтвердите, что это вы').getByRole('button', { name: 'Подтвердить' }).click()
-      await expect(p.getByText(/из 5,3 МБ/)).toBeVisible({ timeout: 15_000 })
-    },
-  },
-  {
-    name: '37-add-done',
-    path: '/admin/devices/add',
-    scenario: 'fresh',
-    ready: 'LG webOS TVs: power, volume, inputs.',
-    prepare: async (p) => {
-      await dialog(p, 'Добавить устройства').getByRole('button', { name: /Телевизоры/ }).click()
-      await p.getByRole('button', { name: 'Установить' }).click()
-      await dialog(p, 'Подтвердите, что это вы').getByRole('button', { name: 'Подтвердить' }).click()
-      await expect(p.getByText('Модуль «Телевизоры» установлен')).toBeVisible({ timeout: 15_000 })
-    },
-  },
-  { name: '40-module', path: '/admin/devices/tv', ready: 'Телевизор в гостиной' },
-  {
-    name: '41-module-lower',
-    path: '/admin/devices/tv',
-    ready: 'Телевизор в гостиной',
-    prepare: async (p) => {
-      await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-    },
-  },
-  { name: '42-module-failing', path: '/admin/devices/tv', scenario: 'trouble', ready: 'Мы перезапускаем его сами' },
-  { name: '43-module-empty', path: '/admin/devices/tv', scenario: 'tv-new', ready: 'Пока ни одного устройства' },
-  { name: '44-device-sheet', path: '/admin/devices/tv/items/tv', ready: 'Подключить телевизор' },
-  {
-    name: '45-run-form',
-    path: '/admin/devices/tv',
-    ready: 'Добавить телевизор',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: 'Добавить телевизор' }).click()
-      await expect(dialog(p, 'Добавить телевизор').getByRole('textbox', { name: 'IP-адрес' })).toBeVisible()
-    },
-  },
-  {
-    name: '46-ability',
-    path: '/admin/devices/tv',
-    ready: 'Громкость',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: /^Громкость/ }).click()
-      await expect(p.getByRole('button', { name: 'Проверить без ChatGPT' })).toBeVisible()
-    },
-  },
-  {
-    name: '47-run-form-volume',
-    path: '/admin/devices/tv',
-    ready: 'Громкость',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: /^Громкость/ }).click()
-      await p.getByRole('button', { name: 'Проверить без ChatGPT' }).click()
-      await expect(p.getByRole('slider', { name: 'Громкость, %' })).toBeVisible()
-    },
-  },
-  {
-    name: '48-run-progress',
-    path: '/admin/devices/tv/items/tv',
+    name: '44-run-progress',
+    path: '/devices/tv/items/tv',
     extra: '&slow=1',
     ready: 'Подключить телевизор',
     prepare: async (p) => {
       await dialog(p, 'Телевизор в гостиной').getByRole('button', { name: 'Подключить телевизор' }).click()
-      await expect(p.getByText('Нажмите OK на пульте телевизора')).toBeVisible({ timeout: 15_000 })
-      await p.waitForTimeout(2200)
+      await expect(dialog(p, 'Подключить телевизор').getByText('Нажмите OK на пульте телевизора')).toBeVisible({ timeout: 15_000 })
     },
   },
-  {
-    name: '49-run-result',
-    path: '/admin/devices/tv',
-    ready: 'Найти телевизоры',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: 'Найти телевизоры' }).click()
-      await expect(dialog(p, 'Найти телевизоры').getByRole('heading', { name: 'Готово' })).toBeVisible({ timeout: 10_000 })
-    },
-  },
-  {
-    name: '50-run-failed',
-    path: '/admin/devices/tv',
-    ready: 'Добавить телевизор',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: 'Добавить телевизор' }).click()
-      const d = dialog(p, 'Добавить телевизор')
-      await d.getByRole('textbox', { name: 'IP-адрес' }).fill('192.168.68.70')
-      await d.getByRole('button', { name: 'Добавить телевизор' }).click()
-      await expect(d.getByRole('heading', { name: 'Не получилось' })).toBeVisible({ timeout: 10_000 })
-    },
-  },
-  {
-    name: '51-confirm-destructive',
-    path: '/admin/devices/tv/items/tv',
-    ready: 'Удалить телевизор',
-    prepare: async (p) => {
-      await dialog(p, 'Телевизор в гостиной').getByRole('button', { name: 'Удалить телевизор' }).click()
-      await expect(p.getByRole('alertdialog')).toBeVisible()
-    },
-  },
-  {
-    name: '52-running-pill',
-    path: '/admin/devices/tv/items/tv',
-    extra: '&slow=1',
-    ready: 'Подключить телевизор',
-    prepare: async (p) => {
-      await dialog(p, 'Телевизор в гостиной').getByRole('button', { name: 'Подключить телевизор' }).click()
-      await expect(p.getByText('Нажмите OK на пульте телевизора')).toBeVisible({ timeout: 15_000 })
-      await p.keyboard.press('Escape')
-      await p.waitForTimeout(800)
-      await p.keyboard.press('Escape')
-      await expect(p.getByRole('button', { name: /Открыть действие/ }).first()).toBeVisible()
-    },
-  },
-  { name: '53-module-log', path: '/admin/devices/tv/logs', ready: 'serving MCP over stdio' },
-
-  // Люди (placeholder until phase 3)
-  { name: '55-people', path: '/admin/people', ready: 'Скоро здесь будет семья' },
+  { name: '45-module-failing', path: '/devices/tv', scenario: 'trouble', ready: 'не отвечает' },
+  { name: '46-module-logs', path: '/devices/tv/logs', ready: 'serving MCP over stdio' },
+  { name: '47-devices-member', path: '/devices', scenario: 'member', ready: 'Телевизоры' },
 
   // Журнал
-  { name: '60-activity', path: '/admin/activity', ready: 'Сегодня' },
+  { name: '50-activity', path: '/activity', ready: 'Сегодня' },
+  { name: '51-activity-entry', path: '/activity/1099', ready: 'Аргументы' },
   {
-    name: '61-activity-all',
-    path: '/admin/activity',
-    ready: 'Сегодня',
-    prepare: async (p) => {
-      await p.getByRole('radio', { name: 'Всё' }).click()
-      await expect(p.getByText('Вход').first()).toBeVisible()
-    },
-  },
-  {
-    name: '62-activity-filters',
-    path: '/admin/activity',
+    name: '52-activity-filters',
+    path: '/activity',
     ready: 'Сегодня',
     prepare: async (p) => {
       await p.getByRole('button', { name: 'Фильтры' }).click()
       await expect(dialog(p, 'Фильтры')).toBeVisible()
     },
   },
-  { name: '63-activity-entry', path: '/admin/activity/1095', ready: 'Аргументы' },
-  { name: '64-activity-empty', path: '/admin/activity', scenario: 'fresh', ready: 'Здесь появятся действия' },
+
+  // Люди (the package's account page and sheets, with devices and terms)
+  { name: '60-people', path: '/account', ready: 'Белла' },
+  {
+    name: '61-invite',
+    path: '/account',
+    ready: 'Белла',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Пригласить в дом' }).click()
+      const s = dialog(p, 'Пригласить')
+      await s.getByRole('textbox', { name: 'Как зовут?' }).fill('Ева')
+      await s.getByRole('radio', { name: 'Только выбранные' }).click()
+      await s.getByRole('checkbox', { name: 'Телевизоры' }).click()
+      await s.getByRole('radio', { name: 'Неделя' }).click()
+    },
+  },
+  {
+    name: '62-invite-coowner',
+    path: '/account',
+    ready: 'Белла',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Пригласить в дом' }).click()
+      const s = dialog(p, 'Пригласить')
+      await s.getByRole('textbox', { name: 'Как зовут?' }).fill('Ева')
+      await s.getByRole('radio', { name: 'Совладелец' }).click()
+    },
+  },
+  {
+    name: '63-invite-link',
+    path: '/account',
+    ready: 'Белла',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Пригласить в дом' }).click()
+      const s = dialog(p, 'Пригласить')
+      await s.getByRole('textbox', { name: 'Как зовут?' }).fill('Ева')
+      await s.getByRole('button', { name: 'Создать приглашение' }).click()
+      await confirmStepUp(p)
+      await expect(s.getByLabel('Ссылка-приглашение')).toBeVisible()
+    },
+  },
+  {
+    name: '64-member-detail',
+    path: '/account',
+    ready: 'Белла',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: /^Борис/ }).click()
+      await expect(p.getByRole('dialog')).toBeVisible()
+    },
+  },
+  {
+    name: '65-member-extend',
+    path: '/account',
+    ready: 'Белла',
+    prepare: async (p) => {
+      await p.getByRole('button', { name: 'Продлить доступ: Карина' }).click()
+      await expect(p.getByRole('dialog')).toBeVisible()
+    },
+  },
+  { name: '66-audit', path: '/account/audit', ready: 'Изменения и входы' },
 
   // Настройки
-  { name: '70-settings', path: '/admin/settings', ready: 'Ключи входа' },
+  { name: '70-settings', path: '/settings', ready: 'Адрес дома' },
+  { name: '71-settings-home', path: '/settings/home', ready: 'Название дома' },
+  { name: '72-settings-language', path: '/settings/language', ready: 'English' },
+  { name: '73-connection', path: '/settings/connection', ready: 'Проверка снаружи' },
+  { name: '74-connection-quick', path: '/settings/connection', scenario: 'quick', ready: 'Адрес для пробы' },
+  { name: '75-connection-trouble', path: '/settings/connection', scenario: 'trouble', ready: 'Нет связи' },
   {
-    name: '71-settings-profile',
-    path: '/admin/settings',
-    ready: 'Хозяин дома',
+    name: '76-connection-reconnect-quick',
+    path: '/settings/connection',
+    scenario: 'quick',
+    ready: 'Адрес для пробы',
     prepare: async (p) => {
-      await p.getByRole('button', { name: /Хозяин дома/ }).click()
-      await expect(dialog(p, 'Ваше имя')).toBeVisible()
+      await p.getByRole('button', { name: 'Переподключить' }).click()
+      await expect(p.getByRole('alertdialog')).toBeVisible()
     },
   },
-  { name: '72-settings-home-name', path: '/admin/settings/home', ready: 'Так дом называется в ChatGPT у всей семьи.' },
-  { name: '73-settings-language', path: '/admin/settings/language', ready: 'English' },
-  { name: '74-settings-appearance', path: '/admin/settings/appearance', ready: 'Как в системе' },
-  { name: '75-settings-passkeys', path: '/admin/settings/passkeys', ready: 'MacBook Pro' },
   {
-    name: '76-settings-passkey-sheet',
-    path: '/admin/settings/passkeys',
-    ready: 'MacBook Pro',
+    name: '76b-connection-quick-moved',
+    path: '/settings/connection',
+    scenario: 'quick',
+    ready: 'Адрес для пробы',
     prepare: async (p) => {
-      await p.getByRole('button', { name: /iPhone/ }).click()
-      await expect(dialog(p, 'iPhone')).toBeVisible()
+      await p.getByRole('button', { name: 'Переподключить' }).click()
+      await p.getByRole('alertdialog').getByRole('button', { name: 'Переподключить' }).click()
+      await confirmStepUp(p)
+      await expect(p.getByText('Дальше — на домашнем компьютере')).toBeVisible()
     },
   },
-  { name: '77-settings-sessions', path: '/admin/settings/sessions', ready: 'Safari · Mac' },
-  { name: '78-settings-server', path: '/admin/settings/server', ready: 'Проверка снаружи' },
-  { name: '79-settings-server-offline', path: '/admin/settings/server', scenario: 'trouble', ready: 'Нет связи с сервером' },
-  {
-    name: '80-settings-recode',
-    path: '/admin/settings/server',
-    ready: 'Проверка снаружи',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: 'Обновить код сервера' }).click()
-      await expect(dialog(p, 'Обновить код сервера')).toBeVisible()
-    },
-  },
-  { name: '81-settings-keys', path: '/admin/settings/keys', ready: 'ChatGPT Site' },
-  {
-    name: '82-settings-key-created',
-    path: '/admin/settings/keys',
-    ready: 'ChatGPT Site',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: 'Создать ключ' }).click()
-      await dialog(p, 'Создать ключ').getByRole('button', { name: 'Создать ключ' }).click()
-      await dialog(p, 'Подтвердите, что это вы').getByRole('button', { name: 'Подтвердить' }).click()
-      await expect(dialog(p, 'Создать ключ').locator('code')).toContainText('ghk_')
-    },
-  },
-  { name: '83-settings-about', path: '/admin/settings/about', ready: 'Проверить обновления' },
-  { name: '84-settings-about-update', path: '/admin/settings/about', scenario: 'trouble', ready: 'Обновить до 0.3.0' },
-  {
-    name: '85-settings-update-job',
-    path: '/admin/settings/about',
-    scenario: 'trouble',
-    extra: '&slow=1',
-    ready: 'Обновить до 0.3.0',
-    prepare: async (p) => {
-      await p.getByRole('button', { name: 'Обновить до 0.3.0' }).click()
-      await dialog(p, 'Подтвердите, что это вы').getByRole('button', { name: 'Подтвердить' }).click()
-      await expect(dialog(p, 'Обновляем Homie').getByText(/из 5,3 МБ/)).toBeVisible({ timeout: 15_000 })
-    },
-  },
+  { name: '77-about-update', path: '/settings/about', scenario: 'trouble', ready: 'Обновить до 0.3.0' },
+  { name: '78-settings-member', path: '/settings', scenario: 'member', ready: 'Язык' },
 
   // Global states
-  { name: '90-offline-start', path: '/admin/', scenario: 'offline', ready: 'Дом не на связи' },
+  { name: '90-offline-start', path: '/home', scenario: 'offline', ready: 'Дом не на связи' },
   {
     name: '91-offline-banner',
-    path: '/admin/',
-    ready: 'ChatGPT может управлять домом',
+    path: '/home',
+    ready: 'ChatGPT и Claude могут управлять домом',
     prepare: async (p) => {
       // Visit a module (it stays cached), go home, lose the home, come back: cached content dims under the banner.
       await p.getByRole('link', { name: /Телевизоры/ }).first().click()
       await expect(p.getByText('Телевизор в гостиной')).toBeVisible()
-      await p.getByRole('link', { name: 'Дом' }).first().click()
-      await expect(p.getByText('ChatGPT может управлять домом')).toBeVisible()
+      await p.goBack()
+      await expect(p.getByText('ChatGPT и Claude могут управлять домом')).toBeVisible()
       await p.waitForTimeout(800)
-      await p.evaluate(() => (window as unknown as { __homieMock?: { setOffline: (v: boolean) => void } }).__homieMock?.setOffline(true))
+      await mock(p, 'offline')
       await p.getByRole('link', { name: /Телевизоры/ }).first().click()
       await expect(p.getByRole('status').filter({ hasText: 'Дом не на связи' })).toBeVisible()
     },
   },
-  { name: '92-not-found', path: '/admin/nowhere', ready: 'Такой страницы нет' },
+  { name: '92-not-found', path: '/nowhere', ready: 'Такой страницы нет' },
+  { name: '93-owner-only', path: '/devices/tv', scenario: 'member', ready: 'Это раздел владельца' },
 ]
 
 async function newPage(browser: Browser, device: Device, theme: Theme) {
@@ -394,7 +373,7 @@ async function newPage(browser: Browser, device: Device, theme: Theme) {
 
 /**
  * toWebP re-encodes a PNG screenshot as WebP (quality 0.92) in a blank page of the same browser: a third of the
- * size, no visible loss on UI, and GitHub and macOS show it.
+ * size, no visible loss on UI.
  */
 async function toWebP(page: Page, png: Buffer) {
   const blank = await page.context().newPage()
@@ -419,6 +398,7 @@ for (const device of ['phone', 'desktop'] as const) {
     test.describe(`${device} ${theme}`, () => {
       for (const shot of SHOTS) {
         if (shot.only && shot.only !== device) continue
+        if (ONLY && !ONLY.test(shot.name)) continue
         test(shot.name, async ({ browser }) => {
           const page = await newPage(browser, device, theme)
           const [base, hash] = shot.path.split('#')

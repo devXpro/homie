@@ -1,3 +1,26 @@
+import {
+  Button,
+  ButtonLink,
+  EmptyState,
+  ErrorState,
+  fade,
+  IconButton,
+  isApiError,
+  Page,
+  Row,
+  Section,
+  Sheet,
+  SheetFooter,
+  Skeleton,
+  SkeletonRows,
+  StatusDot,
+  SuccessCheck,
+  TextField,
+  useAccount,
+  useDelayed,
+  useIsDesktop,
+  useStepUp,
+} from '@devxpro/mcp-gatekeeper-ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Lamp, Plus, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -5,38 +28,58 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMatch, useNavigate } from 'react-router'
 import { catalog, parseRepo } from '@/catalog'
-import { Page } from '@/components/page'
-import { Button, ButtonLink, IconButton } from '@/components/ui/button'
-import { TextField } from '@/components/ui/controls'
-import { EmptyState, ErrorState, Skeleton, SkeletonRows, SuccessCheck } from '@/components/ui/feedback'
-import { Row, Section } from '@/components/ui/list'
-import { Sheet, SheetFooter } from '@/components/ui/sheet'
-import { StatusDot } from '@/components/ui/status'
-import { ModuleTile } from '@/components/ui/tile'
-import { useStepUp } from '@/features/auth/stepup'
-import { useCloseSheet } from '@/features/shell/useCloseSheet'
+import { ModuleTile } from '@/components/tile'
 import { JobSteps } from '@/features/run/jobs'
-import { api, isApiError } from '@/lib/api'
+import { useCloseSheet } from '@/features/shell/useCloseSheet'
+import { homeApi } from '@/lib/api'
 import { errorText, jobErrorText } from '@/lib/errors'
-import { useDelayed, useIsDesktop } from '@/lib/hooks'
 import { httpsLink } from '@/lib/links'
-import { fade } from '@/lib/motion'
-import { qk, useJob, usePlugins, usePreview } from '@/lib/queries'
+import { hq, useJob, useOwner, usePlugins, usePreview } from '@/lib/queries'
 import { pluginTone } from '@/lib/status'
 import { moduleTitle } from '@/lib/tools'
-import type { Job, PluginPreview, PluginSummary } from '@/lib/types'
+import type { HomeAccount, Job, PluginPreview, PluginSummary } from '@/lib/types'
 
-// Устройства (DESIGN.md §8.5): one row per module, failing ones first; "+" opens Add devices (§8.6).
+// Устройства (DESIGN.md §8.5): one row per module, failing ones first; "+" opens Add devices (§8.6). A member sees
+// the devices the owner opened to them, read-only: GET /api/account lists them (HC-api §5).
 
 const ORDER: Record<PluginSummary['state'], number> = { failing: 0, starting: 1, stopped: 2, disabled: 3, up: 4 }
 
 export function DevicesPage() {
+  const owner = useOwner()
+  return owner ? <OwnerDevices /> : <MemberDevices />
+}
+
+function MemberDevices() {
+  const { t } = useTranslation()
+  const account = useAccount<HomeAccount>()
+  const showSkeleton = useDelayed(account.isPending)
+  const items = [...(account.data?.devices ?? [])].sort((a, b) => moduleTitle(a, t).localeCompare(moduleTitle(b, t)))
+  return (
+    <Page title={t('devices.title')}>
+      {account.error && !account.data ? (
+        <ErrorState text={errorText(account.error, t)} onRetry={() => void account.refetch()} />
+      ) : !account.data ? (
+        showSkeleton && <SkeletonRows rows={2} subtitle={false} />
+      ) : items.length === 0 ? (
+        <EmptyState icon={Lamp} title={t('devices.title')} text={t('devices.mine.empty')} />
+      ) : (
+        <Section footer={t('devices.mine.footer')}>
+          {items.map((d) => (
+            <Row key={d.id} leading={<ModuleTile id={d.id} size="md" />} className="min-h-[68px] [--row-inset:72px]" title={moduleTitle(d, t)} />
+          ))}
+        </Section>
+      )}
+    </Page>
+  )
+}
+
+function OwnerDevices() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const plugins = usePlugins()
   const desktop = useIsDesktop()
-  const adding = !!useMatch('/admin/devices/add')
-  const closeAdd = useCloseSheet('/admin/devices')
+  const adding = !!useMatch('/devices/add')
+  const closeAdd = useCloseSheet('/devices')
   const showSkeleton = useDelayed(plugins.isPending)
   const items = [...(plugins.data?.items ?? [])].sort((a, b) => ORDER[a.state] - ORDER[b.state] || moduleTitle(a, t).localeCompare(moduleTitle(b, t)))
 
@@ -44,7 +87,7 @@ export function DevicesPage() {
     <Page
       title={t('devices.title')}
       trailing={
-        <IconButton label={t('devices.add')} onClick={() => navigate('/admin/devices/add', { preventScrollReset: true })}>
+        <IconButton label={t('devices.add')} onClick={() => navigate('/devices/add', { preventScrollReset: true })}>
           <Plus aria-hidden strokeWidth={2.2} />
         </IconButton>
       }
@@ -59,7 +102,7 @@ export function DevicesPage() {
           title={t('devices.empty.title')}
           text={t('devices.empty.text')}
           action={
-            <ButtonLink to="/admin/devices/add" preventScrollReset variant="filled" size="lg">
+            <ButtonLink to="/devices/add" preventScrollReset variant="filled" size="lg">
               {t('devices.empty.button')}
             </ButtonLink>
           }
@@ -69,7 +112,7 @@ export function DevicesPage() {
           {items.map((p) => (
             <Row
               key={p.id}
-              to={`/admin/devices/${p.id}`}
+              to={`/devices/${p.id}`}
               leading={<ModuleTile id={p.id} size="md" />}
               className="min-h-[68px] [--row-inset:72px]"
               title={moduleTitle(p, t)}
@@ -241,9 +284,9 @@ function Preview({ repo, onBack, onStarted }: { repo: string; onBack: () => void
     setError(undefined)
     try {
       // The id from the preview lets homed refuse at once a job for a plugin that another job is changing.
-      const job = await withStepUp(() => api.post<Job>('/plugins', { repo: p.repo, id: p.id }), t('stepup.action.install', { title }))
+      const job = await withStepUp(() => homeApi.post<Job>('/plugins', { repo: p.repo, id: p.id }), t('stepup.action.install', { title }))
       if (job) {
-        qc.setQueryData(qk.job(job.id), job)
+        qc.setQueryData(hq.job(job.id), job)
         onStarted(job.id, p)
       }
     } catch (err) {
@@ -331,7 +374,7 @@ function Installing({ jobId, preview, onClose, onRetry }: { jobId: string; previ
             size="lg"
             onClick={() => {
               // Replace the sheet's entry, so back from the module returns to where Add devices was opened.
-              navigate(`/admin/devices/${preview.id}`, { replace: true, state: { setup: true } })
+              navigate(`/devices/${preview.id}`, { replace: true, state: { setup: true } })
             }}
           >
             {t('add.done.button')}

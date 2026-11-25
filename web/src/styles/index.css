@@ -1,294 +1,10 @@
 @import 'tailwindcss';
-@import './tokens.css';
+@import '@devxpro/mcp-gatekeeper-ui/styles.css';
+@source '../../node_modules/@devxpro/mcp-gatekeeper-ui/ui/src';
 
-@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
-
-/* Only the design system's colours exist: Tailwind's default palette is removed. */
-@theme {
-  --color-*: initial;
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', system-ui, 'Segoe UI', Roboto, 'Noto Sans',
-    'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
-  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-}
-
-@theme inline {
-  --color-transparent: transparent;
-  --color-current: currentColor;
-  --color-white: #ffffff;
-  --color-black: #000000;
-  --color-canvas: var(--bg);
-  --color-surface-1: var(--surface-1);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-fill: var(--fill);
-  --color-label: var(--label);
-  --color-label-2: var(--label-2);
-  --color-label-3: var(--label-3);
-  --color-separator: var(--separator);
-  --color-accent: var(--accent);
-  --color-accent-fill: var(--accent-fill);
-  --color-accent-tint: var(--accent-tint);
-  --color-accent-text: var(--accent-text);
-  --color-accent-tinted: var(--accent-tinted);
-  --color-success: var(--success);
-  --color-success-text: var(--success-text);
-  --color-warning: var(--warning);
-  --color-warning-text: var(--warning-text);
-  --color-danger: var(--danger);
-  --color-danger-text: var(--danger-text);
-  --color-danger-fill: var(--danger-fill);
-  --color-gray: var(--gray);
-  --color-material: var(--material);
-  --color-scrim: var(--scrim);
-  --color-sheet: var(--sheet);
-  --color-sheet-card: var(--sheet-card);
-  --color-sheet-pressed: var(--sheet-pressed);
-  --color-dialog: var(--dialog);
-  --color-tab-inactive: var(--tab-inactive);
-  --color-segment-thumb: var(--segment-thumb);
-  --color-tile-blue: var(--tile-blue);
-  --color-tile-indigo: var(--tile-indigo);
-  --color-tile-purple: var(--tile-purple);
-  --color-tile-pink: var(--tile-pink);
-  --color-tile-orange: var(--tile-orange);
-  --color-tile-teal: var(--tile-teal);
-  --color-tile-green: var(--tile-green);
-  --color-tile-gray: var(--tile-gray);
-}
-
-/* Typography (DESIGN.md §3.2): size/line height, weight, tracking; phone values, desktop overrides at 1024 px. */
-@utility type-large-title {
-  font-size: 34px;
-  line-height: 41px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  @media (width >= 1024px) {
-    font-size: 30px;
-    line-height: 36px;
-    letter-spacing: 0.2px;
-  }
-}
-@utility type-title-1 {
-  font-size: 28px;
-  line-height: 34px;
-  font-weight: 700;
-  letter-spacing: 0.36px;
-}
-@utility type-title-2 {
-  font-size: 22px;
-  line-height: 28px;
-  font-weight: 700;
-  letter-spacing: 0.35px;
-}
-@utility type-title-3 {
-  font-size: 20px;
-  line-height: 25px;
-  font-weight: 600;
-  letter-spacing: 0.38px;
-}
-@utility type-headline {
-  font-size: 17px;
-  line-height: 22px;
-  font-weight: 600;
-  letter-spacing: -0.43px;
-  @media (width >= 1024px) {
-    font-size: 15px;
-    line-height: 20px;
-    letter-spacing: -0.23px;
-  }
-}
-@utility type-body {
-  font-size: 17px;
-  line-height: 22px;
-  font-weight: 400;
-  letter-spacing: -0.43px;
-  @media (width >= 1024px) {
-    font-size: 15px;
-    line-height: 20px;
-    letter-spacing: -0.23px;
-  }
-}
-@utility type-callout {
-  font-size: 16px;
-  line-height: 21px;
-  font-weight: 400;
-  letter-spacing: -0.31px;
-}
-@utility type-subheadline {
-  font-size: 15px;
-  line-height: 20px;
-  font-weight: 400;
-  letter-spacing: -0.23px;
-  @media (width >= 1024px) {
-    font-size: 13px;
-    line-height: 18px;
-    letter-spacing: -0.08px;
-  }
-}
-@utility type-footnote {
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 400;
-  letter-spacing: -0.08px;
-  @media (width >= 1024px) {
-    font-size: 12px;
-    line-height: 16px;
-    letter-spacing: 0;
-  }
-}
-@utility type-caption-1 {
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-@utility type-caption-2 {
-  font-size: 11px;
-  line-height: 13px;
-  font-weight: 500;
-  letter-spacing: 0.06px;
-  @media (width >= 1024px) {
-    font-size: 10px;
-    line-height: 12px;
-  }
-}
-
-@utility hairline-t {
-  border-top: var(--hairline) solid var(--separator);
-}
-@utility hairline-b {
-  border-bottom: var(--hairline) solid var(--separator);
-}
-@utility hairline-r {
-  border-right: var(--hairline) solid var(--separator);
-}
-@utility gutter-x {
-  padding-left: max(var(--gutter), env(safe-area-inset-left));
-  padding-right: max(var(--gutter), env(safe-area-inset-right));
-}
-@utility material {
-  background-color: var(--material);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-}
-
-@layer base {
-  html {
-    background-color: var(--bg);
-    color: var(--label);
-    font-family: var(--font-sans);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-tap-highlight-color: transparent;
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-  }
-  body {
-    min-height: 100dvh;
-    font-size: 17px;
-    line-height: 22px;
-    letter-spacing: -0.43px;
-  }
-  @media (width >= 1024px) {
-    body {
-      font-size: 15px;
-      line-height: 20px;
-      letter-spacing: -0.23px;
-    }
-  }
-  /* Sheets lock the page behind them without inline styles (CSP). */
-  html:has(dialog[open]) {
-    overflow: hidden;
-  }
-  :focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  ::selection {
-    background-color: var(--accent-tint);
-  }
-  button:not(:disabled),
-  [role='button']:not([aria-disabled='true']),
-  a[href] {
-    cursor: pointer;
-  }
-  /* iOS zooms into inputs smaller than 16 px. */
-  input,
-  textarea,
-  select {
-    font-size: max(16px, 1em);
-  }
-  dialog {
-    max-width: none;
-    max-height: none;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    overflow: hidden;
-  }
-  dialog::backdrop {
-    background: transparent;
-  }
-  p.prose-ru:lang(ru) {
-    hyphens: auto;
-  }
-}
-
-/* Row separators: a hairline inset 16 px, or 60 px after an icon tile (DESIGN.md §3.3). */
-.homie-row {
-  position: relative;
-}
-.homie-row + .homie-row::before,
-.homie-row + .homie-sep::before,
-.homie-sep + .homie-row::before,
-.homie-sep + .homie-sep::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: var(--row-inset, 16px);
-  border-top: var(--hairline) solid var(--separator);
-  pointer-events: none;
-}
-.homie-sep {
-  position: relative;
-}
-
-/* iOS spinner: 8 spokes turning in steps. Spinners keep turning with reduced motion: they carry meaning. */
-@keyframes homie-spin-steps {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.homie-spinner {
-  animation: homie-spin-steps 0.8s steps(8) infinite;
-}
-
-@keyframes homie-shimmer {
-  from {
-    background-position: 150% 0;
-  }
-  to {
-    background-position: -50% 0;
-  }
-}
-.homie-skeleton {
-  background-color: var(--fill);
-  background-image: linear-gradient(90deg, transparent 0%, var(--skeleton-shine) 50%, transparent 100%);
-  background-size: 50% 100%;
-  background-repeat: no-repeat;
-  animation: homie-shimmer 1.6s ease-in-out infinite;
-}
+/* Homie's own pieces on top of the package's design system (DESIGN.md §4, §6): the status orb of the home and the
+   tunnel, the flash of a new activity entry, and the iOS slider of the plugin forms. The hero card is the package's
+   fh-hero with an fh-status-* tone. */
 
 @keyframes homie-breathe {
   from {
@@ -316,34 +32,12 @@
   animation: homie-flash 1.2s ease-out;
 }
 
-/* Hero glow (DESIGN.md §3.1): the relay status colour mixed into the card. --status is set per state class. */
-.homie-hero {
-  background-color: var(--surface-1);
-  background-image: radial-gradient(
-    120% 90% at 50% 0%,
-    color-mix(in srgb, var(--status) var(--hero-mix), transparent),
-    transparent 70%
-  );
-}
-.homie-status-success {
-  --status: var(--success);
-}
-.homie-status-warning {
-  --status: var(--warning);
-}
-.homie-status-danger {
-  --status: var(--danger);
-}
-.homie-status-gray {
-  --status: var(--gray);
-}
-
 .homie-orb {
   background: radial-gradient(circle at 35% 30%, color-mix(in srgb, white 45%, var(--status)) 0%, var(--status) 55%);
   box-shadow: 0 0 32px color-mix(in srgb, var(--status) 45%, transparent);
 }
 
-/* Range input styled as the iOS slider (DESIGN.md §6). --value is set through the CSSOM, which the CSP allows. */
+/* Range input styled as the iOS slider. --value is set through the CSSOM, which the CSP allows. */
 .homie-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -390,8 +84,13 @@
     0 6px 13px rgba(0, 0, 0, 0.12);
 }
 
+/* «Удалить всё» of the people page: homed refuses DELETE /api/account, one home is one account (HC-api §5). The UI
+   package has no option to leave that row out yet, so its section is hidden here. */
+section:has(a[href='/account/delete']) {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .homie-skeleton,
   .homie-breathe,
   .homie-flash {
     animation: none;
